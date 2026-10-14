@@ -36,6 +36,8 @@ export function taskRoutes(manager,registerSession){
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/corrections$/,handler:async(req,res,_url,m)=>send(res,await manager.correctReading(m[1],await payload(req)))},
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/worker$/,handler:async(req,res,_url,m)=>send(res,await manager.updateWorker(m[1],(await payload(req)).workerId))},
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/profile$/,handler:async(req,res,_url,m)=>send(res,await manager.updateProfile(m[1],await payload(req)))},
+    {method:'GET',pattern:/^\/pipeline\/tasks\/([^/]+)\/structure$/,handler:async(_req,res,_url,m)=>send(res,await manager.structureCandidates(m[1]))},
+    {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/structure$/,handler:async(req,res,_url,m)=>send(res,await manager.confirmStructure(m[1],await payload(req)))},
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/run$/,handler:async(req,res,_url,m)=>{const args=await payload(req);send(res,await manager.start(m[1],args.stage,args.options??{}))}},
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/stop$/,handler:async(_req,res,_url,m)=>send(res,await manager.stop(m[1]))},
     {method:'POST',pattern:/^\/pipeline\/tasks\/([^/]+)\/connection$/,handler:async(req,res,_url,m)=>send(res,await manager.setConnection(m[1],(await payload(req)).url))},

@@ -58,13 +58,20 @@ export class TaskManager {
   async adoptLegacy(id){return this.locked(id,async()=>{const old=await this.get(id),file=old.legacy?.artifacts?.original;if(!file)throw new Error('尚无完整装配原文，不能另建任务重置转写预算');const text=await fs.readFile(file,'utf8'),fingerprint=hash(text);const existing=(await this.list()).find(t=>t.sourceHistory?.taskId===id&&t.input.fingerprint===fingerprint);if(existing)return existing;const now=new Date().toISOString(),t={id:randomUUID(),documentId:old.documentId,documentTitle:old.name,name:old.name+' · 接续',kind:old.kind,input:{id:hash(file),name:path.basename(file),type:'markdown',fingerprint},path:file,worker:{provider:'not_required',model:'现成 Markdown，不需转写',timeout:600},state:'idle',stage:'inspect',createdAt:now,stages:{inspect:{state:'done',at:now}},inspection:{fingerprint,verdict:'MARKDOWN',blocks:markdownBlocks(text).length,pages:0},profile:{document_type:old.kind,language:old.profile?.language??'',confirmed:false,source_fingerprint:fingerprint},sourceHistory:{taskId:id,directory:old.legacy.directory,audit:old.legacy.artifacts.audit,budgets:old.legacy.artifacts.budgetFiles,transcriptionRepeated:false,originalQualityVerified:false},bookmarks:[],log:[{stage:'legacyAdoption',command:'已有 Markdown 接续',exitCode:0,endedAt:now}],lgUrl:'',message:'原项目成果、日志和转写预算保留；接续只处理现有 Markdown。'};return this.save(t)})}
   async catalog() {
     const files=[...await walk(path.join(this.root,'Book'),/\.pdf$|\.md$|\.markdown$/i,4),...await walk(path.join(this.readingRoot,'src'),/\.pdf$/i,1),...await walk(path.join(this.base,'uploads'),/\.md$|\.markdown$|\.pdf$/i,1)]
-    const sources=[];for(const f of files.filter(f=>!/check_report|audit|README|report|manifest|REMAINING|HANDOFF/i.test(path.basename(f)))) {const st=await fs.stat(f);sources.push({id:hash(f),name:path.relative(f.startsWith(this.root+path.sep)?this.root:this.readingRoot,f),type:/\.pdf$/i.test(f)?'pdf':'markdown',displayName:path.basename(f).replace(/^[a-f0-9-]{36}-/i,''),bytes:st.size,path:f})}
+    const sources=[];for(const f of files.filter(f=>!/check_report|audit|README|report|manifest|REMAINING|HANDOFF|^目录\.pdf$/i.test(path.basename(f))&&!/(?:[\\/])(?:ocr|runs|llm_traces|logs|ai_convert|reference)[\\/]/i.test(f))) {const st=await fs.stat(f);sources.push({id:hash(f),name:path.relative(f.startsWith(this.root+path.sep)?this.root:this.readingRoot,f),type:/\.pdf$/i.test(f)?'pdf':'markdown',displayName:path.basename(f).replace(/^[a-f0-9-]{36}-/i,''),bytes:st.size,path:f})}
     return sources
   }
   async upload(name, bytes) { if(typeof name!=='string'||!(/\.(md|markdown|pdf)$/i.test(name))||bytes.length>100*1024*1024)throw new Error('只接受不超过100 MB的PDF或Markdown');const file=path.join(this.base,'uploads',`${randomUUID()}-${path.basename(name).replace(/[^\w.\-一-鿿]/g,'_')}`);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,bytes,{flag:'wx',mode:0o600});return {sourceId:hash(file),filename:path.basename(name)} }
   async create(args) {
     const source=(await this.catalog()).find(s=>s.id===args.sourceId);if(!source)throw new Error('请选择已登记的源文件')
-    const detection=args.kind==='auto'||!args.kind?await this.detectSource(args.sourceId):null;if(detection)args={...args,kind:detection.kind};if(!['book','paper','chapter','collection'].includes(args.kind))throw new Error('文档类型无效');const fingerprint=hash(await fs.readFile(source.path));if(args.forceNew!==true){const existing=(await this.list()).find(t=>t.kind===args.kind&&t.input.fingerprint===fingerprint);if(existing&&await exists(existing.path))return {...existing,reused:true}}
+    const isAuto=args.kind==='auto'||!args.kind
+    const detection=isAuto?await this.detectSource(args.sourceId):null
+    if(detection){
+      if(detection.confidence==='low')throw new Error('结构或体裁信息不足（置信度低），请明确选择文档类型：论文、章节节选、整本书或文章合集')
+      args={...args,kind:detection.kind}
+    }
+    if(!['book','paper','chapter','collection'].includes(args.kind))throw new Error('文档类型无效')
+    const fingerprint=hash(await fs.readFile(source.path));if(args.forceNew!==true){const existing=(await this.list()).find(t=>t.kind===args.kind&&t.input.fingerprint===fingerprint);if(existing&&await exists(existing.path))return {...existing,reused:true}}
     const config=await readPipelineConfiguration(this.root), worker=config.workers.find(w=>w.id===args.workerId)??config.workers.find(w=>w.default)
     if(!worker?.selectable)throw new Error('此模型不能作主转写')
     const t={id:randomUUID(),name:String(args.name||source.displayName||path.basename(source.path)).slice(0,150),kind:args.kind,typeSuggestion:detection,input:{...source,fingerprint},path:source.path,worker:{provider:worker.provider,model:worker.model,timeout:worker.timeout},state:'queued',stage:'inspect',createdAt:new Date().toISOString(),stages:{},bookmarks:[],log:[],lgUrl:''}
@@ -120,7 +127,7 @@ export class TaskManager {
     t.message='转写模型已更新，尚未启动转写；已有结构与处理记录保留'
     return this.save(t)
   })}
-  async updateProfile(id, profile) {return this.locked(id,async()=>{const t=await this.get(id);if(t.legacy)throw new Error('旧项目记录保持只读，请先建立已有 Markdown 的接续任务');if(this.active.has(id))throw new Error('运行中不能修改结构');if(t.stages.normalize?.state==='done'||t.stages.lgProject?.state==='done')throw new Error('底本已确定，结构变更须建立新任务');if(!t.inspection)throw new Error('先完成输入检查');profile={...profile,document_type:t.kind,source_fingerprint:t.inspection.fingerprint};const file=path.join(this.dir(id),'profile.candidate.json');await atomic(file,profile);if(t.input.type==='pdf'){await this.py(t,'document_pipeline.py',['validate',t.path,'--profile',file])}else if(profile.confirmed!==true||!(/^[a-z]{2,3}$/.test(profile.language??'')))throw new Error('请确认原文语言与范围');await fs.rename(file,path.join(this.dir(id),'profile.json'));t.profile=profile;delete t.stages.translationCheck;delete t.stages.publish;return this.save(t)})}
+  async updateProfile(id, profile) {return this.locked(id,async()=>{const t=await this.get(id);if(t.legacy)throw new Error('旧项目记录保持只读，请先建立已有 Markdown 的接续任务');if(this.active.has(id))throw new Error('运行中不能修改结构');if(t.stages.normalize?.state==='done'||t.stages.lgProject?.state==='done')throw new Error('底本已确定，结构变更须建立新任务');if(!t.inspection)throw new Error('先完成输入检查');const docType=(['book','paper','chapter','collection'].includes(profile.document_type)?profile.document_type:t.kind);t.kind=docType;profile={...profile,document_type:docType,source_fingerprint:t.inspection.fingerprint};const file=path.join(this.dir(id),'profile.candidate.json');await atomic(file,profile);if(t.input.type==='pdf'){await this.py(t,'document_pipeline.py',['validate',t.path,'--profile',file])}else if(profile.confirmed!==true||!(/^[a-z]{2,3}$/.test(profile.language??'')))throw new Error('请确认原文语言与范围');await fs.rename(file,path.join(this.dir(id),'profile.json'));t.profile=profile;delete t.stages.translationCheck;delete t.stages.publish;return this.save(t)})}
   async start(id,stage,options={}) {return this.locked(id,async()=>{const t=await this.get(id);if(t.legacy)throw new Error('旧项目记录保持只读；已有装配原文可建立接续任务，缺少原文时不得重置转写预算。');if(this.active.has(id))throw new Error('此任务正在运行');if(!STAGES.some(s=>s.id===stage))throw new Error('处理入口无效');if(stage!=='inspect')await this.confirmed(t);if(stage==='transcribe'&&t.stages.transcribe?.state==='done'&&(t.inspection?.verdict!=='BORN-DIGITAL'||t.profile.transcription_method==='vision')){for(const c of await this.chapters(t)){try{await this.acceptTranscriptionDelivery(t,c.id)}catch(e){t.state='blocked';t.stages.transcribe={state:'blocked'};t.message=e.message;await this.save(t);throw e}}}if(t.stages[stage]?.state==='done'&&!['inspect','verify','translationCheck','review','publish','lgProject'].includes(stage))return t;if(['translate','lgProject'].includes(stage)&&[...this.active.keys()].some(other=>other!==id&&(this.active.get(other).translationCli||t.lgUrl&&this.active.get(other).lgUrl===t.lgUrl)))throw new Error('同一翻译服务正在处理另一任务');if(t.translationEngine==='http'&&['translate','lgProject'].includes(stage)&&!t.lgUrl)throw new Error('先连接 LinguaGacha 本地服务');if(stage==='transcribe'&&(t.inspection?.verdict!=='BORN-DIGITAL'||t.profile?.transcription_method==='vision')&&!t.observationConfirmed)throw new Error('先完成结构准备与阶段门禁');t.stage=stage;t.state='running';t.message='正在执行';t.stages[stage]={state:'running'};const active={cancel:false,child:null,translationCli:t.translationEngine!=='http'&&['translate','lgProject'].includes(stage),lgUrl:t.translationEngine==='http'&&['translate','lgProject'].includes(stage)?t.lgUrl:null};this.active.set(id,active);await this.save(t);active.promise=this.perform(t,stage,options).then(()=>{t.stages[stage]={state:'done',at:new Date().toISOString()};t.state='idle';t.message='阶段已完成；程序检查不代表语义验收'}).catch(e=>{t.stages[stage]={state:active.cancel?'stopped':'blocked'};t.state=active.cancel?'paused':'blocked';t.message=active.cancel&&['paddle','mineru'].includes(stage)?'已停止本地等待；云端任务可能继续，恢复时复用已保存的任务编号':String(e.message)}).finally(async()=>{await this.save(t);this.active.delete(id)});return t})}
   async stop(id) {const active=this.active.get(id);if(!active)return this.get(id);active.cancel=true;if(active.child){try{process.kill(-active.child.pid,'SIGTERM')}catch{};const child=active.child;const timer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch{}},5000);timer.unref()}if(active.lgUrl&&(await this.get(id)).stage==='translate')await this.lg(await this.get(id),'/api/batch-translation/stop',{});await active.promise;return this.get(id)}
   async requireDone(t,...stages){for(const s of stages)if(t.stages[s]?.state!=='done')throw new Error(`先完成${STAGES.find(x=>x.id===s)?.name??s}`)}
@@ -132,8 +139,93 @@ export class TaskManager {
     const title=String(t.profile?.title||t.name||'Untitled').trim(),bookType=t.profile?.book_type||'footnote_only'
     const tocPath=path.join(ai,'toc.json'),chPath=path.join(ai,'chapters.json'),baPath=path.join(ai,'book_analysis.json')
     if(!await exists(tocPath))await atomic(tocPath,[{title,printed_start:1,target_pdf_page:1,offset:0,role_hint:'chapter',source:'single_paper_profile'}])
-    if(!await exists(chPath))await atomic(chPath,[{id:'001',title,start_page:1,end_page:total,note_pages:['endnote_only','mixed'].includes(bookType)?Array.from({length:total},(_,i)=>i+1):null}])
+    if(!await exists(chPath)){
+      let notePages=null
+      if(['endnote_only','mixed'].includes(bookType)){
+        if(t.profile?.note_start_page&&t.profile?.note_end_page){
+          const docProf=await json(path.join(this.docDir(t),'document_profile.json'),{})
+          const map=docProf?.source_page_map??[]
+          const s=map.find(m=>m.source_page===t.profile.note_start_page)?.logical_page??1
+          const e=map.find(m=>m.source_page===t.profile.note_end_page)?.logical_page??total
+          notePages=[s,e]
+        }else{
+          notePages=[1,total]
+        }
+      }
+      await atomic(chPath,[{id:'001',title,start_page:1,end_page:total,note_pages:notePages}])
+    }
     if(!await exists(baPath))await atomic(baPath,{title,document_type:t.kind,language:t.profile?.language||'',book_type:bookType,note_numbering:t.profile?.note_numbering||'continuous',note_location:t.profile?.note_location||'per_page_bottom',layout:t.profile?.layout||'single'})
+  }
+  async structureCandidates(id){
+    const t=await this.get(id)
+    if(t.input.type!=='pdf')return {total_pages:0,candidates:[],source_page_map:[],kind:t.kind}
+    const doc=this.docDir(t)
+    if(!await exists(path.join(doc,'source.pdf'))||!await exists(path.join(doc,'document_profile.json'))){
+      throw new Error('请先完成正文范围与规范化底本处理')
+    }
+    const out=await this.py(t,'document_pipeline.py',['structure',doc])
+    const result=JSON.parse(out.trim().split('\n').at(-1))
+    const existingChapters=await this.chapters(t)
+    return {...result,confirmed:Boolean(t.structureConfirmed),existingChapters}
+  }
+  async confirmStructure(id,args){
+    return this.locked(id,async()=>{
+      const t=await this.get(id)
+      if(this.active.has(id))throw new Error('运行中不能修改结构')
+      const doc=this.docDir(t),ai=this.aiDir(t)
+      await fs.mkdir(ai,{recursive:true})
+      if(args.delegateObservation){
+        t.structureConfirmed=false
+        t.observationConfirmed=false
+        t.message='已选择由 DSH 会话派发观察 worker 补齐结构与注释范围。'
+        await atomic(path.join(ai,'structure_delegate.json'),{requestedAt:new Date().toISOString(),note:args.note??''})
+        return this.save(t)
+      }
+      const chapters=args.chapters
+      if(!Array.isArray(chapters)||chapters.length===0)throw new Error('至少需要确认一个有效章节')
+      for(let i=0;i<chapters.length;i++){
+        const c=chapters[i]
+        if(!c.title||typeof c.start_page!=='number'||typeof c.end_page!=='number'||c.start_page>c.end_page||c.start_page<1){
+          throw new Error(`章节 ${c.id||i+1} 起止页码无效`)
+        }
+        if(i>0&&c.start_page<chapters[i-1].start_page){
+          throw new Error(`章节 ${c.id||i+1} 起始页必须递增`)
+        }
+      }
+      const chJson=chapters.map((c,idx)=>({
+        id:c.id||String(idx+1).padStart(3,'0'),
+        title:String(c.title).trim(),
+        start_page:c.start_page,
+        end_page:c.end_page,
+        note_pages:(Array.isArray(c.note_pages)&&c.note_pages.length===2&&typeof c.note_pages[0]==='number'&&typeof c.note_pages[1]==='number')?c.note_pages:null
+      }))
+      const tocJson=chJson.map(c=>({
+        title:c.title,
+        printed_start:c.start_page,
+        target_pdf_page:c.start_page,
+        offset:0,
+        role_hint:'chapter'
+      }))
+      const baPath=path.join(ai,'book_analysis.json')
+      const ba=await json(baPath,{})
+      const effectiveBa={
+        ...ba,
+        title:String(t.profile?.title||t.name||'Untitled').trim(),
+        document_type:t.kind,
+        language:t.profile?.language||'',
+        book_type:t.profile?.book_type||'footnote_only',
+        note_numbering:t.profile?.note_numbering||'per_chapter',
+        note_location:t.profile?.note_location||(t.profile?.book_type==='footnote_only'?'per_page_bottom':'chapter_end_notes'),
+        layout:t.profile?.layout||'single'
+      }
+      await atomic(path.join(ai,'chapters.json'),chJson)
+      await atomic(path.join(ai,'toc.json'),tocJson)
+      await atomic(path.join(ai,'book_analysis.json'),effectiveBa)
+      t.structureConfirmed=true
+      t.observationConfirmed=true
+      t.message='章节结构与目录已确认，可直接执行结构准备与阶段门禁。'
+      return this.save(t)
+    })
   }
   async ensureTextLayerReference(t){
     const doc=this.docDir(t),text=s=>`${TEXT}/${s}`,reference=path.join(this.dir(t.id),'reference/text-layer')
@@ -155,25 +247,27 @@ export class TaskManager {
     const doc=this.docDir(t),ai=this.aiDir(t),vision=s=>`${VISION}/${s}`,text=s=>`${TEXT}/${s}`
     if(stage==='inspect') {
       if(t.input.type==='markdown'){const source=await fs.readFile(t.path,'utf8');t.inspection={fingerprint:hash(source),verdict:'MARKDOWN',blocks:markdownBlocks(source).length,pages:0};t.profile={document_type:t.kind,language:'',confirmed:false,source_fingerprint:t.inspection.fingerprint};return}
-      const out=await this.py(t,'document_pipeline.py',['inspect',t.path]);t.inspection=JSON.parse(out.trim().split('\n').at(-1));t.profile={document_type:t.kind,title:t.name,language:'',book_type:'',note_numbering:t.kind==='book'?'per_chapter':'continuous',note_location:'',layout:'single',start_page:1,end_page:t.inspection.pages,confirmed:false,source_fingerprint:t.inspection.fingerprint};return
+      const out=await this.py(t,'document_pipeline.py',['inspect',t.path]);t.inspection=JSON.parse(out.trim().split('\n').at(-1));t.profile={document_type:t.kind,title:t.name,language:'',book_type:'',note_numbering:['book','collection'].includes(t.kind)?'per_chapter':'continuous',note_location:'',layout:'single',start_page:1,end_page:t.inspection.pages,confirmed:false,source_fingerprint:t.inspection.fingerprint};return
     }
     if(stage==='normalize'){if(t.input.type!=='pdf')throw new Error('Markdown无需PDF范围处理');const result=JSON.parse((await this.py(t,'document_pipeline.py',['normalize',t.path,'--profile',path.join(this.dir(t.id),'profile.json'),'--out',doc])).trim().split('\n').at(-1));t.scope={fingerprint:result.profile.source_fingerprint,profileFingerprint:hash(await fs.readFile(path.join(doc,'document_profile.json'))),pages:result.pages};return}
     if(stage==='images'){await this.requireDone(t,'normalize');await this.py(t,vision('extract_page_images.py'),[path.join(doc,'source.pdf'),'--out',path.join(ai,'page_images')]);return}
     if(['paddle','mineru'].includes(stage)){await this.requireDone(t,'normalize');if(t.inspection.verdict==='BORN-DIGITAL')throw new Error('可靠文字层不调用云 OCR');const config=await readPipelineConfiguration(this.root);if(!config.ocr.find(s=>s.id===stage)?.configured)throw new Error('先填写OCR服务密钥');const raw=await json(path.join(doc,`raw_pages_${stage}.json`),null);if(raw?.pages?.length===t.scope?.pages){if(stage==='paddle')await fs.copyFile(path.join(doc,'raw_pages_paddle.json'),path.join(doc,'raw_pages.json'));return}const output=path.join(doc,'ocr_output',stage);const args=[path.join(doc,'source.pdf'),'--out',doc,'--out-dir',output,'--suffix',stage];const meta=await json(path.join(output,stage==='paddle'?'paddle_meta.json':'batch_meta.json'),null);if(stage==='paddle'){if(options.resumeId)args.push('--job-id',String(options.resumeId));else if(meta){args.push('--resume-meta',path.join(output,'paddle_meta.json'));if(meta.model)args.push('--model',String(meta.model))}}if(stage==='mineru'&&(options.resumeId||meta?.batch_id))args.push('--batch-id',String(options.resumeId??meta.batch_id));await this.py(t,vision(stage==='paddle'?'paddle_ocr.py':'mineru_ocr.py'),args);if(stage==='paddle')await fs.copyFile(path.join(doc,'raw_pages_paddle.json'),path.join(doc,'raw_pages.json'));return}
     if(stage==='prepare'){
       await this.requireDone(t,'normalize')
+      const curated=await exists(path.join(ai,'book_analysis.json'))&&await exists(path.join(ai,'chapters.json'))&&await exists(path.join(ai,'toc.json'))
       if(t.inspection.verdict!=='BORN-DIGITAL'){
         await this.requireDone(t,'paddle','mineru','images')
         if(['paper','chapter'].includes(t.kind))await this.ensureSinglePieceStructure(t)
+        else if(!curated&&!t.structureConfirmed)throw new Error('书籍缺少已确认的章节结构，请在面板核对确认章节或在 DSH 进行结构观察')
         await this.py(t,vision('gate_check.py'),[doc,'--phase','2'])
         t.transcriptionPlan={method:'vision',referenceType:'dual_ocr_fallback_only',ocrPolicy:'vision_first_fallback_on_moderation_or_failure',worker:{...t.worker}}
         t.observationConfirmed=true
       }else{
         let reference=null
         if(t.profile.transcription_method==='vision'){await this.requireDone(t,'images');reference=await this.ensureTextLayerReference(t)}
-        const curated=await exists(path.join(ai,'book_analysis.json'))&&await exists(path.join(ai,'chapters.json'))&&await exists(path.join(ai,'toc.json'))
-        if(['book','collection'].includes(t.kind)&&!t.inspection.outlines?.some(o=>o.page>0)&&!curated)throw new Error('书籍缺少可用目录，先在 DSH 完成结构观察')
-        await this.py(t,text('tl_convert.py'),[doc,'prepare',...(curated?['--metrics-only']:[])])
+        if(['paper','chapter'].includes(t.kind))await this.ensureSinglePieceStructure(t)
+        else if(!curated&&!t.structureConfirmed)throw new Error('书籍缺少已确认的章节结构，请在面板核对确认章节或在 DSH 进行结构观察')
+        await this.py(t,text('tl_convert.py'),[doc,'prepare',...((curated||t.structureConfirmed)?['--metrics-only']:[])])
         if(t.profile.transcription_method==='vision'){
           t.transcriptionPlan={method:'vision',referenceType:'pdf_text_layer',referenceDirectory:reference,independentOcr:false,worker:{...t.worker}}
           await this.py(t,vision('gate_check.py'),[doc,'--phase','2'])
@@ -191,7 +285,6 @@ export class TaskManager {
         await this.py(t,vision('gate_check.py'),[doc,'--phase','2'])
         for(const c of await this.chapters(t)){
           if(this.active.get(t.id).cancel)throw new Error('任务已停止')
-          await this.py(t,vision('marker_prescan.py'),[doc,'--chapter',c.id])
           await this.py(t,vision('bounded_chapter.py'),[doc,'--chapter',c.id,'--provider',t.worker.provider,'--model',t.worker.model,'--timeout',String(t.worker.timeout)])
           await this.acceptTranscriptionDelivery(t,c.id)
         }
