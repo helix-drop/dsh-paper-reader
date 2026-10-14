@@ -1,0 +1,6 @@
+# paper-reader: Host 统一文档编排工具(document_pipeline + reading-document 预设) + Client 工作台与阅读页。
+# 数据由 /api/paper-reader/pipeline/* 路由管理，历史已完成论文 JSON 自动单向导入阅读库。
+- insert:
+    - id: paper-reader
+      name: '@local/paper-reader'
+      config: {}

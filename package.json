@@ -1,0 +1,40 @@
+{
+  "name": "@local/paper-reader",
+  "version": "0.1.0",
+  "description": "统一文档处理与双语精读工作台：书籍与论文共用流水线，视觉转写优先 + 受控 OCR 兜底，LinguaGacha 段落翻译与竖屏对照阅读",
+  "private": true,
+  "type": "module",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./preset": "./preset.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "shared/paths.js",
+    "modules/pipeline/**/*.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "preset.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  }
+}
