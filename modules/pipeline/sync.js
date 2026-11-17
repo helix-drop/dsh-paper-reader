@@ -341,7 +341,12 @@ async function cloudFetch(fetchImpl, cloudUrl, token, route, options = {}) {
     data = { error: text }
   }
   if (!res.ok) {
-    const err = new Error(data?.error || `云端同步请求失败 (${res.status})`)
+    let message = String(data?.error || '').trim()
+    if (/^\s*</.test(message)) {
+      const titleMatch = message.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+      message = (titleMatch ? titleMatch[1] : message.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+    }
+    const err = new Error(message || `云端同步请求失败 (${res.status})`)
     err.status = res.status
     throw err
   }
@@ -444,6 +449,9 @@ export async function syncWithCloud(manager, options = {}) {
   }
 
   try {
+    if (config.lastError) {
+      await saveCloudSyncConfig(manager.root, { lastError: null }).catch(() => {})
+    }
     // 1. Pull remote state (progress, bookmarks, corrections, manifest)
     report({ phase: 'pull', detail: '拉取云端进度、书签与勘误...' })
     const remote = await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/pull-state')

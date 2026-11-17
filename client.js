@@ -2048,11 +2048,14 @@ window.__ModuleLoader__.load({
           onSynced?.()
         }
         if (v?.lastSyncAt) lastSyncRef.current = v.lastSyncAt
-        if (v?.lastError) setError(v.lastError)
-        else if (!v?.background?.running && v?.lastResult?.syncedAt && v.lastResult.syncedAt === v.lastSyncAt && resultMsg === '' && v.lastResult.ok) {
+        if (v?.background?.running) {
+          setError('')
+        } else if (v?.lastError) {
+          setError(v.lastError)
+        } else {
           setError('')
         }
-      }, [onSynced, resultMsg])
+      }, [onSynced])
 
       useEffect(() => {
         fetch('/api/paper-reader/pipeline/sync/status')
