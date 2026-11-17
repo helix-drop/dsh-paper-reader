@@ -9,6 +9,7 @@ import { importLegacyPapers } from './papers.js'
 import { readPipelineConfiguration } from './configuration.js'
 import { hash, markdownBlocks } from './markdown.js'
 import { BookmarkStore } from './bookmarks.js'
+import { ReadingProgressStore } from './reading-progress.js'
 import { cliStatus, LINGUAGACHA_CLI } from './cli.js'
 import { analyseBookGlossary } from './glossary.js'
 import { commitPublication } from './publication.js'
@@ -62,6 +63,7 @@ export class TaskManager {
     this.publishRoot = options.publishRoot ?? DEFAULT_PUBLISH_ROOT
     this.python = options.python ?? '/opt/homebrew/bin/python3'
     this.bookmarkStore = new BookmarkStore(path.join(root, '.pipeline/bookmarks-v1.json'))
+    this.progressStore = new ReadingProgressStore(path.join(root, '.pipeline/reading-progress-v1.json'))
     this.cliExecutable = options.cliExecutable ?? LINGUAGACHA_CLI
     this.cliStatus = options.cliStatus ?? (() => cliStatus(this.root))
     this.fetch = options.fetch ?? fetch

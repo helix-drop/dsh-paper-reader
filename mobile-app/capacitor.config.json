@@ -1,0 +1,12 @@
+{
+  "appId": "com.dsh.paperreader",
+  "appName": "DSH双语精读",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

@@ -1,0 +1,30 @@
+services:
+  paper-reader-sync:
+    build:
+      context: ..
+      dockerfile: sync-server/Dockerfile
+    container_name: paper-reader-sync
+    restart: unless-stopped
+    environment:
+      - PORT=4180
+      - SYNC_DATA_DIR=/data
+      # 建议替换为长随机密钥，例如: openssl rand -hex 24
+      - SYNC_TOKEN=${SYNC_TOKEN:-}
+    volumes:
+      - ./data:/data
+    ports:
+      - "4180:4180"
+
+  # 可选：如果云主机有绑定域名且需自动 HTTPS，取消以下注释
+  # caddy:
+  #   image: caddy:2-alpine
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - ./caddy-data:/data
+  #     - ./caddy-config:/config
+  #   depends_on:
+  #     - paper-reader-sync

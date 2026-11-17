@@ -175,6 +175,37 @@ export function taskRoutes(manager, registerSession) {
       pattern: /^\/pipeline\/tasks\/([^/]+)\/bookmarks$/,
       handler: async (req, res, _url, m) => send(res, await manager.bookmark(m[1], await payload(req))),
     },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/progress$/,
+      handler: async (_req, res, url) => send(
+        res,
+        await manager.getReadingProgress(url.searchParams.get('documentId') ?? ''),
+      ),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/progress$/,
+      handler: async (req, res) => send(res, await manager.saveReadingProgress(await payload(req))),
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/sync\/status$/,
+      handler: async (_req, res) => send(res, await manager.cloudSyncStatus()),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/config$/,
+      handler: async (req, res) => send(res, await manager.saveCloudSync(await payload(req))),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/now$/,
+      handler: async (req, res) => send(
+        res,
+        await manager.syncCloud(await payload(req).catch(() => ({}))),
+      ),
+    },
 
     // --- Models, adapters & LinguaGacha service ---
     {

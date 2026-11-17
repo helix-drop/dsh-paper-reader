@@ -11,3 +11,8 @@ __pycache__/
 *.py[cod]
 *.bak
 .pytest_cache/
+sync-server/data/
+sync-server/caddy-data/
+sync-server/caddy-config/
+mobile-app/android/
+mobile-app/node_modules/

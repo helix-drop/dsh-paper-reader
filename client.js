@@ -2030,6 +2030,133 @@ window.__ModuleLoader__.load({
         )
       )
     }
+    function CloudSyncModal({ onClose, onSynced }) {
+      const [status, setStatus] = useState(null)
+      const [cloudUrl, setCloudUrl] = useState('')
+      const [token, setToken] = useState('')
+      const [deviceName, setDeviceName] = useState('PC DSH 主机')
+      const [includePdf, setIncludePdf] = useState(true)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      const [resultMsg, setResultMsg] = useState('')
+
+      useEffect(() => {
+        fetch('/api/paper-reader/pipeline/sync/status')
+          .then(r => r.json())
+          .then(v => {
+            setStatus(v)
+            setCloudUrl(v.cloudUrl || '')
+            setDeviceName(v.deviceName || 'PC DSH 主机')
+            setIncludePdf(v.includePdf !== undefined ? Boolean(v.includePdf) : true)
+          })
+          .catch(e => setError(e.message || '读取同步配置失败'))
+      }, [])
+
+      const saveConfig = async () => {
+        const r = await fetch('/api/paper-reader/pipeline/sync/config', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cloudUrl, ...(token.trim() ? { token: token.trim() } : {}), deviceName, includePdf })
+        })
+        const v = await r.json()
+        if (!r.ok) throw new Error(v.error || '保存配置失败')
+        setStatus(v)
+        setToken('')
+        return v
+      }
+
+      const handleSave = async () => {
+        setBusy(true); setError(''); setResultMsg('')
+        try {
+          await saveConfig()
+          setResultMsg('云端同步配置已保存。')
+        } catch (e) {
+          setError(e.message)
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const handleSyncNow = async () => {
+        setBusy(true); setError(''); setResultMsg('')
+        try {
+          await saveConfig()
+          const r = await fetch('/api/paper-reader/pipeline/sync/now', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ includePdf })
+          })
+          const v = await r.json()
+          if (!r.ok) throw new Error(v.error || '云端同步失败')
+          setResultMsg(`同步完成：推送 ${v.pushedBooks ?? 0} 本书、${v.pushedPdfs ?? 0} 份 PDF；拉取 ${v.pulledProgress ?? 0} 条进度、${v.pulledBookmarks ?? 0} 条书签、${v.appliedCorrections ?? 0} 条移动端勘误。`)
+          onSynced?.()
+        } catch (e) {
+          setError(e.message)
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      return h('div', { className: 'rr-pdfModalOverlay', onClick: e => { if (e.target === e.currentTarget) onClose() } },
+        h('div', { style: { background: '#fff', borderRadius: 12, padding: '20px 24px', minWidth: 340, maxWidth: 480, width: '92vw', boxShadow: '0 16px 40px rgba(0,0,0,0.2)' } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } },
+            h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600 } }, '云端书库同步（手机 / 汉王墨水屏）'),
+            button(icon('close', 16), onClose, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '关闭' })
+          ),
+          h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 12px', fontSize: 12 } },
+            '在轻量云服务器部署 sync-server 后，将已转写发布的文献推送至云端，手机与汉王墨水屏 APK 可随时离线下载并双向同步阅读进度、划线笔记与勘误。'
+          ),
+          h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 } },
+            h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+              '云服务器地址',
+              h('input', {
+                type: 'url',
+                placeholder: 'https://reader.example.com 或 http://IP:4180',
+                value: cloudUrl,
+                onChange: e => setCloudUrl(e.target.value),
+                style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+              })
+            ),
+            h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+              '同步密钥（Bearer Token）',
+              h('input', {
+                type: 'password',
+                placeholder: status?.hasToken ? '已配置密钥（留空保持不变）' : '输入云端 SYNC_TOKEN',
+                value: token,
+                onChange: e => setToken(e.target.value),
+                style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+              })
+            ),
+            h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+              '本机名称',
+              h('input', {
+                type: 'text',
+                value: deviceName,
+                onChange: e => setDeviceName(e.target.value),
+                style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+              })
+            ),
+            h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#3f3f46', cursor: 'pointer' } },
+              h('input', {
+                type: 'checkbox',
+                checked: includePdf,
+                onChange: e => setIncludePdf(e.target.checked)
+              }),
+              '推送原 PDF（手机/汉王可按需查看原书 PDF 页）'
+            )
+          ),
+          status?.lastSyncAt ? h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 10px', fontSize: 11 } },
+            `上次同步：${new Date(status.lastSyncAt).toLocaleString()}`
+          ) : null,
+          error ? h('p', { role: 'alert', style: { color: '#dc2626', fontSize: 12, margin: '0 0 10px' } }, error) : null,
+          resultMsg ? h('p', { role: 'status', style: { color: '#15803d', fontSize: 12, margin: '0 0 10px' } }, resultMsg) : null,
+          h('div', { className: 'rr-rowActions', style: { justifyContent: 'flex-end', gap: 8 } },
+            button('仅保存配置', handleSave, 'rr-buttonQuiet', { disabled: busy }),
+            button(busy ? '同步中...' : '立即双向同步', handleSyncNow, 'rr-buttonPrimary', { disabled: busy || !cloudUrl.trim() })
+          )
+        )
+      )
+    }
     const ZH_HANT_CHAR_RE = /[這個們為說時會國學體經發現實對應問題關於從與無開機業書長當來過進見樣種頭動點認識話語讀寫論義態鬱憂灣還請兩週環沒謂達聲習慣詞異鑑裏麼讓給將並處親愛東門問間聞聽視變產統紀續組織結構聯繫舉辦區準備標記號碼數據資訊歷傳錄選擇斷專廣眾邊際總導師範圍階層級類質價錢買賣費負責務報紙雜誌網絡電腦軟設規畫踐驗證顯隱轉僅優傷寫創剛劇勞勝勸醫協單壓參雙劃]/g
     const ZH_HANS_CHAR_RE = /[这个们为说时会国学体经发现实对应问题关于从与无开机业书长当来过进见样种头动点认识话语读写论义态郁忧湾还请两环没谓达声习惯词异鉴让给将处亲爱东门问间闻听视变产统纪续组织结构联系举办区准备标记号码数据资讯历传录选择断专广众边际总导师范围阶层级类质价钱买卖费负责务报纸杂网络电脑软设规划践验证显隐转仅优伤创刚剧劳胜劝医协单压参双]/g
     function detectZhScript(text, fallback = 'hans') {
@@ -2762,7 +2889,7 @@ window.__ModuleLoader__.load({
         return()=>{cancelAnimationFrame(frame);scroller?.removeEventListener('scroll',sync)}
       },[splitPdfCompare,visiblePdfPage])
 
-      const read=async(id,blockId,view)=>{try{setMessage('');const value=await api('/tasks/'+id+'/reading');let saved=null;if(!blockId&&!view){try{const keys=[value.documentId,id,id?'document:'+id:null,value.documentId&&value.documentId.startsWith('document:')?value.documentId.slice(9):null].filter(Boolean);for(const k of keys){const raw=localStorage.getItem('paper-reader-reading:'+k)||sessionStorage.getItem('paper-reader-reading:'+k);if(raw){const p=JSON.parse(raw);if(p&&p.version===value.version){saved=p;break}}}if(saved){blockId=saved.blockId;view=saved.view}}catch{}}
+      const read=async(id,blockId,view)=>{try{setMessage('');const [value,progRes]=await Promise.all([api('/tasks/'+id+'/reading'),api('/progress?documentId='+encodeURIComponent(id)).catch(()=>null)]);let saved=null;if(!blockId&&!view){try{const keys=[value.documentId,id,id?'document:'+id:null,value.documentId&&value.documentId.startsWith('document:')?value.documentId.slice(9):null].filter(Boolean);for(const k of keys){const raw=localStorage.getItem('paper-reader-reading:'+k)||sessionStorage.getItem('paper-reader-reading:'+k);if(raw){const p=JSON.parse(raw);if(p&&p.version===value.version&&(!saved||(p.updatedAt||0)>(saved.updatedAt||0)))saved=p}}const srv=progRes?.entry||(value.documentId?(await api('/progress?documentId='+encodeURIComponent(value.documentId)).catch(()=>null))?.entry:null);if(srv&&(!saved||(srv.updatedAt||0)>(saved.updatedAt||0))){if(!srv.version||srv.version===value.version)saved=srv}if(saved){blockId=saved.blockId;view=saved.view}}catch{}}
         const canOriginal=Boolean(value.comparisonAvailable),original=Boolean(view==='original'&&canOriginal),standaloneOriginal=original&&value.standaloneView==='translation'&&value.originalBlocks,blocks=standaloneOriginal?value.originalBlocks:value.blocks;
           blockId=value.blockAliases?.[original?'original':'translation']?.[blockId]??blockId;setShowOriginal(original);
           pendingJump.current=blockId&&blocks.some(b=>b.id===blockId)?blockId:'';if(blockId&&!pendingJump.current)setMessage('原段落已变化，定位记录和备注保留。');
@@ -2771,15 +2898,17 @@ window.__ModuleLoader__.load({
           let targetPage=pageIndex>=0?pageIndex:0;if(pageIndex<0&&saved?.page&&saved.page>=1&&saved.page<=pgs.length)targetPage=saved.page-1;
           setReaderPage(targetPage);if(!pendingJump.current)scrollReadingToTop();setSelected(id);setReading(value)}catch(e){setMessage(e.message)}}
       useEffect(()=>{if(!reading?.documentId)return;const scroller=readingRootRef.current?.closest('.rr-scroll');if(!scroller)return;
-        let timer;const save=()=>{if(pendingJump.current)return;timer=null;const top=scroller.getBoundingClientRect().top+96,pageBlocks=readerPages[readerPage]||activeBlocks,block=pageBlocks.find(b=>{const node=blockRefs.current[b.id];
+        let timer,lastServerAt=0;const save=(flushServer=false)=>{if(pendingJump.current)return;timer=null;const top=scroller.getBoundingClientRect().top+96,pageBlocks=readerPages[readerPage]||activeBlocks,block=pageBlocks.find(b=>{const node=blockRefs.current[b.id];
         return node&&node.getBoundingClientRect().bottom>top})||pageBlocks[0];if(block){const totalP=readerPages.length||1,curP=readerPage+1,pct=Math.max(1,Math.min(100,Math.round((curP/totalP)*100)));
-        const data=JSON.stringify({blockId:block.id,view:currentView,version:reading.version,page:curP,totalPages:totalP,percent:pct,title:reading.title,updatedAt:Date.now()});
+        const payload={documentId:reading.documentId,taskId:selected,blockId:block.id,view:currentView,version:reading.version,page:curP,totalPages:totalP,percent:pct,title:reading.title,deviceName:'PC DSH',updatedAt:Date.now()};
+        const data=JSON.stringify(payload);
         const keys=[reading.documentId,selected,reading.documentId&&reading.documentId.startsWith('document:')?reading.documentId.slice(9):null,selected?'document:'+selected:null].filter(Boolean);
-        for(const k of keys){try{localStorage.setItem('paper-reader-reading:'+k,data)}catch{}try{sessionStorage.setItem('paper-reader-reading:'+k,data)}catch{}}}};
-        const onScroll=()=>{if(!timer)timer=setTimeout(save,150)};scroller.addEventListener('scroll',onScroll,{passive:true});
-        const onHide=()=>{if(document.visibilityState==='hidden')save()};window.addEventListener('beforeunload',save);
-        document.addEventListener('visibilitychange',onHide);return()=>{clearTimeout(timer);save();scroller.removeEventListener('scroll',onScroll);
-        window.removeEventListener('beforeunload',save);document.removeEventListener('visibilitychange',onHide)}},[reading?.documentId,reading?.version,readerPage,showOriginal,readerPages,selected,currentView])
+        for(const k of keys){try{localStorage.setItem('paper-reader-reading:'+k,data)}catch{}try{sessionStorage.setItem('paper-reader-reading:'+k,data)}catch{}}
+        if(flushServer||Date.now()-lastServerAt>1500){lastServerAt=Date.now();fetch('/api/paper-reader/pipeline/progress',{method:'POST',headers:{'content-type':'application/json'},body:data,keepalive:true}).catch(()=>{})}}};
+        const onScroll=()=>{if(!timer)timer=setTimeout(()=>save(false),150)};scroller.addEventListener('scroll',onScroll,{passive:true});
+        const onUnload=()=>save(true);const onHide=()=>{if(document.visibilityState==='hidden')save(true)};window.addEventListener('beforeunload',onUnload);
+        document.addEventListener('visibilitychange',onHide);return()=>{clearTimeout(timer);save(true);scroller.removeEventListener('scroll',onScroll);
+        window.removeEventListener('beforeunload',onUnload);document.removeEventListener('visibilitychange',onHide)}},[reading?.documentId,reading?.version,readerPage,showOriginal,readerPages,selected,currentView])
 
       const launch=stage=>act(async()=>{
         if(!task)throw new Error('先建立文档任务')
@@ -3489,6 +3618,8 @@ window.__ModuleLoader__.load({
       const [sortMode, setSortMode] = useState('recent')
       const [readingTick, setReadingTick] = useState(0)
       const [toast, setToast] = useState('')
+      const [serverProgress, setServerProgress] = useState({})
+      const [cloudSyncOpen, setCloudSyncOpen] = useState(false)
       const exitPipelineReadingRef = useRef(null)
 
       const isReading = view === 'reader' || !!processingReading
@@ -3502,12 +3633,19 @@ window.__ModuleLoader__.load({
         setFailure('')
         setReadingTick(t => t + 1)
         try {
-          const r = await fetch('/api/paper-reader/pipeline/library')
+          const [r, pr] = await Promise.all([
+            fetch('/api/paper-reader/pipeline/library'),
+            fetch('/api/paper-reader/pipeline/progress').catch(() => null),
+          ])
           const v = await r.json()
           if (!r.ok) throw new Error(v.error ?? '文献库加载失败')
           setDocuments(v.documents ?? [])
           if (v.folders) setFolders(v.folders)
           if (v.meta) setItemMeta(v.meta)
+          if (pr?.ok) {
+            const pv = await pr.json().catch(() => null)
+            if (pv?.items) setServerProgress(pv.items)
+          }
         } catch (e) {
           setFailure(e.message)
         }
@@ -3687,6 +3825,7 @@ window.__ModuleLoader__.load({
 
       const getDocumentProgress = useCallback(d => {
         if (!d) return null
+        let best = null
         const keys = [
           d.documentId,
           d.id,
@@ -3694,16 +3833,20 @@ window.__ModuleLoader__.load({
           d.documentId && d.documentId.startsWith('document:') ? d.documentId.slice(9) : null
         ].filter(Boolean)
         for (const k of keys) {
+          const srv = serverProgress[k]
+          if (srv && (!best || (srv.updatedAt || 0) > (best.updatedAt || 0))) best = srv
           try {
             const raw = localStorage.getItem('paper-reader-reading:' + k) || sessionStorage.getItem('paper-reader-reading:' + k)
             if (raw) {
               const parsed = JSON.parse(raw)
-              if (parsed && typeof parsed === 'object') return parsed
+              if (parsed && typeof parsed === 'object' && (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0))) {
+                best = parsed
+              }
             }
           } catch {}
         }
-        return null
-      }, [])
+        return best
+      }, [serverProgress])
 
       const progressMap = useMemo(() => {
         const map = {}
@@ -3788,6 +3931,7 @@ window.__ModuleLoader__.load({
             )
           ),
           h('div', { className: 'rr-headerActions' },
+            button('云同步', () => setCloudSyncOpen(true), 'rr-buttonQuiet', { title: '配置轻量云服务器并同步书库、进度与笔记' }),
             button(icon('refresh', 16), loadLibrary, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '刷新文献库', title: '刷新文献库' }),
             button(h(React.Fragment, null, icon('close', 15), '退出'), onClose, 'rr-buttonQuiet')
           )
@@ -4073,7 +4217,8 @@ window.__ModuleLoader__.load({
         toast ? h('div', { className: 'rr-toastBox' }, icon('check', 16), h('span', null, toast)) : null,
         renameModal ? h(RenameDocModal, { targetId: renameModal.targetId, currentName: renameModal.currentName, onClose: () => setRenameModal(null), onRenamed: newName => handleDocRenamed(renameModal.targetId, newName) }) : null,
         assignModal ? h(FolderAssignModal, { ...assignModal, folders, onClose: () => setAssignModal(null), onSave: folderId => handleSaveAssign(assignModal.targetId, folderId), onCreateFolder: onFolderCreated }) : null,
-        createFolderModalOpen ? h(CreateFolderModal, { onClose: () => setCreateFolderModalOpen(false), onCreated: onFolderCreated }) : null
+        createFolderModalOpen ? h(CreateFolderModal, { onClose: () => setCreateFolderModalOpen(false), onCreated: onFolderCreated }) : null,
+        cloudSyncOpen ? h(CloudSyncModal, { onClose: () => setCloudSyncOpen(false), onSynced: loadLibrary }) : null
       )
     }
     function LiveDocumentExecution({executionSessionId,openExecutionSession}) {

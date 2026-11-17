@@ -1,0 +1,594 @@
+import { escapeHtml } from './reading-core.js'
+import { offlineDb } from './offline-db.js'
+import { readerApi } from './api.js'
+import { nativeBridge } from './native-bridge.js'
+import { ReaderController } from './reader-controller.js'
+
+const appEl = document.getElementById('app')
+
+const state = {
+  tab: 'shelf', // shelf | notes | settings
+  settings: null,
+  library: { documents: [], folders: [], meta: {} },
+  progress: {},
+  bookmarks: [],
+  cachedIds: new Set(),
+  outboxCount: 0,
+  searchQuery: '',
+  selectedFolder: 'all',
+  noteSearch: '',
+  noteDocFilter: '',
+  syncing: false,
+  downloadingId: '',
+  keyCaptureTarget: null, // 'prev' | 'next' | null
+  reader: null,
+  shelfPage: 0,
+  shelfTotalPages: 1,
+  toastMsg: '',
+  toastTimer: null,
+}
+
+function showToast(msg) {
+  state.toastMsg = msg
+  clearTimeout(state.toastTimer)
+  renderToast()
+  state.toastTimer = setTimeout(() => {
+    state.toastMsg = ''
+    renderToast()
+  }, 2600)
+}
+
+function renderToast() {
+  let el = document.getElementById('wr-global-toast')
+  if (!state.toastMsg) {
+    if (el) el.remove()
+    return
+  }
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'wr-global-toast'
+    el.className = 'wr-toast'
+    document.body.appendChild(el)
+  }
+  el.textContent = state.toastMsg
+}
+
+function applyThemeAttributes(settings) {
+  document.body.setAttribute('data-theme', settings.theme || 'paper')
+  document.body.setAttribute('data-eink', settings.deviceMode === 'eink' || settings.theme === 'eink' ? 'true' : 'false')
+  const metaTheme = document.querySelector('meta[name="theme-color"]')
+  if (metaTheme) {
+    metaTheme.setAttribute('content', settings.theme === 'night' ? '#141416' : settings.theme === 'eink' || settings.theme === 'white' ? '#ffffff' : '#f7f5f0')
+  }
+}
+
+async function updateSettings(patch) {
+  state.settings = await offlineDb.saveSettings(patch)
+  applyThemeAttributes(state.settings)
+  return state.settings
+}
+
+async function refreshLocalState() {
+  const [lib, progress, bookmarks, cachedIds, outbox] = await Promise.all([
+    offlineDb.getLibraryCache(),
+    offlineDb.getAllProgress(),
+    offlineDb.getBookmarks(),
+    offlineDb.listCachedBookIds(),
+    offlineDb.listOutbox(),
+  ])
+  state.library = lib
+  state.progress = progress
+  state.bookmarks = bookmarks
+  state.cachedIds = cachedIds
+  state.outboxCount = outbox.length
+}
+
+async function performSync(silent = false) {
+  if (state.syncing) return
+  state.syncing = true
+  render()
+  try {
+    await readerApi.syncAll(state.settings)
+    await refreshLocalState()
+    if (!silent) showToast('云端书库、进度与笔记已同步')
+  } catch (err) {
+    if (!silent) showToast(err.message || '同步失败，当前显示离线缓存')
+  } finally {
+    state.syncing = false
+    render()
+  }
+}
+
+async function openBook(taskId, blockId = '', view = '') {
+  try {
+    showToast('正在打开...')
+    const { reading, fromCache } = await readerApi.loadReading(state.settings, taskId)
+    state.cachedIds.add(taskId)
+    state.reader = new ReaderController({
+      root: appEl,
+      taskId,
+      reading,
+      settings: state.settings,
+      initialBlockId: blockId,
+      initialView: view,
+      onToast: showToast,
+      onSettingsChange: async patch => updateSettings(patch),
+      onExit: async () => {
+        state.reader?.destroy()
+        state.reader = null
+        await refreshLocalState()
+        render()
+      },
+    })
+    await state.reader.mount()
+    if (fromCache) showToast('离线模式打开')
+  } catch (err) {
+    showToast(err.message || '无法打开该文献')
+  }
+}
+
+function progressForDoc(doc) {
+  return state.progress[doc.documentId] || state.progress[doc.id] || null
+}
+
+function renderShelf() {
+  const docs = (state.library.documents ?? []).filter(d => {
+    const meta = state.library.meta?.[d.id] ?? {}
+    if (meta.hidden) return false
+    if (state.selectedFolder !== 'all') {
+      const ids = meta.folderId ? String(meta.folderId).split(',').map(s => s.trim()).filter(Boolean) : []
+      if (state.selectedFolder === 'uncategorized') {
+        if (ids.length) return false
+      } else if (!ids.includes(state.selectedFolder)) {
+        return false
+      }
+    }
+    if (state.searchQuery.trim()) {
+      const hay = [d.name, d.author, d.titleSource].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(state.searchQuery.trim().toLowerCase())) return false
+    }
+    return true
+  }).slice().sort((a, b) => {
+    const pa = progressForDoc(a)?.updatedAt || 0
+    const pb = progressForDoc(b)?.updatedAt || 0
+    return pb - pa
+  })
+
+  const folders = state.library.folders ?? []
+  const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+
+  const isEink = state.settings?.deviceMode === 'eink' || state.settings?.theme === 'eink'
+  const pageSize = window.innerWidth >= 980 ? 9 : window.innerWidth >= 640 ? 6 : 6
+  state.shelfTotalPages = isEink ? Math.max(1, Math.ceil(docs.length / pageSize)) : 1
+  state.shelfPage = Math.max(0, Math.min(state.shelfTotalPages - 1, state.shelfPage))
+  const visibleDocs = isEink ? docs.slice(state.shelfPage * pageSize, (state.shelfPage + 1) * pageSize) : docs
+
+  return `
+    <div class="wr-searchRow">
+      <input type="search" class="wr-input" placeholder="搜索书名或作者..." value="${escapeHtml(state.searchQuery)}" data-act="search-shelf" />
+    </div>
+    <div class="wr-pillRow">
+      <button type="button" class="wr-pill ${state.selectedFolder === 'all' ? 'active' : ''}" data-folder="all">全部 (${state.library.documents?.length ?? 0})</button>
+      <button type="button" class="wr-pill ${state.selectedFolder === 'uncategorized' ? 'active' : ''}" data-folder="uncategorized">未归类</button>
+      ${folders.map(f => `<button type="button" class="wr-pill ${state.selectedFolder === f.id ? 'active' : ''}" data-folder="${escapeHtml(f.id)}">${escapeHtml(f.name)}</button>`).join('')}
+    </div>
+    ${!visibleDocs.length ? `
+      <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
+        <p style="margin:12px 0;">${state.library.documents?.length ? '没有匹配的文献' : '书架为空，请先在「设置」配置轻量云服务器并点击同步。'}</p>
+      </div>
+    ` : `
+      <div class="wr-bookList">
+        ${visibleDocs.map(d => {
+          const prog = progressForDoc(d)
+          const pct = prog?.percent || 0
+          const isCached = state.cachedIds.has(d.id)
+          const busy = state.downloadingId === d.id
+          return `
+            <div class="wr-bookCard" data-open-book="${escapeHtml(d.id)}">
+              <div class="wr-bookTop">
+                <div>
+                  <h3 class="wr-bookTitle">${escapeHtml(d.name)}</h3>
+                  <div class="wr-bookMeta">${escapeHtml([d.author, d.titleSource, kindLabel[d.kind] || d.kind].filter(Boolean).join(' · '))}</div>
+                </div>
+                <span class="wr-badge ${isCached ? 'offline' : ''}">${isCached ? '已离线' : '云端'}</span>
+              </div>
+              <div class="wr-progressTrack"><div class="wr-progressFill" style="width:${pct}%"></div></div>
+              <div class="wr-bookActions">
+                <span style="font-size:12px;color:var(--fg-muted);">${pct > 0 ? `已读 ${pct}%` : '未读'}</span>
+                <div style="display:flex;gap:6px;">
+                  <button type="button" class="wr-btnGhost" data-dl-book="${escapeHtml(d.id)}" style="padding:5px 10px;font-size:12px;">${busy ? '下载中...' : isCached ? '更新离线' : '缓存离线'}</button>
+                  <button type="button" class="wr-btnPrimary" data-read-book="${escapeHtml(d.id)}" style="padding:5px 12px;font-size:12px;">${pct > 0 ? '继续阅读' : '开始阅读'}</button>
+                </div>
+              </div>
+            </div>
+          `
+        }).join('')}
+      </div>
+      ${isEink && state.shelfTotalPages > 1 ? `
+        <div class="wr-einkPager" style="margin-top:12px;">
+          <button type="button" class="wr-btnGhost" data-shelf-page="prev" ${state.shelfPage <= 0 ? 'disabled' : ''}>‹ 上一页</button>
+          <span style="font-size:12px;color:var(--fg-muted);">书架 第 ${state.shelfPage + 1} / ${state.shelfTotalPages} 页</span>
+          <button type="button" class="wr-btnGhost" data-shelf-page="next" ${state.shelfPage >= state.shelfTotalPages - 1 ? 'disabled' : ''}>下一页 ›</button>
+        </div>
+      ` : ''}
+    `}
+  `
+}
+
+function renderNotes() {
+  const docsMap = new Map()
+  for (const b of state.bookmarks) {
+    if (b.documentId && !docsMap.has(b.documentId)) {
+      docsMap.set(b.documentId, b.document?.title || b.documentId)
+    }
+  }
+  const shown = state.bookmarks.filter(b => {
+    if (state.noteDocFilter && b.documentId !== state.noteDocFilter) return false
+    if (!state.noteSearch.trim()) return true
+    const hay = [b.quote, b.comment, ...(b.tags ?? []), b.document?.title].join(' ').toLowerCase()
+    return hay.includes(state.noteSearch.trim().toLowerCase())
+  })
+
+  return `
+    <div class="wr-searchRow">
+      <input type="search" class="wr-input" placeholder="搜索划线摘录、想法或标签..." value="${escapeHtml(state.noteSearch)}" data-act="search-notes" />
+    </div>
+    <div style="margin-bottom:10px;">
+      <select class="wr-input" data-act="filter-note-doc">
+        <option value="">全部书籍（${state.bookmarks.length}）</option>
+        ${[...docsMap.entries()].map(([id, title]) => `<option value="${escapeHtml(id)}" ${state.noteDocFilter === id ? 'selected' : ''}>${escapeHtml(title)}</option>`).join('')}
+      </select>
+    </div>
+    ${!shown.length ? '<div class="wr-card" style="text-align:center;color:var(--fg-muted);">暂无书签或想法</div>' : shown.map(b => `
+      <div class="wr-card">
+        <div style="font-size:12px;color:var(--fg-muted);margin-bottom:6px;">${escapeHtml(b.document?.title || '')}</div>
+        <blockquote class="wr-quoteBox" style="margin-bottom:8px;">${escapeHtml(b.quote)}</blockquote>
+        ${b.comment ? `<p style="margin:0 0 8px;font-size:14px;line-height:1.55;">${escapeHtml(b.comment)}</p>` : ''}
+        <div class="wr-barRow">
+          <span style="font-size:11px;color:var(--fg-muted);">${escapeHtml((b.tags ?? []).join(' · '))}</span>
+          <div style="display:flex;gap:6px;">
+            <button type="button" class="wr-btnGhost" data-jump-note="${escapeHtml(b.id)}" style="padding:4px 10px;font-size:12px;">回看原文</button>
+            <button type="button" class="wr-btnGhost" data-del-note="${escapeHtml(b.id)}" style="padding:4px 10px;font-size:12px;">删除</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  `
+}
+
+function renderSettings() {
+  const s = state.settings
+  const colMode = s.columnLayout || 'auto'
+  const biMode = s.bilingualLayout || 'auto'
+  const tapMode = s.tapZoneMode || 'ergonomic'
+  return `
+    <div class="wr-card">
+      <h3 class="wr-cardTitle">云端书库连接</h3>
+      <label class="wr-field">云服务器地址（留空则使用当前页面同源地址）
+        <input type="url" class="wr-input" id="set-url" placeholder="https://reader.example.com" value="${escapeHtml(s.serverUrl)}" />
+      </label>
+      <label class="wr-field">同步密钥（Bearer Token）
+        <input type="password" class="wr-input" id="set-token" placeholder="输入服务器 SYNC_TOKEN" value="${escapeHtml(s.token)}" />
+      </label>
+      <label class="wr-field">当前设备名称（用于跨端进度提示）
+        <input type="text" class="wr-input" id="set-devname" value="${escapeHtml(s.deviceName)}" />
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="wr-btnGhost" data-act="save-conn">保存连接</button>
+        <button type="button" class="wr-btnGhost" data-act="test-conn">测试连通</button>
+        <button type="button" class="wr-btnPrimary" data-act="sync-now">${state.syncing ? '同步中...' : '立即同步'}</button>
+      </div>
+      <p style="margin:8px 0 0;font-size:12px;color:var(--fg-muted);">
+        待上传离线队列：${state.outboxCount} 条 · 已离线缓存：${state.cachedIds.size} 本
+      </p>
+    </div>
+
+    <div class="wr-card">
+      <h3 class="wr-cardTitle">终端形态与屏幕优化预设</h3>
+      <div class="wr-segGroup" style="width:100%;margin-bottom:8px;flex-wrap:wrap;">
+        <button type="button" class="wr-segBtn ${s.deviceMode === 'phone' ? 'active' : ''}" style="flex:1;" data-devmode="phone">安卓手机竖屏</button>
+        <button type="button" class="wr-segBtn ${s.deviceMode === 'eink' && tapMode !== 'keysOnly' ? 'active' : ''}" style="flex:1;" data-devmode="eink">汉王墨水屏 (触控+按键)</button>
+        <button type="button" class="wr-segBtn ${s.deviceMode === 'eink' && tapMode === 'keysOnly' ? 'active' : ''}" style="flex:1;" data-devmode="eink-stylus">汉王 N10 (电磁笔+侧键)</button>
+      </div>
+      <p style="margin:0 0 10px;font-size:12px;color:var(--fg-muted);line-height:1.5;">
+        • <b>安卓手机竖屏</b>：20:9 单栏沉浸、上下叠排双语、屏幕下半中区单手拇指下翻、底部抽屉交互。<br/>
+        • <b>汉王墨水屏宽屏</b>：纯黑白零动画防残影、宽屏自动双栏对开/左右并排双语对照、右侧无闪烁停靠栏、书架与目录零滚动分页。<br/>
+        • <b>汉王 N10 电磁笔专享</b>：开启手写笔防误触翻页（仅侧键与底部显式翻页栏翻页，防止电磁笔悬停划线时误翻页）。
+      </p>
+      <div class="wr-field">分栏版式
+        <div class="wr-segGroup">
+          <button type="button" class="wr-segBtn ${colMode === 'auto' ? 'active' : ''}" data-set-col="auto">自动(宽屏双栏)</button>
+          <button type="button" class="wr-segBtn ${colMode === 'single' ? 'active' : ''}" data-set-col="single">单栏适宽</button>
+          <button type="button" class="wr-segBtn ${colMode === 'double' ? 'active' : ''}" data-set-col="double">双栏对开</button>
+        </div>
+      </div>
+      <div class="wr-field">双语对照排版
+        <div class="wr-segGroup">
+          <button type="button" class="wr-segBtn ${biMode === 'auto' ? 'active' : ''}" data-set-bi="auto">自动(手机上下/宽屏左右)</button>
+          <button type="button" class="wr-segBtn ${biMode === 'stacked' ? 'active' : ''}" data-set-bi="stacked">上下叠排</button>
+          <button type="button" class="wr-segBtn ${biMode === 'parallel' ? 'active' : ''}" data-set-bi="parallel">左右并排</button>
+        </div>
+      </div>
+      <div class="wr-field" style="margin-bottom:0;">点击翻页热区
+        <div class="wr-segGroup" style="flex-wrap:wrap;">
+          <button type="button" class="wr-segBtn ${tapMode === 'ergonomic' ? 'active' : ''}" data-set-tap="ergonomic">单手拇指</button>
+          <button type="button" class="wr-segBtn ${tapMode === 'classic' ? 'active' : ''}" data-set-tap="classic">经典三区</button>
+          <button type="button" class="wr-segBtn ${tapMode === 'bottomNext' ? 'active' : ''}" data-set-tap="bottomNext">下半屏下翻</button>
+          <button type="button" class="wr-segBtn ${tapMode === 'keysOnly' ? 'active' : ''}" data-set-tap="keysOnly">笔防误触(按键翻页)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wr-card">
+      <h3 class="wr-cardTitle">物理翻页键 / 汉王 9 键侧键适配</h3>
+      <p style="margin:0 0 8px;font-size:12px;color:var(--fg-muted);">
+        已内置音量键、PageUp/PageDown 及汉王方向键 (DPAD 19/20/21/22)。<br/>
+        当前上一页按键：${escapeHtml(s.prevKeys.join(', '))}<br/>
+        当前下一页按键：${escapeHtml(s.nextKeys.join(', '))}
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="wr-btnGhost" data-capture="prev">${state.keyCaptureTarget === 'prev' ? '请按下实体上一页键...' : '录制上一页按键'}</button>
+        <button type="button" class="wr-btnGhost" data-capture="next">${state.keyCaptureTarget === 'next' ? '请按下实体下一页键...' : '录制下一页按键'}</button>
+      </div>
+    </div>
+  `
+}
+
+function render() {
+  if (state.reader) return
+  const bodyHtml = state.tab === 'notes' ? renderNotes() : state.tab === 'settings' ? renderSettings() : renderShelf()
+
+  appEl.innerHTML = `
+    <div class="wr-shell">
+      <header class="wr-topbar">
+        <span class="wr-brand">DSH 双语精读</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${state.outboxCount > 0 ? `<span class="wr-badge">待传 ${state.outboxCount}</span>` : ''}
+          <button type="button" class="wr-iconBtn" data-act="top-sync">${state.syncing ? '同步中...' : '↻ 同步'}</button>
+        </div>
+      </header>
+      <main class="wr-main">${bodyHtml}</main>
+      <nav class="wr-tabbar">
+        <button type="button" class="wr-tabBtn ${state.tab === 'shelf' ? 'active' : ''}" data-tab="shelf">书架</button>
+        <button type="button" class="wr-tabBtn ${state.tab === 'notes' ? 'active' : ''}" data-tab="notes">笔记</button>
+        <button type="button" class="wr-tabBtn ${state.tab === 'settings' ? 'active' : ''}" data-tab="settings">设置</button>
+      </nav>
+    </div>
+  `
+
+  appEl.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.onclick = () => {
+      state.tab = btn.dataset.tab
+      render()
+    }
+  })
+
+  appEl.querySelector('[data-act="top-sync"]').onclick = () => performSync(false)
+
+  if (state.tab === 'shelf') {
+    const search = appEl.querySelector('[data-act="search-shelf"]')
+    if (search) search.oninput = () => { state.searchQuery = search.value; state.shelfPage = 0; render() }
+    appEl.querySelectorAll('[data-folder]').forEach(btn => {
+      btn.onclick = () => { state.selectedFolder = btn.dataset.folder; state.shelfPage = 0; render() }
+    })
+    appEl.querySelector('[data-shelf-page="prev"]')?.addEventListener('click', () => {
+      if (state.shelfPage > 0) { state.shelfPage--; render() }
+    })
+    appEl.querySelector('[data-shelf-page="next"]')?.addEventListener('click', () => {
+      if (state.shelfPage < state.shelfTotalPages - 1) { state.shelfPage++; render() }
+    })
+    appEl.querySelectorAll('[data-read-book]').forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation()
+        openBook(btn.dataset.readBook)
+      }
+    })
+    appEl.querySelectorAll('[data-dl-book]').forEach(btn => {
+      btn.onclick = async e => {
+        e.stopPropagation()
+        const id = btn.dataset.dlBook
+        state.downloadingId = id
+        render()
+        try {
+          const res = await readerApi.downloadBookOffline(state.settings, id)
+          state.cachedIds.add(id)
+          showToast(`已缓存离线（含 ${res.assetsCount} 张插图）`)
+        } catch (err) {
+          showToast(err.message || '离线下载失败')
+        } finally {
+          state.downloadingId = ''
+          render()
+        }
+      }
+    })
+    appEl.querySelectorAll('[data-open-book]').forEach(card => {
+      card.onclick = () => openBook(card.dataset.openBook)
+    })
+  } else if (state.tab === 'notes') {
+    const ns = appEl.querySelector('[data-act="search-notes"]')
+    if (ns) ns.oninput = () => { state.noteSearch = ns.value; render() }
+    const nd = appEl.querySelector('[data-act="filter-note-doc"]')
+    if (nd) nd.onchange = () => { state.noteDocFilter = nd.value; render() }
+    appEl.querySelectorAll('[data-jump-note]').forEach(btn => {
+      btn.onclick = () => {
+        const mark = state.bookmarks.find(b => b.id === btn.dataset.jumpNote)
+        if (!mark) return
+        const taskId = mark.source?.id || state.library.documents?.find(d => d.documentId === mark.documentId)?.id
+        if (!taskId) return showToast('未找到对应书籍')
+        openBook(taskId, mark.selector?.startBlockId || '', mark.selector?.view || 'translation')
+      }
+    })
+    appEl.querySelectorAll('[data-del-note]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.delNote
+        await readerApi.postBookmarkAction(state.settings, { remove: id })
+        state.bookmarks = state.bookmarks.filter(b => b.id !== id)
+        await offlineDb.saveBookmarks(state.bookmarks)
+        showToast('已删除书签')
+        render()
+      }
+    })
+  } else if (state.tab === 'settings') {
+    const readConn = () => ({
+      serverUrl: document.getElementById('set-url').value.trim().replace(/\/+$/, ''),
+      token: document.getElementById('set-token').value.trim(),
+      deviceName: document.getElementById('set-devname').value.trim() || '我的移动设备',
+    })
+    appEl.querySelector('[data-act="save-conn"]').onclick = async () => {
+      await updateSettings(readConn())
+      showToast('连接配置已保存')
+    }
+    appEl.querySelector('[data-act="test-conn"]').onclick = async () => {
+      const next = await updateSettings(readConn())
+      try {
+        const res = await readerApi.testConnection(next)
+        showToast(`连接成功！云端共 ${res.documents ?? 0} 篇文献`)
+      } catch (err) {
+        showToast(err.message || '连接失败')
+      }
+    }
+    appEl.querySelector('[data-act="sync-now"]').onclick = async () => {
+      await updateSettings(readConn())
+      await performSync(false)
+    }
+    appEl.querySelectorAll('[data-devmode]').forEach(btn => {
+      btn.onclick = async () => {
+        const mode = btn.dataset.devmode
+        if (mode === 'eink-stylus') {
+          await updateSettings({
+            deviceMode: 'eink',
+            theme: 'eink',
+            tapZoneMode: 'keysOnly',
+            showPageTurnBar: true,
+            columnLayout: 'auto',
+            bilingualLayout: 'auto',
+          })
+          showToast('已启用汉王 N10 电磁笔+侧键专享模式')
+        } else if (mode === 'eink') {
+          await updateSettings({
+            deviceMode: 'eink',
+            theme: 'eink',
+            tapZoneMode: 'classic',
+            showPageTurnBar: false,
+            columnLayout: 'auto',
+            bilingualLayout: 'auto',
+          })
+          showToast('已启用汉王墨水屏模式')
+        } else {
+          await updateSettings({
+            deviceMode: 'phone',
+            theme: 'paper',
+            tapZoneMode: 'ergonomic',
+            showPageTurnBar: false,
+            columnLayout: 'auto',
+            bilingualLayout: 'auto',
+          })
+          showToast('已切换为安卓手机竖屏模式')
+        }
+        render()
+      }
+    })
+    appEl.querySelectorAll('[data-set-col]').forEach(btn => {
+      btn.onclick = async () => {
+        await updateSettings({ columnLayout: btn.dataset.setCol })
+        render()
+      }
+    })
+    appEl.querySelectorAll('[data-set-bi]').forEach(btn => {
+      btn.onclick = async () => {
+        await updateSettings({ bilingualLayout: btn.dataset.setBi })
+        render()
+      }
+    })
+    appEl.querySelectorAll('[data-set-tap]').forEach(btn => {
+      btn.onclick = async () => {
+        await updateSettings({
+          tapZoneMode: btn.dataset.setTap,
+          showPageTurnBar: btn.dataset.setTap === 'keysOnly' ? true : state.settings.showPageTurnBar,
+        })
+        render()
+      }
+    })
+    appEl.querySelectorAll('[data-capture]').forEach(btn => {
+      btn.onclick = async () => {
+        const dir = btn.dataset.capture
+        if (state.keyCaptureTarget === dir) {
+          state.keyCaptureTarget = null
+          await nativeBridge.stopKeyCapture()
+        } else {
+          state.keyCaptureTarget = dir
+          await nativeBridge.startKeyCapture()
+        }
+        render()
+      }
+    })
+  }
+}
+
+async function handleCapturedKey(codeOrName) {
+  if (!state.keyCaptureTarget) return
+  const targetField = state.keyCaptureTarget === 'prev' ? 'prevKeys' : 'nextKeys'
+  const current = state.settings[targetField] ?? []
+  if (!current.includes(codeOrName)) {
+    await updateSettings({ [targetField]: [...current, codeOrName] })
+  }
+  state.keyCaptureTarget = null
+  await nativeBridge.stopKeyCapture()
+  showToast(`已绑定按键: ${codeOrName}`)
+  render()
+}
+
+window.addEventListener('keydown', e => {
+  if (state.keyCaptureTarget) {
+    e.preventDefault()
+    void handleCapturedKey(e.key || e.keyCode)
+    return
+  }
+  if (!state.reader && state.tab === 'shelf' && state.settings) {
+    const isPrev = state.settings.prevKeys?.includes(e.key) || state.settings.prevKeys?.includes(e.keyCode)
+    const isNext = state.settings.nextKeys?.includes(e.key) || state.settings.nextKeys?.includes(e.keyCode)
+    if (isPrev && state.shelfPage > 0) {
+      e.preventDefault()
+      state.shelfPage--
+      render()
+    } else if (isNext && state.shelfPage < state.shelfTotalPages - 1) {
+      e.preventDefault()
+      state.shelfPage++
+      render()
+    }
+  }
+})
+
+window.addEventListener('reader:key-captured', e => {
+  if (state.keyCaptureTarget && e.detail?.keyCode != null) {
+    void handleCapturedKey(e.detail.keyCode)
+  }
+})
+
+window.addEventListener('reader:physical-key', e => {
+  if (state.reader || state.tab !== 'shelf') return
+  if (e.detail?.direction === 'prev' && state.shelfPage > 0) {
+    state.shelfPage--
+    render()
+  } else if (e.detail?.direction === 'next' && state.shelfPage < state.shelfTotalPages - 1) {
+    state.shelfPage++
+    render()
+  }
+})
+
+window.addEventListener('online', () => {
+  if (state.settings) void readerApi.flushOutbox(state.settings).then(() => refreshLocalState()).then(() => render())
+})
+
+async function bootstrap() {
+  state.settings = await offlineDb.getSettings()
+  applyThemeAttributes(state.settings)
+  await refreshLocalState()
+  render()
+  // Silent background sync if configured or served from sync-server
+  if (state.settings.serverUrl || !nativeBridge.isNative()) {
+    void performSync(true)
+  }
+}
+
+bootstrap()

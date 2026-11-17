@@ -351,7 +351,7 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
     return()=>{cancelAnimationFrame(frame);scroller?.removeEventListener('scroll',sync)}
   },[splitPdfCompare,visiblePdfPage])
 
-  const read=async(id,blockId,view)=>{try{setMessage('');const value=await api('/tasks/'+id+'/reading');let saved=null;if(!blockId&&!view){try{const keys=[value.documentId,id,id?'document:'+id:null,value.documentId&&value.documentId.startsWith('document:')?value.documentId.slice(9):null].filter(Boolean);for(const k of keys){const raw=localStorage.getItem('paper-reader-reading:'+k)||sessionStorage.getItem('paper-reader-reading:'+k);if(raw){const p=JSON.parse(raw);if(p&&p.version===value.version){saved=p;break}}}if(saved){blockId=saved.blockId;view=saved.view}}catch{}}
+  const read=async(id,blockId,view)=>{try{setMessage('');const [value,progRes]=await Promise.all([api('/tasks/'+id+'/reading'),api('/progress?documentId='+encodeURIComponent(id)).catch(()=>null)]);let saved=null;if(!blockId&&!view){try{const keys=[value.documentId,id,id?'document:'+id:null,value.documentId&&value.documentId.startsWith('document:')?value.documentId.slice(9):null].filter(Boolean);for(const k of keys){const raw=localStorage.getItem('paper-reader-reading:'+k)||sessionStorage.getItem('paper-reader-reading:'+k);if(raw){const p=JSON.parse(raw);if(p&&p.version===value.version&&(!saved||(p.updatedAt||0)>(saved.updatedAt||0)))saved=p}}const srv=progRes?.entry||(value.documentId?(await api('/progress?documentId='+encodeURIComponent(value.documentId)).catch(()=>null))?.entry:null);if(srv&&(!saved||(srv.updatedAt||0)>(saved.updatedAt||0))){if(!srv.version||srv.version===value.version)saved=srv}if(saved){blockId=saved.blockId;view=saved.view}}catch{}}
     const canOriginal=Boolean(value.comparisonAvailable),original=Boolean(view==='original'&&canOriginal),standaloneOriginal=original&&value.standaloneView==='translation'&&value.originalBlocks,blocks=standaloneOriginal?value.originalBlocks:value.blocks;
       blockId=value.blockAliases?.[original?'original':'translation']?.[blockId]??blockId;setShowOriginal(original);
       pendingJump.current=blockId&&blocks.some(b=>b.id===blockId)?blockId:'';if(blockId&&!pendingJump.current)setMessage('原段落已变化，定位记录和备注保留。');
@@ -360,15 +360,17 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
       let targetPage=pageIndex>=0?pageIndex:0;if(pageIndex<0&&saved?.page&&saved.page>=1&&saved.page<=pgs.length)targetPage=saved.page-1;
       setReaderPage(targetPage);if(!pendingJump.current)scrollReadingToTop();setSelected(id);setReading(value)}catch(e){setMessage(e.message)}}
   useEffect(()=>{if(!reading?.documentId)return;const scroller=readingRootRef.current?.closest('.rr-scroll');if(!scroller)return;
-    let timer;const save=()=>{if(pendingJump.current)return;timer=null;const top=scroller.getBoundingClientRect().top+96,pageBlocks=readerPages[readerPage]||activeBlocks,block=pageBlocks.find(b=>{const node=blockRefs.current[b.id];
+    let timer,lastServerAt=0;const save=(flushServer=false)=>{if(pendingJump.current)return;timer=null;const top=scroller.getBoundingClientRect().top+96,pageBlocks=readerPages[readerPage]||activeBlocks,block=pageBlocks.find(b=>{const node=blockRefs.current[b.id];
     return node&&node.getBoundingClientRect().bottom>top})||pageBlocks[0];if(block){const totalP=readerPages.length||1,curP=readerPage+1,pct=Math.max(1,Math.min(100,Math.round((curP/totalP)*100)));
-    const data=JSON.stringify({blockId:block.id,view:currentView,version:reading.version,page:curP,totalPages:totalP,percent:pct,title:reading.title,updatedAt:Date.now()});
+    const payload={documentId:reading.documentId,taskId:selected,blockId:block.id,view:currentView,version:reading.version,page:curP,totalPages:totalP,percent:pct,title:reading.title,deviceName:'PC DSH',updatedAt:Date.now()};
+    const data=JSON.stringify(payload);
     const keys=[reading.documentId,selected,reading.documentId&&reading.documentId.startsWith('document:')?reading.documentId.slice(9):null,selected?'document:'+selected:null].filter(Boolean);
-    for(const k of keys){try{localStorage.setItem('paper-reader-reading:'+k,data)}catch{}try{sessionStorage.setItem('paper-reader-reading:'+k,data)}catch{}}}};
-    const onScroll=()=>{if(!timer)timer=setTimeout(save,150)};scroller.addEventListener('scroll',onScroll,{passive:true});
-    const onHide=()=>{if(document.visibilityState==='hidden')save()};window.addEventListener('beforeunload',save);
-    document.addEventListener('visibilitychange',onHide);return()=>{clearTimeout(timer);save();scroller.removeEventListener('scroll',onScroll);
-    window.removeEventListener('beforeunload',save);document.removeEventListener('visibilitychange',onHide)}},[reading?.documentId,reading?.version,readerPage,showOriginal,readerPages,selected,currentView])
+    for(const k of keys){try{localStorage.setItem('paper-reader-reading:'+k,data)}catch{}try{sessionStorage.setItem('paper-reader-reading:'+k,data)}catch{}}
+    if(flushServer||Date.now()-lastServerAt>1500){lastServerAt=Date.now();fetch('/api/paper-reader/pipeline/progress',{method:'POST',headers:{'content-type':'application/json'},body:data,keepalive:true}).catch(()=>{})}}};
+    const onScroll=()=>{if(!timer)timer=setTimeout(()=>save(false),150)};scroller.addEventListener('scroll',onScroll,{passive:true});
+    const onUnload=()=>save(true);const onHide=()=>{if(document.visibilityState==='hidden')save(true)};window.addEventListener('beforeunload',onUnload);
+    document.addEventListener('visibilitychange',onHide);return()=>{clearTimeout(timer);save(true);scroller.removeEventListener('scroll',onScroll);
+    window.removeEventListener('beforeunload',onUnload);document.removeEventListener('visibilitychange',onHide)}},[reading?.documentId,reading?.version,readerPage,showOriginal,readerPages,selected,currentView])
 
   const launch=stage=>act(async()=>{
     if(!task)throw new Error('先建立文档任务')

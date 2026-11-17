@@ -248,6 +248,133 @@ function FolderAssignModal({ targetId, targetName, currentFolderId, folders, onS
     )
   )
 }
+function CloudSyncModal({ onClose, onSynced }) {
+  const [status, setStatus] = useState(null)
+  const [cloudUrl, setCloudUrl] = useState('')
+  const [token, setToken] = useState('')
+  const [deviceName, setDeviceName] = useState('PC DSH 主机')
+  const [includePdf, setIncludePdf] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [resultMsg, setResultMsg] = useState('')
+
+  useEffect(() => {
+    fetch('/api/paper-reader/pipeline/sync/status')
+      .then(r => r.json())
+      .then(v => {
+        setStatus(v)
+        setCloudUrl(v.cloudUrl || '')
+        setDeviceName(v.deviceName || 'PC DSH 主机')
+        setIncludePdf(v.includePdf !== undefined ? Boolean(v.includePdf) : true)
+      })
+      .catch(e => setError(e.message || '读取同步配置失败'))
+  }, [])
+
+  const saveConfig = async () => {
+    const r = await fetch('/api/paper-reader/pipeline/sync/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cloudUrl, ...(token.trim() ? { token: token.trim() } : {}), deviceName, includePdf })
+    })
+    const v = await r.json()
+    if (!r.ok) throw new Error(v.error || '保存配置失败')
+    setStatus(v)
+    setToken('')
+    return v
+  }
+
+  const handleSave = async () => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      await saveConfig()
+      setResultMsg('云端同步配置已保存。')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSyncNow = async () => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      await saveConfig()
+      const r = await fetch('/api/paper-reader/pipeline/sync/now', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ includePdf })
+      })
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '云端同步失败')
+      setResultMsg(`同步完成：推送 ${v.pushedBooks ?? 0} 本书、${v.pushedPdfs ?? 0} 份 PDF；拉取 ${v.pulledProgress ?? 0} 条进度、${v.pulledBookmarks ?? 0} 条书签、${v.appliedCorrections ?? 0} 条移动端勘误。`)
+      onSynced?.()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return h('div', { className: 'rr-pdfModalOverlay', onClick: e => { if (e.target === e.currentTarget) onClose() } },
+    h('div', { style: { background: '#fff', borderRadius: 12, padding: '20px 24px', minWidth: 340, maxWidth: 480, width: '92vw', boxShadow: '0 16px 40px rgba(0,0,0,0.2)' } },
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } },
+        h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600 } }, '云端书库同步（手机 / 汉王墨水屏）'),
+        button(icon('close', 16), onClose, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '关闭' })
+      ),
+      h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 12px', fontSize: 12 } },
+        '在轻量云服务器部署 sync-server 后，将已转写发布的文献推送至云端，手机与汉王墨水屏 APK 可随时离线下载并双向同步阅读进度、划线笔记与勘误。'
+      ),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 } },
+        h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+          '云服务器地址',
+          h('input', {
+            type: 'url',
+            placeholder: 'https://reader.example.com 或 http://IP:4180',
+            value: cloudUrl,
+            onChange: e => setCloudUrl(e.target.value),
+            style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+          })
+        ),
+        h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+          '同步密钥（Bearer Token）',
+          h('input', {
+            type: 'password',
+            placeholder: status?.hasToken ? '已配置密钥（留空保持不变）' : '输入云端 SYNC_TOKEN',
+            value: token,
+            onChange: e => setToken(e.target.value),
+            style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+          })
+        ),
+        h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+          '本机名称',
+          h('input', {
+            type: 'text',
+            value: deviceName,
+            onChange: e => setDeviceName(e.target.value),
+            style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+          })
+        ),
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#3f3f46', cursor: 'pointer' } },
+          h('input', {
+            type: 'checkbox',
+            checked: includePdf,
+            onChange: e => setIncludePdf(e.target.checked)
+          }),
+          '推送原 PDF（手机/汉王可按需查看原书 PDF 页）'
+        )
+      ),
+      status?.lastSyncAt ? h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 10px', fontSize: 11 } },
+        `上次同步：${new Date(status.lastSyncAt).toLocaleString()}`
+      ) : null,
+      error ? h('p', { role: 'alert', style: { color: '#dc2626', fontSize: 12, margin: '0 0 10px' } }, error) : null,
+      resultMsg ? h('p', { role: 'status', style: { color: '#15803d', fontSize: 12, margin: '0 0 10px' } }, resultMsg) : null,
+      h('div', { className: 'rr-rowActions', style: { justifyContent: 'flex-end', gap: 8 } },
+        button('仅保存配置', handleSave, 'rr-buttonQuiet', { disabled: busy }),
+        button(busy ? '同步中...' : '立即双向同步', handleSyncNow, 'rr-buttonPrimary', { disabled: busy || !cloudUrl.trim() })
+      )
+    )
+  )
+}
 const ZH_HANT_CHAR_RE = /[這個們為說時會國學體經發現實對應問題關於從與無開機業書長當來過進見樣種頭動點認識話語讀寫論義態鬱憂灣還請兩週環沒謂達聲習慣詞異鑑裏麼讓給將並處親愛東門問間聞聽視變產統紀續組織結構聯繫舉辦區準備標記號碼數據資訊歷傳錄選擇斷專廣眾邊際總導師範圍階層級類質價錢買賣費負責務報紙雜誌網絡電腦軟設規畫踐驗證顯隱轉僅優傷寫創剛劇勞勝勸醫協單壓參雙劃]/g
 const ZH_HANS_CHAR_RE = /[这个们为说时会国学体经发现实对应问题关于从与无开机业书长当来过进见样种头动点认识话语读写论义态郁忧湾还请两环没谓达声习惯词异鉴让给将处亲爱东门问间闻听视变产统纪续组织结构联系举办区准备标记号码数据资讯历传录选择断专广众边际总导师范围阶层级类质价钱买卖费负责务报纸杂网络电脑软设规划践验证显隐转仅优伤创刚剧劳胜劝医协单压参双]/g
 function detectZhScript(text, fallback = 'hans') {

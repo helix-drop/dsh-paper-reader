@@ -20,6 +20,8 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   const [sortMode, setSortMode] = useState('recent')
   const [readingTick, setReadingTick] = useState(0)
   const [toast, setToast] = useState('')
+  const [serverProgress, setServerProgress] = useState({})
+  const [cloudSyncOpen, setCloudSyncOpen] = useState(false)
   const exitPipelineReadingRef = useRef(null)
 
   const isReading = view === 'reader' || !!processingReading
@@ -33,12 +35,19 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
     setFailure('')
     setReadingTick(t => t + 1)
     try {
-      const r = await fetch('/api/paper-reader/pipeline/library')
+      const [r, pr] = await Promise.all([
+        fetch('/api/paper-reader/pipeline/library'),
+        fetch('/api/paper-reader/pipeline/progress').catch(() => null),
+      ])
       const v = await r.json()
       if (!r.ok) throw new Error(v.error ?? '文献库加载失败')
       setDocuments(v.documents ?? [])
       if (v.folders) setFolders(v.folders)
       if (v.meta) setItemMeta(v.meta)
+      if (pr?.ok) {
+        const pv = await pr.json().catch(() => null)
+        if (pv?.items) setServerProgress(pv.items)
+      }
     } catch (e) {
       setFailure(e.message)
     }
@@ -218,6 +227,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
 
   const getDocumentProgress = useCallback(d => {
     if (!d) return null
+    let best = null
     const keys = [
       d.documentId,
       d.id,
@@ -225,16 +235,20 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
       d.documentId && d.documentId.startsWith('document:') ? d.documentId.slice(9) : null
     ].filter(Boolean)
     for (const k of keys) {
+      const srv = serverProgress[k]
+      if (srv && (!best || (srv.updatedAt || 0) > (best.updatedAt || 0))) best = srv
       try {
         const raw = localStorage.getItem('paper-reader-reading:' + k) || sessionStorage.getItem('paper-reader-reading:' + k)
         if (raw) {
           const parsed = JSON.parse(raw)
-          if (parsed && typeof parsed === 'object') return parsed
+          if (parsed && typeof parsed === 'object' && (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0))) {
+            best = parsed
+          }
         }
       } catch {}
     }
-    return null
-  }, [])
+    return best
+  }, [serverProgress])
 
   const progressMap = useMemo(() => {
     const map = {}
@@ -319,6 +333,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
         )
       ),
       h('div', { className: 'rr-headerActions' },
+        button('云同步', () => setCloudSyncOpen(true), 'rr-buttonQuiet', { title: '配置轻量云服务器并同步书库、进度与笔记' }),
         button(icon('refresh', 16), loadLibrary, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '刷新文献库', title: '刷新文献库' }),
         button(h(React.Fragment, null, icon('close', 15), '退出'), onClose, 'rr-buttonQuiet')
       )
@@ -604,6 +619,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
     toast ? h('div', { className: 'rr-toastBox' }, icon('check', 16), h('span', null, toast)) : null,
     renameModal ? h(RenameDocModal, { targetId: renameModal.targetId, currentName: renameModal.currentName, onClose: () => setRenameModal(null), onRenamed: newName => handleDocRenamed(renameModal.targetId, newName) }) : null,
     assignModal ? h(FolderAssignModal, { ...assignModal, folders, onClose: () => setAssignModal(null), onSave: folderId => handleSaveAssign(assignModal.targetId, folderId), onCreateFolder: onFolderCreated }) : null,
-    createFolderModalOpen ? h(CreateFolderModal, { onClose: () => setCreateFolderModalOpen(false), onCreated: onFolderCreated }) : null
+    createFolderModalOpen ? h(CreateFolderModal, { onClose: () => setCreateFolderModalOpen(false), onCreated: onFolderCreated }) : null,
+    cloudSyncOpen ? h(CloudSyncModal, { onClose: () => setCloudSyncOpen(false), onSynced: loadLibrary }) : null
   )
 }

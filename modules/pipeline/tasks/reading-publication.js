@@ -18,6 +18,12 @@ import {
 import { buildPublication, commitPublication } from '../publication.js'
 import { assertPhaseApproved } from '../phases.js'
 import { exists, atomic, json, walk } from './shared.js'
+import {
+  readCloudSyncConfig,
+  saveCloudSyncConfig,
+  publicSyncStatus,
+  syncWithCloud,
+} from '../sync.js'
 
 export async function runDeliveryStage(manager, t, stage, options = {}) {
   if (stage === 'review') {
@@ -708,5 +714,27 @@ export const readingPublicationMethods = {
       t.message = '已发布，文献已可阅读'
       return this.save(t)
     })
+  },
+
+  async getReadingProgress(documentId) {
+    if (documentId) return { entry: await this.progressStore.get(documentId) }
+    return { items: await this.progressStore.list() }
+  },
+
+  async saveReadingProgress(args) {
+    return this.progressStore.put(args ?? {}, { force: args?.force === true })
+  },
+
+  async cloudSyncStatus() {
+    const config = await readCloudSyncConfig(this.root)
+    return publicSyncStatus(config)
+  },
+
+  async saveCloudSync(args) {
+    return saveCloudSyncConfig(this.root, args ?? {})
+  },
+
+  async syncCloud(args = {}) {
+    return this.locked('cloud-sync', () => syncWithCloud(this, args))
   },
 }

@@ -39,7 +39,7 @@ export function quoteSlices(blocks, selector){
 }
 export class BookmarkStore {
   constructor(file){this.file=file;this.queue=Promise.resolve()}
-  async read(){try{const value=JSON.parse(await fs.readFile(this.file,'utf8'));if(value.schemaVersion!==1||!Array.isArray(value.bookmarks))throw new Error();return value}catch(e){if(e.code==='ENOENT')return{schemaVersion:1,documents:{},bookmarks:[]};throw new Error('书签数据格式异常，保留原文件')}}
+  async read(){try{const value=JSON.parse(await fs.readFile(this.file,'utf8'));if(value.schemaVersion!==1||!Array.isArray(value.bookmarks))throw new Error();return value}catch(e){if(e.code==='ENOENT')return{schemaVersion:1,documents:{},bookmarks:[],highlights:[],deleted:[]};throw new Error('书签数据格式异常，保留原文件')}}
   async change(fn){const job=this.queue.catch(()=>{}).then(async()=>{const state=await this.read(),value=await fn(state);await fs.mkdir(path.dirname(this.file),{recursive:true});const temp=this.file+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,JSON.stringify(state,null,2)+'\n',{mode:0o600,flag:'wx'});await fs.rename(temp,this.file)}finally{await fs.unlink(temp).catch(()=>{})}return value});this.queue=job;return job}
   async add(document,args){return this.change(state=>{
     const located=locateSelection(document,args.selection??{}),now=new Date().toISOString(),mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,comment:String(args.comment??'').slice(0,8000),tags:Array.isArray(args.tags)?args.tags.filter(x=>typeof x==='string').map(x=>x.slice(0,80)).slice(0,30):[],selector:located.selector,createdAt:now,updatedAt:now}
@@ -56,11 +56,22 @@ export class BookmarkStore {
     const now=new Date().toISOString(),mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,selector:located.selector,createdAt:now,updatedAt:now}
     state.highlights.push(mark);return mark
   })}
-  async removeHighlight(id){return this.change(state=>{const rows=Array.isArray(state.highlights)?state.highlights:[];const next=rows.filter(h=>h.id!==id);if(Array.isArray(state.highlights))state.highlights=next;return{removed:next.length!==rows.length}})}
+  async removeHighlight(id){return this.change(state=>{const rows=Array.isArray(state.highlights)?state.highlights:[];const next=rows.filter(h=>h.id!==id);if(Array.isArray(state.highlights))state.highlights=next;const removed=next.length!==rows.length;if(removed){state.deleted=Array.isArray(state.deleted)?state.deleted.filter(d=>d.id!==id):[];state.deleted.push({id,kind:'highlight',deletedAt:new Date().toISOString()})}return{removed}})}
   async muteHighlight(id){return this.change(state=>{const hit=state.bookmarks.find(b=>b.id===id);if(!hit)return{muted:false};hit.highlight=false;hit.updatedAt=new Date().toISOString();return{muted:true}})}
   async highlights({documentId=''}={}){const state=await this.read(),rows=Array.isArray(state.highlights)?state.highlights:[];return rows.filter(h=>!documentId||h.documentId===documentId).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}
-  async remove(id){return this.change(state=>{const before=state.bookmarks.length;state.bookmarks=state.bookmarks.filter(b=>b.id!==id);return{removed:state.bookmarks.length!==before}})}
+  async remove(id){return this.change(state=>{const before=state.bookmarks.length;state.bookmarks=state.bookmarks.filter(b=>b.id!==id);const removed=state.bookmarks.length!==before;if(removed){state.deleted=Array.isArray(state.deleted)?state.deleted.filter(d=>d.id!==id):[];state.deleted.push({id,kind:'bookmark',deletedAt:new Date().toISOString()})}return{removed}})}
   async list({documentId='',q=''}={}){const state=await this.read(),needle=String(q).toLocaleLowerCase();return state.bookmarks.filter(b=>(!documentId||b.documentId===documentId)&&(!needle||[b.quote,b.comment,...b.tags,state.documents[b.documentId]?.title].join(' ').toLocaleLowerCase().includes(needle))).map(b=>({...b,document:state.documents[b.documentId]})).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))}
+  async exportState(){const state=await this.read();return{schemaVersion:1,documents:state.documents??{},bookmarks:state.bookmarks??[],highlights:Array.isArray(state.highlights)?state.highlights:[],deleted:Array.isArray(state.deleted)?state.deleted:[]}}
+  async mergeState(remote){if(!remote||typeof remote!=='object')return{merged:0};return this.change(state=>{
+    state.documents=state.documents??{};state.bookmarks=state.bookmarks??[];state.highlights=Array.isArray(state.highlights)?state.highlights:[];state.deleted=Array.isArray(state.deleted)?state.deleted:[]
+    const delMap=new Map();for(const d of [...state.deleted,...(Array.isArray(remote.deleted)?remote.deleted:[])]){if(!d?.id)continue;const prev=delMap.get(d.id);if(!prev||String(d.deletedAt??'').localeCompare(String(prev.deletedAt??''))>0)delMap.set(d.id,d)}
+    const mergeRows=(localRows,remoteRows)=>{const map=new Map();for(const item of [...localRows,...(Array.isArray(remoteRows)?remoteRows:[])]){if(!item?.id)continue;const stamp=String(item.updatedAt??item.createdAt??'');const del=delMap.get(item.id);if(del&&String(del.deletedAt??'').localeCompare(stamp)>=0)continue;const prev=map.get(item.id);if(!prev||stamp.localeCompare(String(prev.updatedAt??prev.createdAt??''))>0)map.set(item.id,item)}return [...map.values()]}
+    const beforeCount=state.bookmarks.length+state.highlights.length+state.deleted.length
+    for(const [docId,docMeta]of Object.entries(remote.documents??{})){const prev=state.documents[docId];if(!prev||String(docMeta?.updatedAt??'').localeCompare(String(prev.updatedAt??''))>0)state.documents[docId]=docMeta}
+    state.bookmarks=mergeRows(state.bookmarks,remote.bookmarks);state.highlights=mergeRows(state.highlights,remote.highlights);state.deleted=[...delMap.values()].slice(-2000)
+    const afterCount=state.bookmarks.length+state.highlights.length+state.deleted.length
+    return{merged:Math.abs(afterCount-beforeCount),bookmarks:state.bookmarks.length,highlights:state.highlights.length}
+  })}
 }
 export function exportBookmarks(bookmarks,format='json'){
  if(format==='json')return JSON.stringify({schemaVersion:1,exportedAt:new Date().toISOString(),bookmarks},null,2)+'\n'

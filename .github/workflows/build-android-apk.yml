@@ -1,0 +1,54 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mobile-app/**'
+      - '.github/workflows/build-android-apk.yml'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Capacitor & generate Android project
+        working-directory: mobile-app
+        run: |
+          npm install
+          npx cap add android
+          cp native-android/ReaderNativePlugin.java android/app/src/main/java/com/dsh/paperreader/
+          cp native-android/MainActivity.java android/app/src/main/java/com/dsh/paperreader/
+          node -e '
+            const fs = require("fs");
+            const file = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(file, "utf8");
+            if (!xml.includes("usesCleartextTraffic")) {
+              xml = xml.replace("<application", "<application android:usesCleartextTraffic=\"true\"");
+              fs.writeFileSync(file, xml);
+            }
+          '
+          npx cap sync android
+
+      - name: Build Debug APK
+        working-directory: mobile-app/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSH-Paper-Reader-APK
+          path: mobile-app/android/app/build/outputs/apk/debug/app-debug.apk

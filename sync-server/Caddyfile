@@ -1,0 +1,5 @@
+# 将 reader.example.com 替换为你的域名
+reader.example.com {
+    encode gzip zstd
+    reverse_proxy paper-reader-sync:4180
+}
