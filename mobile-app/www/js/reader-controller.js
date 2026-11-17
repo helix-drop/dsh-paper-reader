@@ -108,6 +108,9 @@ export class ReaderController {
     if (!local || (remote.updatedAt > (local.updatedAt || 0) && remote.blockId !== local.blockId)) {
       if (!local) {
         this.pendingBlockId = remote.blockId
+        if (remote.view && ['original', 'translation', 'bilingual'].includes(remote.view)) {
+          this.viewMode = remote.view
+        }
         this.renderBlocks()
       } else {
         this.syncBanner = remote

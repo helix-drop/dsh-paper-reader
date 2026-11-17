@@ -128,7 +128,21 @@ async function openBook(taskId, blockId = '', view = '') {
 }
 
 function progressForDoc(doc) {
-  return state.progress[doc.documentId] || state.progress[doc.id] || null
+  if (!doc) return null
+  const keys = [
+    doc.documentId,
+    doc.id,
+    doc.id ? `document:${doc.id}` : null,
+    doc.documentId?.startsWith('document:') ? doc.documentId.slice(9) : null,
+  ].filter(Boolean)
+  let best = null
+  for (const k of keys) {
+    const entry = state.progress[k]
+    if (entry && (!best || (entry.updatedAt || 0) > (best.updatedAt || 0))) {
+      best = entry
+    }
+  }
+  return best
 }
 
 function renderShelf() {

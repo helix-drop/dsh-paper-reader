@@ -260,6 +260,23 @@ test('PC TaskManager <-> Cloud Sync Server end-to-end bidirectional sync (books,
     assert.equal(pcProg.entry.deviceName, '汉王N10')
     assert.equal(pcProg.entry.percent, 65)
 
+    // Batch progress migration via { items: [...] } preserves newer entries and merges older missing ones
+    const batchRes = await fetch(`${pcUrl}/api/paper-reader/pipeline/progress`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        items: [
+          { documentId: cloudReading.documentId, percent: 10, updatedAt: 1000, deviceName: 'Old Local' },
+          { documentId: 'document:migrated-book', percent: 42, updatedAt: Date.now(), deviceName: 'PC DSH' },
+        ],
+      }),
+    })
+    const batchJson = await batchRes.json()
+    assert.equal(batchRes.status, 200)
+    assert.equal(batchJson.merged, 1)
+    assert.equal(batchJson.items[cloudReading.documentId].percent, 65)
+    assert.equal(batchJson.items['document:migrated-book'].percent, 42)
+
     const pcBookmarks = await (await fetch(`${pcUrl}/api/paper-reader/pipeline/bookmarks`)).json()
     assert.equal(pcBookmarks.bookmarks.length, 1)
     assert.equal(pcBookmarks.bookmarks[0].comment, '手机端批注')

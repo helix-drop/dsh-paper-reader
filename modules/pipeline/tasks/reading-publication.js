@@ -725,8 +725,13 @@ export const readingPublicationMethods = {
   },
 
   async saveReadingProgress(args) {
+    if (Array.isArray(args?.items)) {
+      const res = await this.progressStore.merge(args.items)
+      if (res?.merged > 0) this.scheduleBackgroundSync?.(3000, 'progress')
+      return res
+    }
     const res = await this.progressStore.put(args ?? {}, { force: args?.force === true })
-    if (res?.saved) this.scheduleBackgroundSync?.(8000, 'progress')
+    if (res?.saved) this.scheduleBackgroundSync?.(3000, 'progress')
     return res
   },
 

@@ -43,13 +43,66 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
       ])
       const v = await r.json()
       if (!r.ok) throw new Error(v.error ?? '文献库加载失败')
-      setDocuments(v.documents ?? [])
+      const docs = v.documents ?? []
+      setDocuments(docs)
       if (v.folders) setFolders(v.folders)
       if (v.meta) setItemMeta(v.meta)
+      let srvItems = {}
       if (pr?.ok) {
         const pv = await pr.json().catch(() => null)
-        if (pv?.items) setServerProgress(pv.items)
+        if (pv?.items) {
+          srvItems = pv.items
+          setServerProgress(pv.items)
+        }
       }
+      // Migrate historical localStorage reading progress to backend store so cloud sync picks up all books
+      try {
+        const toMigrate = []
+        for (const d of docs) {
+          const keys = [
+            d.documentId,
+            d.id,
+            d.id ? 'document:' + d.id : null,
+            d.documentId && d.documentId.startsWith('document:') ? d.documentId.slice(9) : null,
+          ].filter(Boolean)
+          let localBest = null
+          let srvBest = null
+          for (const k of keys) {
+            const s = srvItems[k]
+            if (s && (!srvBest || (s.updatedAt || 0) > (srvBest.updatedAt || 0))) srvBest = s
+            try {
+              const raw = localStorage.getItem('paper-reader-reading:' + k) || sessionStorage.getItem('paper-reader-reading:' + k)
+              if (raw) {
+                const p = JSON.parse(raw)
+                if (p && typeof p === 'object') {
+                  const pTime = Number(p.updatedAt) || 1
+                  if (!localBest || pTime > (Number(localBest.updatedAt) || 1)) localBest = { ...p, updatedAt: pTime }
+                }
+              }
+            } catch {}
+          }
+          if (localBest && (!srvBest || localBest.updatedAt > (Number(srvBest.updatedAt) || 0))) {
+            toMigrate.push({
+              ...localBest,
+              documentId: d.documentId || ('document:' + d.id),
+              taskId: localBest.taskId || d.id,
+              title: localBest.title || d.name,
+              deviceName: localBest.deviceName || 'PC DSH',
+            })
+          }
+        }
+        if (toMigrate.length) {
+          const mr = await fetch('/api/paper-reader/pipeline/progress', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ items: toMigrate }),
+          })
+          if (mr.ok) {
+            const mv = await mr.json().catch(() => null)
+            if (mv?.items) setServerProgress(mv.items)
+          }
+        }
+      } catch {}
     } catch (e) {
       setFailure(e.message)
     }
