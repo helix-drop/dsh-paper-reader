@@ -1,0 +1,712 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { fileDigest } from '../source-map.js'
+import { enrichReading, replaceBlock } from '../reader.js'
+import { isTraditionalChinese, convertHantToHansMarkdown } from '../zh-convert.js'
+import { attachPdfLocations } from '../pdf-location.js'
+import { hash, markdownBlocks, checkMarkdownPair } from '../markdown.js'
+import { quoteSlices } from '../bookmarks.js'
+import { requireBookGlossary, registerJointReview } from '../glossary.js'
+import {
+  prepareReviewAudit,
+  assembleReviewAudit,
+  applyReviewAudit,
+  runAgyReviewAudit,
+  isAgyCliModel,
+} from '../review-audit.js'
+import { buildPublication, commitPublication } from '../publication.js'
+import { assertPhaseApproved } from '../phases.js'
+import { exists, atomic, json, walk } from './shared.js'
+
+export async function runDeliveryStage(manager, t, stage, options = {}) {
+  if (stage === 'review') {
+    await manager.requireDone(t, 'translationCheck')
+    const report = path.join(manager.dir(t.id), 'review/report.md')
+    let reportContent = ''
+    try { reportContent = await fs.readFile(report, 'utf8') } catch {}
+    if (
+      !reportContent
+      || options.runAgy === true
+      || options.sessionOrchestrated === true
+      || (manager.modelService && t.reviewAudit && t.review?.status === 'needs-work')
+    ) {
+      await runAgyReviewAudit(manager, t, options)
+    }
+    await registerJointReview(manager, t, report)
+    return true
+  }
+
+  if (stage === 'publish') {
+    await manager.requireDone(t, 'translationCheck', 'review')
+    t.publication = await manager.publishPreview(t)
+    return true
+  }
+
+  return false
+}
+
+export const readingPublicationMethods = {
+  async original(t) {
+    if (t.sourceRevision) {
+      const r = t.sourceRevision
+      if (
+        !r.record.startsWith(this.dir(t.id) + path.sep)
+        || await fileDigest(r.record) !== r.recordFingerprint
+        || await fileDigest(r.path) !== r.sourceFingerprint
+      ) {
+        throw new Error('原文修订记录或文件发生变化，请重新核验')
+      }
+      const saved = await json(r.record)
+      if (
+        saved.path !== r.path
+        || saved.sourceFingerprint !== r.sourceFingerprint
+        || saved.originalFingerprint !== r.originalFingerprint
+        || !r.path.startsWith(this.dir(t.id) + path.sep)
+        || await fileDigest(saved.baseSource) !== saved.baseFingerprint
+      ) {
+        throw new Error('原文修订来源不一致')
+      }
+      return r.path
+    }
+    if (t.legacy?.artifacts?.original) return t.legacy.artifacts.original
+    if (t.input.type === 'markdown') return t.path
+
+    const files = await walk(path.join(this.aiDir(t), 'book'), /\.md$/, 4)
+    const full = files.filter(f => /-full\.md$/.test(f))
+    if (full.length > 1) throw new Error('存在多份整书原文，须先核实来源')
+    if (full.length === 1) return full[0]
+
+    const chapters = (await walk(path.join(this.aiDir(t), 'chapters'), /\.md$/, 1))
+      .filter(f => !/[.]review-[a-f0-9]{64}[.]md$/.test(f))
+    if (t.kind !== 'book' && t.kind !== 'collection' && chapters.length === 1) return chapters[0]
+    throw new Error('尚无经过装配的原文 Markdown')
+  },
+
+  async requireGlossary(t) {
+    return requireBookGlossary(this, t)
+  },
+
+  async requireGlossaryForPublish(t) {
+    const receipt = path.join(this.dir(t.id), 'glossary/pipeline-receipt.json')
+    if (await exists(receipt) || t.glossaryReport?.schemaVersion === 4) {
+      return this.requireGlossary(t)
+    }
+    if (
+      t.stages?.glossary?.state === 'done'
+      && t.review?.status === 'pass'
+      && await exists(path.join(this.dir(t.id), 'glossary.json'))
+    ) {
+      return null
+    }
+    return this.requireGlossary(t)
+  },
+
+  async prepareReviewAudit(id, options = {}) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      assertPhaseApproved(t, 'review')
+      t.reviewAudit = await prepareReviewAudit(this, t, options)
+      const v = await assembleReviewAudit(this, t, { auditDir: t.reviewAudit.auditDir })
+      const now = new Date().toISOString()
+      const isAgy = isAgyCliModel(t.reviewConfig?.orchestratorModel)
+      const prev = t.reviewProgress ?? {}
+
+      t.stage = 'review'
+      t.reviewProgress = {
+        ...prev,
+        engine: isAgy ? 'agy-bridge' : 'dsh-session',
+        phase: 'session-review',
+        status: v.complete && !v.unresolved?.length ? 'done' : 'running',
+        runId: prev.engine === 'dsh-session' && prev.runId ? prev.runId : randomUUID(),
+        totalPackets: t.reviewAudit.totalPackets,
+        completedPackets: v.completed,
+        receivedPackets: v.completed,
+        passedPackets: t.reviewAudit.totalPackets - (t.reviewAudit.pendingPackets?.length ?? 0),
+        model: t.reviewConfig?.orchestratorModel ?? t.phaseApproval?.orchestratorModel ?? null,
+        startedAt: prev.engine === 'dsh-session' && prev.startedAt ? prev.startedAt : now,
+        lastInteractionAt: now,
+      }
+      if (!isAgy) {
+        delete t.reviewProgress.conversationId
+        delete t.reviewProgress.childConversations
+        delete t.reviewProgress.logFile
+        delete t.reviewProgress.pid
+      }
+      await this.save(t)
+      return t.reviewAudit
+    })
+  },
+
+  async assembleReviewAudit(id, options = {}) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      assertPhaseApproved(t, 'review')
+      const v = await assembleReviewAudit(this, t, options)
+      const now = new Date().toISOString()
+      const isAgy = isAgyCliModel(t.reviewConfig?.orchestratorModel)
+      const pending = t.reviewAudit?.manifest
+        ? t.reviewAudit.manifest
+          .filter(p => !v.validPackets.includes(p.id) || v.unresolved.some(u => u.packet === p.id))
+          .map(p => p.id)
+        : []
+      if (t.reviewAudit && pending.length >= 0) t.reviewAudit.pendingPackets = pending
+
+      t.reviewProgress = {
+        ...(t.reviewProgress ?? {}),
+        engine: isAgy ? 'agy-bridge' : 'dsh-session',
+        phase: 'session-review',
+        status: v.complete && !v.unresolved?.length ? 'done' : t.reviewProgress?.status ?? 'running',
+        totalPackets: v.total,
+        completedPackets: v.completed,
+        receivedPackets: v.completed,
+        passedPackets: v.total - pending.length,
+        patchCount: v.patchCount,
+        glossaryDecisionCount: v.glossaryDecisionCount,
+        lastInteractionAt: now,
+      }
+      if (!isAgy) {
+        delete t.reviewProgress.conversationId
+        delete t.reviewProgress.childConversations
+        delete t.reviewProgress.logFile
+        delete t.reviewProgress.pid
+      }
+      await this.save(t)
+      return v
+    })
+  },
+
+  async applyReviewAudit(id, options = {}) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      assertPhaseApproved(t, 'review')
+      const v = await applyReviewAudit(this, t, options)
+      await this.save(t)
+      return v
+    })
+  },
+
+  async runAgyReviewAudit(id, options = {}) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      assertPhaseApproved(t, 'review')
+      const v = await runAgyReviewAudit(this, t, {
+        ...options,
+        model: t.reviewConfig.orchestratorModel,
+        effort: t.reviewConfig.orchestratorEffort,
+      })
+      await this.save(t)
+      return v
+    })
+  },
+
+  async bookmarkDocument(source, view = 'original') {
+    if (source?.kind === 'task') {
+      const t = await this.get(source.id)
+      const doc = await this.reading(t.id)
+      return {
+        id: t.documentId ?? 'document:' + t.input.fingerprint,
+        title: t.name,
+        kind: t.kind,
+        source: { kind: 'task', id: t.id },
+        version: doc.version ?? hash(doc.fingerprint + '|' + (t.translationReport?.targetFingerprint ?? '')),
+        blocks: doc.standaloneView === 'translation'
+          ? (view === 'original' ? (doc.originalBlocks ?? []) : doc.blocks.map(b => ({ ...b, translation: b.text })))
+          : doc.blocks,
+      }
+    }
+    if (source?.kind !== 'paper' || typeof source.id !== 'string' || !/^[\w.\-一-鿿]+\.json$/u.test(source.id)) {
+      throw new Error('书签文档无效')
+    }
+    const file = await fs.realpath(path.join(this.readingRoot, source.id))
+    const base = await fs.realpath(this.readingRoot)
+    if (!file.startsWith(base + path.sep)) throw new Error('书签文档路径无效')
+    const raw = await fs.readFile(file, 'utf8')
+    const doc = JSON.parse(raw)
+    if (doc.status !== 'done') throw new Error('此文档尚未完成处理')
+    return {
+      id: 'paper:' + String(doc.id ?? source.id),
+      title: doc.title?.zh ?? doc.title?.source ?? doc.id,
+      kind: 'paper',
+      source: { kind: 'paper', id: source.id },
+      version: hash(raw),
+      blocks: (doc.blocks ?? []).map(b => ({
+        id: String(b.id),
+        text: b.source ?? b.text,
+        translation: b.text,
+      })),
+    }
+  },
+
+  async bookmarks(query = {}) {
+    const saved = await this.bookmarkStore.list(query)
+    const ids = new Set(saved.map(b => b.id))
+    await this.ensureIndex()
+    const summaries = await this.index.summaries()
+
+    for (const t of summaries) {
+      for (const b of t.bookmarks ?? []) {
+        const documentId = t.documentId ?? 'document:' + t.input.fingerprint
+        if (ids.has(b.id)) continue
+        if (query.documentId && query.documentId !== documentId) continue
+        if (query.q && ![b.excerpt, b.note, t.name].join(' ').toLowerCase().includes(query.q.toLowerCase())) {
+          continue
+        }
+        saved.push({
+          ...b,
+          documentId,
+          source: { kind: 'task', id: t.id },
+          document: { id: documentId, title: t.name, kind: t.kind },
+          quote: b.excerpt,
+          comment: b.note,
+          tags: [],
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+          selector: {
+            type: 'LegacyBlockSelector',
+            startBlockId: b.blockId,
+            endBlockId: b.blockId,
+            view: 'original',
+          },
+        })
+      }
+    }
+
+    const migrated = (await this.list()).filter(t => t.paperImport)
+    for (const b of saved) {
+      if (b.source?.kind === 'paper') {
+        const t = migrated.find(item => item.paperImport.file === b.source.id)
+        if (t) b.source = { kind: 'task', id: t.id }
+      }
+    }
+    const names = new Map(summaries.map(t => [t.id, t]))
+    for (const b of saved) {
+      if (b.source?.kind === 'task' && names.has(b.source.id)) {
+        const t = names.get(b.source.id)
+        b.document = { ...b.document, title: t.name, kind: t.kind }
+      }
+    }
+    return saved.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  },
+
+  async readingMarks(source) {
+    const doc = await this.bookmarkDocument(source, 'original')
+    const [highlights, bookmarks] = await Promise.all([
+      this.bookmarkStore.highlights({ documentId: doc.id }),
+      this.bookmarkStore.list({ documentId: doc.id }),
+    ])
+    const marks = []
+    const push = (item, kind) => {
+      if (item.selector?.type !== 'TextQuoteSelector') return
+      for (const slice of quoteSlices(doc.blocks, item.selector)) {
+        marks.push({
+          id: item.id,
+          kind,
+          view: item.selector.view === 'translation' ? 'translation' : 'original',
+          blockId: slice.blockId,
+          quote: slice.quote,
+          exact: item.quote,
+          comment: item.comment ?? '',
+        })
+      }
+    }
+    for (const item of highlights) push(item, 'highlight')
+    for (const item of bookmarks) {
+      if (item.highlight !== false) push(item, 'bookmark')
+    }
+    return marks
+  },
+
+  async saveSelectionBookmark(args) {
+    if (args.muteHighlight) return this.bookmarkStore.muteHighlight(args.muteHighlight)
+    if (args.removeHighlight) return this.bookmarkStore.removeHighlight(args.removeHighlight)
+    if (args.remove) {
+      const hit = (await this.bookmarks()).find(b => b.id === args.remove)
+      if (hit?.selector.type === 'LegacyBlockSelector') {
+        return this.bookmark(hit.source.id, { remove: args.remove })
+      }
+      return this.bookmarkStore.remove(args.remove)
+    }
+    const doc = await this.bookmarkDocument(args.source, args.selection?.view)
+    return args.highlightOnly
+      ? this.bookmarkStore.addHighlight(doc, args)
+      : this.bookmarkStore.add(doc, args)
+  },
+
+  async baseReading(id) {
+    const t = await this.get(id)
+    if (t.legacy) {
+      const f = t.legacy.artifacts.readingPath
+      if (!f) throw new Error('此书尚无可阅读的装配成果')
+      const text = await fs.readFile(f, 'utf8')
+      if (hash(text) !== t.legacy.readingFingerprint) {
+        throw new Error('旧成品已变化，先重新扫描原项目再阅读')
+      }
+      const isTranslation = Boolean(t.legacy.artifacts.translation && f !== t.legacy.artifacts.original)
+      const blocks = markdownBlocks(text)
+      const source = t.legacy.artifacts.original
+        ? await fs.readFile(t.legacy.artifacts.original, 'utf8')
+        : null
+      const originalBlocks = source ? markdownBlocks(source) : null
+      if (t.paperImport && source && hash(source) !== t.input.fingerprint) {
+        throw new Error('论文原文快照已变化，保留修订并核验快照')
+      }
+      const bookmarkBlocks = [
+        ...new Map(
+          [
+            ...(originalBlocks ?? []),
+            ...(isTranslation ? blocks.map(b => ({ ...b, translation: b.text })) : blocks),
+          ].map(b => [b.id, b]),
+        ).values(),
+      ]
+      return {
+        id,
+        title: t.name,
+        fingerprint: hash(text),
+        blocks,
+        originalBlocks,
+        version: hash(text + '|' + (source ?? '')),
+        bookmarkBlocks,
+        standaloneView: isTranslation ? 'translation' : 'original',
+        bookmarks: t.bookmarks ?? [],
+      }
+    }
+
+    const file = await this.original(t)
+    const source = await fs.readFile(file, 'utf8')
+    const blocks = markdownBlocks(source)
+    const translated = t.translationPath ? await fs.readFile(t.translationPath, 'utf8') : ''
+    const translation = (
+      t.translationReport?.passed
+      && t.translationReport.sourceFingerprint === hash(source)
+      && t.translationReport.targetFingerprint === hash(translated)
+    ) ? markdownBlocks(translated) : []
+    return {
+      id,
+      title: t.name,
+      fingerprint: hash(source),
+      blocks: blocks.map((b, i) => ({ ...b, translation: translation[i]?.text })),
+      bookmarks: t.bookmarks.map(b => ({ ...b, stale: !blocks.some(block => block.id === b.blockId) })),
+    }
+  },
+
+  zhConvertCacheFile(sourceHash) {
+    return path.join(this.root, '.pipeline/zh-convert', sourceHash + '.md')
+  },
+
+  async convertedZhTranslation(sourceText, { generate = false } = {}) {
+    if (!sourceText) return null
+    const file = this.zhConvertCacheFile(hash(sourceText))
+    try {
+      return await fs.readFile(file, 'utf8')
+    } catch {}
+    if (!generate) return null
+    const converted = await convertHantToHansMarkdown(sourceText)
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    const tmp = `${file}.${randomUUID()}.tmp`
+    try {
+      await fs.writeFile(tmp, converted, { mode: 0o600 })
+      await fs.rename(tmp, file)
+    } finally {
+      await fs.unlink(tmp).catch(() => {})
+    }
+    return converted
+  },
+
+  async convertTraditionalToSimplified(id, args = {}) {
+    return this.locked(id, async () => {
+      const enabled = args.enabled !== false
+      const t = await this.get(id)
+      const base = await this.baseReading(id)
+      const hasExternal = t.legacy
+        ? Boolean(t.legacy.artifacts.translation && t.legacy.artifacts.readingPath !== t.legacy.artifacts.original)
+        : base.blocks.some(b => b.translation)
+      if (hasExternal) throw new Error('此文档已有译文，无需繁简转换')
+
+      if (enabled) {
+        const original = t.legacy
+          ? t.legacy.artifacts.original ?? t.legacy.artifacts.readingPath
+          : await this.original(t)
+        const source = original ? await fs.readFile(original, 'utf8') : ''
+        if (!isTraditionalChinese(source)) {
+          throw new Error('当前文档不是繁体中文，暂不能进行繁简转换')
+        }
+        const converted = await this.convertedZhTranslation(source, { generate: true })
+        t.zhConvert = {
+          enabled: true,
+          target: 'hans',
+          sourceFingerprint: hash(source),
+          targetFingerprint: hash(converted),
+          updatedAt: new Date().toISOString(),
+        }
+      } else {
+        delete t.zhConvert
+      }
+      await this.save(t)
+      return this.reading(id)
+    })
+  },
+
+  async readingTexts(t, base) {
+    const original = t.legacy
+      ? t.legacy.artifacts.original ?? t.legacy.artifacts.readingPath
+      : await this.original(t)
+    const target = t.legacy
+      ? (t.legacy.artifacts.translation && t.legacy.artifacts.readingPath !== original
+        ? t.legacy.artifacts.readingPath
+        : null)
+      : (base.blocks.some(b => b.translation) ? t.translationPath : null)
+    const source = original ? await fs.readFile(original, 'utf8') : null
+    let translation = target ? await fs.readFile(target, 'utf8') : null
+    let zhConverted = false
+    if (!translation && t.zhConvert?.enabled && source) {
+      translation = await this.convertedZhTranslation(source, { generate: true })
+      zhConverted = Boolean(translation)
+    }
+    return { source, translation, original, target, zhConverted }
+  },
+
+  async correctionContext(t) {
+    const base = await this.baseReading(t.id)
+    const texts = await this.readingTexts(t, base)
+    const baseVersion = hash((texts.source ?? '') + '|' + (texts.translation ?? ''))
+    const directory = path.join(this.root, '.pipeline/documents', hash(t.documentId))
+    const manifest = path.join(directory, baseVersion + '.json')
+    const record = await json(manifest, null)
+
+    if (record) {
+      for (const view of ['original', 'translation']) {
+        const textKey = view === 'original' ? 'source' : 'translation'
+        if (typeof record.texts?.[view] === 'string') {
+          texts[textKey] = record.texts[view]
+          continue
+        }
+        const f = record.storageVersion === 2 ? null : record.files?.[view]
+        if (f) {
+          if (path.basename(f) !== f) throw new Error('修订记录路径异常')
+          texts[textKey] = await fs.readFile(path.join(directory, f), 'utf8')
+        }
+      }
+    }
+    return { base, texts, directory, manifest, record, baseVersion }
+  },
+
+  async reading(id) {
+    const t = await this.get(id)
+    const ctx = await this.correctionContext(t)
+    const { base, texts, record } = ctx
+    let doc = base
+
+    if (texts.zhConverted) {
+      const blocks = markdownBlocks(texts.source)
+      const target = texts.translation ? markdownBlocks(texts.translation) : []
+      doc = {
+        ...base,
+        standaloneView: undefined,
+        originalBlocks: null,
+        bookmarkBlocks: undefined,
+        blocks: blocks.map((b, i) => ({ ...b, translation: target[i]?.text })),
+        version: hash((texts.source ?? '') + '|' + (texts.translation ?? '')),
+      }
+    } else if (record) {
+      if (base.standaloneView) {
+        doc = {
+          ...base,
+          blocks: markdownBlocks(base.standaloneView === 'translation' ? texts.translation : texts.source),
+          originalBlocks: texts.source ? markdownBlocks(texts.source) : null,
+          version: hash((texts.source ?? '') + '|' + (texts.translation ?? '')),
+        }
+      } else {
+        const blocks = markdownBlocks(texts.source)
+        const target = texts.translation ? markdownBlocks(texts.translation) : []
+        doc = {
+          ...base,
+          blocks: blocks.map((b, i) => ({ ...b, translation: target[i]?.text })),
+          version: hash(texts.source + '|' + (texts.translation ?? '')),
+        }
+      }
+    }
+
+    if (t.paperImport) {
+      const src = doc.originalBlocks ?? []
+      const ids = t.paperImport.blockIds
+      doc = {
+        ...doc,
+        documentId: t.documentId,
+        metadata: t.paperImport.metadata,
+        glossary: t.paperImport.glossary,
+        importWarnings: t.paperImport.warnings,
+        explicitPairs: src.length === doc.blocks.length && src.length === ids.length,
+        blockAliases: {
+          original: Object.fromEntries(ids.map((itemId, i) => [itemId, src[i]?.id])),
+          translation: Object.fromEntries(ids.map((itemId, i) => [itemId, doc.blocks[i]?.id])),
+        },
+      }
+    }
+
+    if (t.glossaryReport?.schemaVersion === 4 && t.glossaryReport.cleaningCompleted === true) {
+      const file = path.join(this.dir(t.id), 'glossary.json')
+      const terms = await json(file, [])
+      if (hash(await fs.readFile(file)) === t.glossaryReport.effectiveFingerprint) {
+        doc = {
+          ...doc,
+          glossary: terms.map(e => ({ source: e.src, target: e.dst, note: e.info })),
+        }
+      }
+    }
+
+    const zhConvertEligible = !texts.translation && !texts.zhConverted && isTraditionalChinese(texts.source ?? '')
+    return attachPdfLocations(
+      this,
+      t,
+      enrichReading({
+        ...doc,
+        kind: t.kind,
+        documentId: t.documentId,
+        zhConverted: Boolean(texts.zhConverted),
+        zhConvertEligible,
+        version: hash((texts.source ?? '') + '|' + (texts.translation ?? '')),
+        correctionCount: record?.revisions?.length ?? 0,
+        correctionReview: record?.structuralCheck ?? null,
+      }),
+    )
+  },
+
+  async correctReading(id, args) {
+    const t = await this.get(id)
+    return this.locked('correction:' + t.documentId, async () => {
+      if (this.active.has(id)) throw new Error('任务正在处理，暂不能保存勘误')
+      if (!['original', 'translation'].includes(args.view)) throw new Error('编辑文本类型无效')
+
+      const current = await this.reading(id)
+      if (current.version !== args.version) {
+        throw new Error('文档已由另一窗口修改，请重新打开后保存')
+      }
+      const ctx = await this.correctionContext(t)
+      const key = args.view === 'original' ? 'source' : 'translation'
+      const text = ctx.texts[key]
+      if (text === null) throw new Error('此文档没有对应文本')
+
+      let blockId = args.blockId
+      if (!current.standaloneView && args.view === 'translation') {
+        const i = current.blocks.findIndex(b => b.id === blockId)
+        blockId = markdownBlocks(text)[i]?.id
+      }
+      const next = replaceBlock(text, blockId, args.text)
+      if (next === text) return current
+
+      await fs.mkdir(ctx.directory, { recursive: true })
+      const files = { ...ctx.record?.files }
+      // Keep one initial snapshot per view and paragraph deltas; no full-book copy per correction.
+      const token = randomUUID()
+      const baseFile = `${ctx.baseVersion}-${args.view}-base.md`
+      if (!await exists(path.join(ctx.directory, baseFile))) {
+        await fs.writeFile(path.join(ctx.directory, baseFile), text, { flag: 'wx', mode: 0o600 })
+      }
+      files[args.view] = baseFile
+
+      const beforeBlock = markdownBlocks(text).find(b => b.id === blockId)
+      ctx.texts[key] = next
+      const record = {
+        schemaVersion: 1,
+        storageVersion: 2,
+        documentId: t.documentId,
+        baseVersion: ctx.baseVersion,
+        files,
+        texts: {
+          ...ctx.record?.texts,
+          ...Object.fromEntries(
+            ['original', 'translation']
+              .filter(view => view === args.view || ctx.record?.files?.[view])
+              .map(view => [view, ctx.texts[view === 'original' ? 'source' : 'translation']]),
+          ),
+        },
+        revisions: [
+          ...(ctx.record?.revisions ?? []),
+          {
+            id: token,
+            view: args.view,
+            blockId: args.blockId,
+            at: new Date().toISOString(),
+            beforeText: beforeBlock.text,
+            afterText: args.text,
+            beforeFingerprint: hash(text),
+            afterFingerprint: hash(next),
+            reason: String(args.reason ?? '').slice(0, 2000),
+          },
+        ],
+        structuralCheck: ctx.texts.source && ctx.texts.translation
+          ? checkMarkdownPair(ctx.texts.source, ctx.texts.translation)
+          : null,
+        semanticVerified: false,
+      }
+      await atomic(ctx.manifest, record)
+      return this.reading(id)
+    })
+  },
+
+  async readingDownload(id, view) {
+    const t = await this.get(id)
+    await this.baseReading(id)
+    const ctx = await this.correctionContext(t)
+    const value = view === 'original' ? ctx.texts.source : ctx.texts.translation ?? ctx.texts.source
+    if (value === null) throw new Error('尚无对应文本')
+    return value
+  },
+
+  async bookmark(id, args) {
+    return this.locked(id, async () => {
+      if (this.active.has(id)) throw new Error('正在保存处理状态，阶段结束后可添加书签')
+      const t = await this.get(id)
+      const doc = await this.reading(id)
+      if (args.remove) {
+        t.bookmarks = t.bookmarks.filter(b => b.id !== args.remove)
+      } else {
+        const block = doc.blocks.find(b => b.id === args.blockId)
+        if (!block) throw new Error('书签段落已变化')
+        const mark = t.bookmarks.find(b => b.blockId === block.id) ?? { id: randomUUID(), blockId: block.id }
+        Object.assign(mark, {
+          note: String(args.note ?? '').slice(0, 4000),
+          excerpt: block.text.slice(0, 140),
+          fingerprint: doc.fingerprint,
+        })
+        if (!t.bookmarks.includes(mark)) t.bookmarks.push(mark)
+      }
+      return this.save(t)
+    })
+  },
+
+  async publishPreview(t) {
+    await (this.requireGlossaryForPublish ? this.requireGlossaryForPublish(t) : this.requireGlossary(t))
+    return buildPublication(this, t)
+  },
+
+  async publicationPreview(id) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      if (t.publication?.published) return t
+      if (this.active.has(id)) throw new Error('运行中不能生成发布清单')
+      assertPhaseApproved(t, 'review')
+      await this.requireDone(t, 'translationCheck', 'review')
+      t.publication = await this.publishPreview(t)
+      return this.save(t)
+    })
+  },
+
+  async publish(id, accepted) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      if (t.legacy) throw new Error('旧项目记录保持只读，请先建立已有 Markdown 的接续任务')
+      if (this.active.has(id)) throw new Error('运行中不能发布')
+      if (accepted !== true) throw new Error('请核对发布清单并明确确认发布')
+      await this.confirmed(t)
+      await this.requireDone(t, 'translationCheck', 'review')
+      await (this.requireGlossaryForPublish ? this.requireGlossaryForPublish(t) : this.requireGlossary(t))
+      assertPhaseApproved(t, 'review')
+      t.publication = await commitPublication(this, t, true)
+      t.stages.publish = { state: 'done', at: new Date().toISOString() }
+      t.message = '已发布，文献已可阅读'
+      return this.save(t)
+    })
+  },
+}

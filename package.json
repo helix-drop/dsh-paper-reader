@@ -4,6 +4,12 @@
   "description": "统一文档处理与双语精读工作台：书籍与论文共用流水线，视觉转写优先 + 受控 OCR 兜底，LinguaGacha 段落翻译与竖屏对照阅读",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs",
+    "build:client": "node scripts/build-client.mjs",
+    "check:client": "node scripts/build-client.mjs --check",
+    "preview": "node dev-server/server.mjs"
+  },
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
@@ -15,12 +21,15 @@
   "files": [
     "index.js",
     "client.js",
-    "shared/paths.js",
+    "client/**",
     "modules/pipeline/**/*.js",
     "cordis.patch.yml",
     "icon.svg",
     "locale/*.json",
-    "preset.js"
+    "preset.js",
+    "shared/*.js",
+    "runtime/**/*.py",
+    "prompts/**/*.txt"
   ],
   "dsh": {
     "bundle": {
@@ -36,5 +45,8 @@
         "@deepseek-ai/dsh-api-remotes"
       ]
     }
+  },
+  "dependencies": {
+    "jsonrepair": "3.15.0"
   }
 }

@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto'
 export const hash = value => createHash('sha256').update(value).digest('hex')
+export function imageReferences(text){
+  const entries=[]
+  const pattern=/!\[[^\]]*\]\((<[^>\n]+>|[^)\n]+)\)|!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]|<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi
+  for(const match of text.matchAll(pattern)){
+    const raw=(match[1]??match[2]??match[3]).replace(/\s+["'][^"']*["']$/,'').replace(/^<([\s\S]*)>$/,'$1')
+    entries.push({text:match[0],reference:raw})
+  }
+  return entries
+}
 // Conservative block reader. Raw Markdown remains authoritative; no HTML is executed.
 export function markdownBlocks(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n'), blocks = [], seen = new Map()
@@ -21,7 +30,7 @@ export function markdownBlocks(text) {
 export function checkMarkdownPair(source, target) {
   const src = markdownBlocks(source), dst = markdownBlocks(target), errors = []
   const markers = s => [...s.matchAll(/\[\^[^\]]+\]/g)].map(m => m[0]).sort().join('|')
-  const assets = s => [...s.matchAll(/!\[[^\]]*\]\(([^)]+)\)|!\[\[([^\]]+)\]\]/g)].map(m => m[1] ?? m[2]).sort().join('|')
+  const assets = s => imageReferences(s).map(m=>m.reference).sort().join('|')
   if (src.length !== dst.length) errors.push(`原文 ${src.length} 块，译文 ${dst.length} 块，不能按位置配对`)
   for (let i=0; i < Math.min(src.length,dst.length); i++) {
     if (src[i].type !== dst[i].type || src[i].level !== dst[i].level) errors.push(`第 ${i+1} 块结构变化`)

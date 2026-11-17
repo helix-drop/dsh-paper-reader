@@ -2,7 +2,7 @@
  * shared/paths.js — 阅读工作区与论文库目录解析。
  * 三个模块共用同一份目录口径,避免各自猜测工作区根。
  *
- * 阅读插件有且只有一个存储根:**阅读工作区**。默认是插件包同级的 `../papers`
+ * 阅读插件有且只有一个存储根:**阅读工作区**。迁移激活后默认是独立工作区的 `papers/`；迁移前兼容插件包同级的 `../papers`
  * (即 link: 安装时的 `<仓库>/papers`),可用插件 config 的 `workspace` 覆盖。
  *
  * 历史实现会去扫描 `workspaceRegistry` / 在跑会话 cwd,挑一个"正好含 papers/ 的根":
@@ -10,13 +10,14 @@
  * 论文库就是阅读工作区目录本身;阅读会话也建在这个工作区里(cwd = 工作区 path)。
  */
 import path from 'node:path'
+import {activeManagedWorkspace} from './workspace.js'
 import { fileURLToPath } from 'node:url'
 
 /** 插件包目录(本文件位于 `<包>/shared/`) */
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 默认阅读工作区:`<包>/../papers`。 */
-export const DEFAULT_READING_WORKSPACE = path.resolve(PACKAGE_DIR, '..', 'papers')
+export const DEFAULT_READING_WORKSPACE = activeManagedWorkspace() ? path.join(activeManagedWorkspace(), 'papers') : path.resolve(PACKAGE_DIR, '..', 'papers')
 
 let pinned = DEFAULT_READING_WORKSPACE
 

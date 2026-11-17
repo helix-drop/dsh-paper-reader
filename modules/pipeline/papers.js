@@ -31,8 +31,8 @@ export async function importLegacyPapers(manager){
  for(const file of (await fs.readdir(manager.readingRoot).catch(()=>[])).filter(n=>/^[\w.\-一-鿿]+\.json$/.test(n)).sort()){
   const sourceFile=path.join(manager.readingRoot,file),stamp=await fileStamp(sourceFile),cached=existing.find(t=>t.paperImport.file===file);if(cached&&cached.paperImport.adapterVersion===2&&cached.paperImport.sourceStamp===stamp){results.push(cached.id);continue}let raw,doc;try{raw=await fs.readFile(sourceFile,'utf8');doc=JSON.parse(raw)}catch{skipped.push({file,reason:'JSON 无效'});continue}
   if(!Array.isArray(doc?.blocks)||doc.status!=='done')continue
-  const key='paper:'+sourceFile,previous=existing.find(t=>t.legacy?.key===key)
-  if(previous){if(previous.paperImport.fingerprint!==hash(raw))skipped.push({file,reason:'历史 JSON 已变化，保留已导入版本和修订，需人工核验新版本'});else if(previous.paperImport.adapterVersion!==2){previous.paperImport={...previous.paperImport,adapterVersion:2,sourceStamp:stamp,warnings:paperMarkdown(doc).warnings};await manager.save(previous)}results.push(previous.id);continue}
+  const key='paper:'+(manager.legacyIdentityPath?.(sourceFile)??sourceFile),previous=existing.find(t=>t.legacy?.key===key)
+  if(previous){if(previous.paperImport.fingerprint!==hash(raw))skipped.push({file,reason:'历史 JSON 已变化，保留已导入版本和修订，需人工核验新版本'});else if(previous.paperImport.adapterVersion!==2||previous.paperImport.sourceStamp!==stamp){previous.paperImport={...previous.paperImport,adapterVersion:2,sourceStamp:stamp,warnings:paperMarkdown(doc).warnings};await manager.save(previous)}results.push(previous.id);continue}
   try{
    const converted=paperMarkdown(doc),id=uuid(key),dir=path.join(manager.dir(id),'imported'),original=path.join(dir,'original.md'),translation=path.join(dir,'translated.md');await fs.mkdir(dir,{recursive:true})
    // Snapshot source evidence; never modify the original JSON, PDF or global glossary.
