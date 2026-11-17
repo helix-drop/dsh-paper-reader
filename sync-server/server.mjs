@@ -1,9 +1,9 @@
 import http from 'node:http'
 import fs from 'node:fs/promises'
-import { createReadStream, existsSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { exportBookmarks } from '../modules/pipeline/bookmarks.js'
 import { CloudSyncStore } from './store.mjs'
 import { renderPdfPage } from './pdf-renderer.mjs'
@@ -12,8 +12,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = path.resolve(__dirname, '..')
 const DEFAULT_STATIC_DIR = path.join(ROOT_DIR, 'mobile-app', 'www')
 
-const MAX_JSON_BYTES = 64 * 1024 * 1024
-const MAX_PDF_BYTES = 200 * 1024 * 1024
+const MAX_JSON_BYTES = 128 * 1024 * 1024
+const MAX_CHUNK_BYTES = 32 * 1024 * 1024
+const MAX_PDF_BYTES = Number(process.env.MAX_PDF_BYTES || 4 * 1024 * 1024 * 1024)
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -54,6 +55,35 @@ async function readBody(req, limit = MAX_JSON_BYTES) {
     chunks.push(Buffer.from(chunk))
   }
   return Buffer.concat(chunks)
+}
+
+async function streamBodyToFile(req, destFile, limit = MAX_PDF_BYTES) {
+  await fs.mkdir(path.dirname(destFile), { recursive: true })
+  const ws = createWriteStream(destFile, { mode: 0o600, flags: 'wx' })
+  const hasher = createHash('sha256')
+  let total = 0
+  try {
+    for await (const chunk of req) {
+      total += chunk.length
+      if (total > limit) throw new Error('请求内容超过大小限制')
+      hasher.update(chunk)
+      if (!ws.write(chunk)) {
+        await new Promise((resolve, reject) => {
+          ws.once('drain', resolve)
+          ws.once('error', reject)
+        })
+      }
+    }
+    await new Promise((resolve, reject) => {
+      ws.end(resolve)
+      ws.once('error', reject)
+    })
+    return { bytesLen: total, sha256: hasher.digest('hex') }
+  } catch (err) {
+    ws.destroy()
+    await fs.unlink(destFile).catch(() => {})
+    throw err
+  }
 }
 
 async function readJsonBody(req, limit = MAX_JSON_BYTES) {
@@ -158,11 +188,43 @@ export async function createSyncServer(options = {}) {
     {
       method: 'POST',
       pattern: /^\/sync\/push-pdf\/([^/]+)$/,
-      handler: async (req, _res, url, m) => store.savePdf(
-        decodeURIComponent(m[1]),
-        await readBody(req, MAX_PDF_BYTES),
-        url.searchParams.get('sha256') ?? '',
-      ),
+      handler: async (req, _res, url, m) => {
+        const taskId = decodeURIComponent(m[1])
+        const tmpFile = path.join(store.bookDir(taskId), `source.pdf.${randomUUID()}.tmp`)
+        try {
+          const { bytesLen, sha256 } = await streamBodyToFile(req, tmpFile, MAX_PDF_BYTES)
+          const expectedSha = url.searchParams.get('sha256') ?? ''
+          if (expectedSha && expectedSha !== sha256) {
+            throw new Error('PDF 校验失败（SHA-256 不匹配）')
+          }
+          return await store.savePdfFromFile(taskId, tmpFile, bytesLen, expectedSha || sha256)
+        } finally {
+          await fs.unlink(tmpFile).catch(() => {})
+        }
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/sync\/push-pdf-chunk\/([^/]+)$/,
+      handler: async (req, _res, url, m) => {
+        const taskId = decodeURIComponent(m[1])
+        const uploadId = url.searchParams.get('uploadId') ?? ''
+        const offset = Number(url.searchParams.get('offset') ?? 0)
+        const totalBytes = Number(url.searchParams.get('total') ?? 0)
+        if (totalBytes > MAX_PDF_BYTES) throw new Error('请求内容超过大小限制')
+        const chunk = await readBody(req, MAX_CHUNK_BYTES)
+        if (offset + chunk.length > MAX_PDF_BYTES) throw new Error('请求内容超过大小限制')
+        return store.writePdfChunk(taskId, { uploadId, offset, chunk, totalBytes })
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/sync\/commit-pdf\/([^/]+)$/,
+      handler: async (req, _res, _url, m) => {
+        const taskId = decodeURIComponent(m[1])
+        const body = await readJsonBody(req)
+        return store.commitPdfUpload(taskId, body)
+      },
     },
 
     // Reader & Pipeline compatible endpoints
@@ -394,6 +456,7 @@ export async function createSyncServer(options = {}) {
     res.end('Not Found')
   })
 
+  server.requestTimeout = 0
   return { server, store, token, dataDir }
 }
 

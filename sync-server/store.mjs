@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { BookmarkStore, quoteSlices } from '../modules/pipeline/bookmarks.js'
 import { ReadingProgressStore } from '../modules/pipeline/reading-progress.js'
 import { enrichReading } from '../modules/pipeline/reader.js'
@@ -14,6 +15,16 @@ function assertSafeId(id, label = '编号') {
     throw new Error(`${label}无效`)
   }
   return val
+}
+
+async function hashFileSha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256')
+    const stream = createReadStream(filePath)
+    stream.on('data', chunk => h.update(chunk))
+    stream.on('end', () => resolve(h.digest('hex')))
+    stream.on('error', reject)
+  })
 }
 
 async function readJson(file, fallback) {
@@ -162,18 +173,27 @@ export class CloudSyncStore {
     if (!bytes?.length) throw new Error('PDF 内容为空')
     const dir = this.bookDir(safeId)
     await fs.mkdir(dir, { recursive: true })
-    const file = path.join(dir, 'source.pdf')
-    const tmp = `${file}.${randomUUID()}.tmp`
+    const tmp = path.join(dir, `source.pdf.${randomUUID()}.tmp`)
     try {
       await fs.writeFile(tmp, bytes, { mode: 0o600, flag: 'wx' })
-      await fs.rename(tmp, file)
+      const digest = sha256 || hash(bytes)
+      return await this.savePdfFromFile(safeId, tmp, bytes.length, digest)
     } finally {
       await fs.unlink(tmp).catch(() => {})
     }
+  }
+
+  async savePdfFromFile(taskId, sourceTempFile, bytesLen, sha256 = '') {
+    const safeId = assertSafeId(taskId, '任务编号')
+    if (!bytesLen || bytesLen <= 0) throw new Error('PDF 内容为空')
+    const dir = this.bookDir(safeId)
+    await fs.mkdir(dir, { recursive: true })
+    const file = path.join(dir, 'source.pdf')
+    await fs.rename(sourceTempFile, file)
     // Clear stale page cache when PDF changes
     await fs.rm(path.join(dir, 'pdf-pages'), { recursive: true, force: true }).catch(() => {})
 
-    const digest = sha256 || hash(bytes)
+    const digest = sha256 || await hashFileSha256(file)
     return this.serialized(async () => {
       const state = await this.readLibraryState()
       state.manifest[safeId] = {
@@ -183,8 +203,65 @@ export class CloudSyncStore {
         pdfUpdatedAt: new Date().toISOString(),
       }
       await writeAtomic(this.libraryFile, state)
-      return { ok: true, taskId: safeId, sha256: digest, bytes: bytes.length }
+      return { ok: true, taskId: safeId, sha256: digest, bytes: bytesLen }
     })
+  }
+
+  async writePdfChunk(taskId, { uploadId, offset = 0, chunk, totalBytes = 0 } = {}) {
+    const safeId = assertSafeId(taskId, '任务编号')
+    const safeUploadId = assertSafeId(uploadId, '上传编号')
+    if (!chunk?.length) throw new Error('PDF 分片内容为空')
+    const numericOffset = Number(offset)
+    if (!Number.isInteger(numericOffset) || numericOffset < 0) {
+      throw new Error('PDF 分片偏移量无效')
+    }
+    const uploadsDir = path.join(this.bookDir(safeId), 'uploads')
+    await fs.mkdir(uploadsDir, { recursive: true })
+    const partFile = path.join(uploadsDir, `${safeUploadId}.part`)
+    const flags = numericOffset === 0 ? 'w' : 'r+'
+    let fh
+    try {
+      fh = await fs.open(partFile, flags, 0o600)
+    } catch (err) {
+      if (err?.code === 'ENOENT' && numericOffset > 0) {
+        throw new Error('PDF 上传会话不存在或已过期，请重试')
+      }
+      throw err
+    }
+    try {
+      await fh.write(chunk, 0, chunk.length, numericOffset)
+    } finally {
+      await fh.close()
+    }
+    return {
+      ok: true,
+      taskId: safeId,
+      uploadId: safeUploadId,
+      offset: numericOffset,
+      received: numericOffset + chunk.length,
+      totalBytes: Number(totalBytes) || undefined,
+    }
+  }
+
+  async commitPdfUpload(taskId, { uploadId, sha256 = '', totalBytes = 0 } = {}) {
+    const safeId = assertSafeId(taskId, '任务编号')
+    const safeUploadId = assertSafeId(uploadId, '上传编号')
+    const uploadsDir = path.join(this.bookDir(safeId), 'uploads')
+    const partFile = path.join(uploadsDir, `${safeUploadId}.part`)
+    const st = await fs.stat(partFile).catch(() => null)
+    if (!st?.isFile() || st.size <= 0) {
+      throw new Error('PDF 上传临时文件缺失或为空')
+    }
+    if (totalBytes && Number(totalBytes) !== st.size) {
+      await fs.unlink(partFile).catch(() => {})
+      throw new Error(`PDF 分片总大小不匹配（期望 ${totalBytes} 字节，实收 ${st.size} 字节）`)
+    }
+    const actualDigest = await hashFileSha256(partFile)
+    if (sha256 && actualDigest !== sha256) {
+      await fs.unlink(partFile).catch(() => {})
+      throw new Error('PDF 分片校验失败（SHA-256 不匹配）')
+    }
+    return this.savePdfFromFile(safeId, partFile, st.size, actualDigest)
   }
 
   async saveFolder(id, name) {

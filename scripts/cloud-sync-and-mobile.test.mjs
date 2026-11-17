@@ -174,11 +174,11 @@ test('PC TaskManager <-> Cloud Sync Server end-to-end bidirectional sync (books,
     const unauth = await fetch(`${cloudUrl}/api/paper-reader/pipeline/library`)
     assert.equal(unauth.status, 401)
 
-    // Configure PC sync and run initial sync
+    // Configure PC sync (without auto-starting background job so we can assert explicit sync1 below)
     const cfgRes = await fetch(`${pcUrl}/api/paper-reader/pipeline/sync/config`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cloudUrl, token, deviceName: 'PC Test', includePdf: false }),
+      body: JSON.stringify({ cloudUrl, token, deviceName: 'PC Test', includePdf: false, startBackground: false }),
     })
     assert.equal(cfgRes.status, 200)
     const cfgJson = await cfgRes.json()
@@ -272,6 +272,7 @@ test('PC TaskManager <-> Cloud Sync Server end-to-end bidirectional sync (books,
     assert.equal(htmlRes.status, 200)
     assert.match(await htmlRes.text(), /DSH|双语精读/)
   } finally {
+    manager.stopBackgroundSync()
     pcServer.close()
     cloudServer.close()
     await fs.rm(root, { recursive: true, force: true })
@@ -379,4 +380,115 @@ test('computeViewportLayout and resolveTapZoneAction optimize narrow Android por
     'menu'
   )
 })
+
+test('chunked PDF upload (>8MB) and background default autoSync work without blocking foreground', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chunk-pc-'))
+  const cloudData = await fs.mkdtemp(path.join(os.tmpdir(), 'chunk-cloud-'))
+  const readingRoot = path.join(root, 'papers')
+  await fs.mkdir(readingRoot, { recursive: true })
+  await fs.mkdir(path.join(root, 'Book/LargeBook'), { recursive: true })
+
+  const taskId = '22222222-2222-4222-8222-222222222222'
+  const taskDir = path.join(root, '.pipeline/tasks', taskId)
+  const bookAiDir = path.join(taskDir, 'document/ai_convert/book')
+  await fs.mkdir(bookAiDir, { recursive: true })
+  const srcMd = '# Large PDF Book\n\nParagraph one.\n'
+  const dstMd = '# 大文件书籍\n\n第一段译文。\n'
+  const srcPath = path.join(bookAiDir, 'large-full.md')
+  const dstPath = path.join(root, 'Book/LargeBook/trans.md')
+  const pdfPath = path.join(root, 'Book/LargeBook/source.pdf')
+  await fs.writeFile(srcPath, srcMd, 'utf8')
+  await fs.writeFile(dstPath, dstMd, 'utf8')
+  // 9.5 MB pseudo-PDF to exercise >8MB chunked upload & SHA-256 verification
+  const bigPdf = Buffer.alloc(9.5 * 1024 * 1024, 0x41)
+  Buffer.from('%PDF-1.4\n').copy(bigPdf, 0)
+  await fs.writeFile(pdfPath, bigPdf)
+
+  const { hash } = await import('../modules/pipeline/markdown.js')
+  await fs.writeFile(path.join(taskDir, 'task.json'), JSON.stringify({
+    id: taskId,
+    documentId: 'document:large-1',
+    name: 'Large PDF Book',
+    kind: 'book',
+    input: { id: 'src-large', name: 'source.pdf', type: 'pdf', fingerprint: hash(srcMd) },
+    path: pdfPath,
+    translationPath: dstPath,
+    translationReport: {
+      passed: true,
+      sourceFingerprint: hash(srcMd),
+      targetFingerprint: hash(dstMd),
+    },
+    publication: { published: true },
+    state: 'idle',
+    stage: 'publish',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    stages: { inspect: { state: 'done' }, translate: { state: 'done' }, translationCheck: { state: 'done' }, publish: { state: 'done' } },
+    bookmarks: [],
+    log: [],
+  }, null, 2))
+
+  const manager = new TaskManager(root, readingRoot)
+  const pcRoutes = taskRoutes(manager, async () => {})
+  const { server: pcServer, baseUrl: pcUrl } = await startHttpRoutes(pcRoutes)
+  const { server: cloudServer, token } = await createSyncServer({ dataDir: cloudData, token: 'chunk-token' })
+  await new Promise(resolve => cloudServer.listen(0, '127.0.0.1', resolve))
+  const cloudUrl = `http://127.0.0.1:${cloudServer.address().port}`
+
+  try {
+    // Saving config defaults autoSync=true and immediately starts background sync without blocking
+    const cfgRes = await fetch(`${pcUrl}/api/paper-reader/pipeline/sync/config`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cloudUrl, token, deviceName: 'PC Chunk', includePdf: true }),
+    })
+    const cfg = await cfgRes.json()
+    assert.equal(cfgRes.status, 200)
+    assert.equal(cfg.configured, true)
+    assert.equal(cfg.autoSync, true)
+
+    // Wait for background sync to finish
+    let status = cfg
+    for (let i = 0; i < 60; i++) {
+      if (!status.background?.running && status.lastSyncAt) break
+      await new Promise(r => setTimeout(r, 100))
+      status = await (await fetch(`${pcUrl}/api/paper-reader/pipeline/sync/status`)).json()
+    }
+    assert.equal(status.background?.running, false)
+    assert.equal(status.lastError, null)
+    assert.equal(status.lastResult?.pushedBooks, 1)
+    assert.equal(status.lastResult?.pushedPdfs, 1)
+
+    // Verify full 9.5MB PDF reached cloud intact
+    const pdfRes = await fetch(`${cloudUrl}/api/paper-reader/pipeline/tasks/${taskId}/source`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(pdfRes.status, 200)
+    const received = Buffer.from(await pdfRes.arrayBuffer())
+    assert.equal(received.length, bigPdf.length)
+    assert.equal(hash(received), hash(bigPdf))
+
+    // Explicit background trigger via /sync/now { background: true } returns immediately
+    const bgRes = await fetch(`${pcUrl}/api/paper-reader/pipeline/sync/now`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ background: true }),
+    })
+    const bgJson = await bgRes.json()
+    assert.equal(bgRes.status, 200)
+    assert.equal(bgJson.accepted, true)
+    for (let i = 0; i < 40; i++) {
+      const s = await (await fetch(`${pcUrl}/api/paper-reader/pipeline/sync/status`)).json()
+      if (!s.background?.running) break
+      await new Promise(r => setTimeout(r, 50))
+    }
+  } finally {
+    manager.stopBackgroundSync()
+    pcServer.close()
+    cloudServer.close()
+    await fs.rm(root, { recursive: true, force: true })
+    await fs.rm(cloudData, { recursive: true, force: true })
+  }
+})
+
 

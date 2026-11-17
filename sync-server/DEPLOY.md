@@ -38,7 +38,7 @@ docker compose up -d --build
    SYNC_TOKEN="你的强随机密钥" PORT=4180 node sync-server/server.mjs
    ```
    （若未传 `SYNC_TOKEN`，首次启动会在 `sync-server/data/sync-token.txt` 自动生成。）
-3. 配合现有 Nginx 反向代理（注意放大 `client_max_body_size 200M;` 以支持推送 PDF）。
+3. 配合现有 Nginx 反向代理（建议设置 `client_max_body_size 0;` 与 `proxy_request_buffering off;` 以支持超大原书 PDF，同时服务端内置 8 MB 分片上传）。
 
 ---
 

@@ -647,6 +647,7 @@ export const readingPublicationMethods = {
         semanticVerified: false,
       }
       await atomic(ctx.manifest, record)
+      this.scheduleBackgroundSync?.(4000, 'correction')
       return this.reading(id)
     })
   },
@@ -712,7 +713,9 @@ export const readingPublicationMethods = {
       t.publication = await commitPublication(this, t, true)
       t.stages.publish = { state: 'done', at: new Date().toISOString() }
       t.message = '已发布，文献已可阅读'
-      return this.save(t)
+      const saved = await this.save(t)
+      this.scheduleBackgroundSync?.(3000, 'publish')
+      return saved
     })
   },
 
@@ -722,19 +725,216 @@ export const readingPublicationMethods = {
   },
 
   async saveReadingProgress(args) {
-    return this.progressStore.put(args ?? {}, { force: args?.force === true })
+    const res = await this.progressStore.put(args ?? {}, { force: args?.force === true })
+    if (res?.saved) this.scheduleBackgroundSync?.(8000, 'progress')
+    return res
+  },
+
+  _bgSyncState() {
+    if (!this._bgSync) {
+      this._bgSync = {
+        running: false,
+        queued: false,
+        queuedArgs: null,
+        startedAt: null,
+        finishedAt: null,
+        phase: '',
+        currentBook: '',
+        completedBooks: 0,
+        totalBooks: 0,
+        detail: '',
+        initialTimer: null,
+        timer: null,
+        debounceTimer: null,
+        stopped: false,
+      }
+    }
+    return this._bgSync
+  },
+
+  backgroundSyncSnapshot() {
+    const s = this._bgSyncState()
+    return {
+      running: s.running,
+      queued: s.queued,
+      startedAt: s.startedAt,
+      finishedAt: s.finishedAt,
+      phase: s.phase,
+      currentBook: s.currentBook,
+      completedBooks: s.completedBooks,
+      totalBooks: s.totalBooks,
+      detail: s.detail,
+    }
   },
 
   async cloudSyncStatus() {
     const config = await readCloudSyncConfig(this.root)
-    return publicSyncStatus(config)
+    return {
+      ...publicSyncStatus(config),
+      background: this.backgroundSyncSnapshot(),
+    }
   },
 
   async saveCloudSync(args) {
-    return saveCloudSyncConfig(this.root, args ?? {})
+    const saved = await saveCloudSyncConfig(this.root, args ?? {})
+    if (saved.configured && saved.autoSync && args?.startBackground !== false) {
+      await this.triggerBackgroundSync({ reason: 'config' })
+    }
+    return {
+      ...saved,
+      background: this.backgroundSyncSnapshot(),
+    }
   },
 
   async syncCloud(args = {}) {
-    return this.locked('cloud-sync', () => syncWithCloud(this, args))
+    const state = this._bgSyncState()
+    return this.locked('cloud-sync', async () => {
+      const wasRunning = state.running
+      if (!wasRunning) {
+        state.running = true
+        state.startedAt = new Date().toISOString()
+        state.phase = 'pull'
+        state.detail = '准备同步...'
+      }
+      try {
+        return await syncWithCloud(this, {
+          ...args,
+          onProgress: patch => {
+            Object.assign(state, patch)
+            args.onProgress?.(patch)
+          },
+        })
+      } finally {
+        if (!wasRunning) {
+          state.running = false
+          state.finishedAt = new Date().toISOString()
+          state.phase = ''
+          state.currentBook = ''
+          state.detail = ''
+        }
+      }
+    })
+  },
+
+  async triggerBackgroundSync(args = {}) {
+    const config = await readCloudSyncConfig(this.root)
+    if (!config.cloudUrl || !config.token) {
+      throw new Error('请先配置轻量云服务器地址与同步密钥 (Token)')
+    }
+    const state = this._bgSyncState()
+    state.stopped = false
+    if (state.running) {
+      state.queued = true
+      state.queuedArgs = { ...(state.queuedArgs ?? {}), ...args }
+      return {
+        ok: true,
+        accepted: true,
+        alreadyRunning: true,
+        ...(await this.cloudSyncStatus()),
+      }
+    }
+
+    state.running = true
+    state.queued = false
+    state.startedAt = new Date().toISOString()
+    state.phase = 'pull'
+    state.currentBook = ''
+    state.completedBooks = 0
+    state.totalBooks = 0
+    state.detail = '后台同步已启动...'
+
+    const runLoop = async initialArgs => {
+      let nextArgs = initialArgs
+      try {
+        while (nextArgs && !state.stopped) {
+          const currentArgs = nextArgs
+          nextArgs = null
+          await this.syncCloud({
+            ...currentArgs,
+            onProgress: patch => Object.assign(state, patch),
+          }).catch(() => {})
+          if (state.queued && !state.stopped) {
+            state.queued = false
+            nextArgs = state.queuedArgs ?? {}
+            state.queuedArgs = null
+          }
+        }
+      } finally {
+        state.running = false
+        state.queued = false
+        state.queuedArgs = null
+        state.finishedAt = new Date().toISOString()
+        state.phase = ''
+        state.currentBook = ''
+        state.detail = ''
+      }
+    }
+
+    void runLoop(args)
+    return {
+      ok: true,
+      accepted: true,
+      ...(await this.cloudSyncStatus()),
+    }
+  },
+
+  scheduleBackgroundSync(delayMs = 4000, reason = 'mutation') {
+    const state = this._bgSyncState()
+    if (state.stopped) return
+    if (state.debounceTimer) clearTimeout(state.debounceTimer)
+    state.debounceTimer = setTimeout(async () => {
+      state.debounceTimer = null
+      if (state.stopped) return
+      try {
+        const cfg = await readCloudSyncConfig(this.root)
+        if (cfg.cloudUrl && cfg.token && cfg.autoSync) {
+          await this.triggerBackgroundSync({ reason })
+        }
+      } catch {}
+    }, delayMs)
+    state.debounceTimer.unref?.()
+  },
+
+  startBackgroundSync({ initialDelayMs = 3000, intervalMs = 3 * 60 * 1000 } = {}) {
+    this.stopBackgroundSync()
+    const state = this._bgSyncState()
+    state.stopped = false
+    const tick = async reason => {
+      if (state.stopped || state.running) return
+      try {
+        const cfg = await readCloudSyncConfig(this.root)
+        if (cfg.cloudUrl && cfg.token && cfg.autoSync) {
+          await this.triggerBackgroundSync({ reason })
+        }
+      } catch {}
+    }
+    state.initialTimer = setTimeout(() => {
+      state.initialTimer = null
+      void tick('startup')
+    }, initialDelayMs)
+    state.initialTimer.unref?.()
+    state.timer = setInterval(() => {
+      void tick('interval')
+    }, intervalMs)
+    state.timer.unref?.()
+  },
+
+  stopBackgroundSync() {
+    const state = this._bgSyncState()
+    state.stopped = true
+    state.queued = false
+    state.queuedArgs = null
+    if (state.initialTimer) {
+      clearTimeout(state.initialTimer)
+      state.initialTimer = null
+    }
+    if (state.timer) {
+      clearInterval(state.timer)
+      state.timer = null
+    }
+    if (state.debounceTimer) {
+      clearTimeout(state.debounceTimer)
+      state.debounceTimer = null
+    }
   },
 }

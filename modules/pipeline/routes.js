@@ -88,18 +88,28 @@ export function taskRoutes(manager, registerSession) {
       pattern: /^\/pipeline\/folders$/,
       handler: async (req, res) => {
         const { id, name } = await payload(req)
-        send(res, await manager.saveFolder(id, name))
+        const out = await manager.saveFolder(id, name)
+        manager.scheduleBackgroundSync?.(4000, 'folders')
+        send(res, out)
       },
     },
     {
       method: 'DELETE',
       pattern: /^\/pipeline\/folders\/([^/]+)$/,
-      handler: async (_req, res, _url, m) => send(res, await manager.deleteFolder(m[1])),
+      handler: async (_req, res, _url, m) => {
+        const out = await manager.deleteFolder(m[1])
+        manager.scheduleBackgroundSync?.(4000, 'folders')
+        send(res, out)
+      },
     },
     {
       method: 'POST',
       pattern: /^\/pipeline\/items\/([^/]+)\/meta$/,
-      handler: async (req, res, _url, m) => send(res, await manager.setItemMeta(m[1], await payload(req))),
+      handler: async (req, res, _url, m) => {
+        const out = await manager.setItemMeta(m[1], await payload(req))
+        manager.scheduleBackgroundSync?.(4000, 'item-meta')
+        send(res, out)
+      },
     },
     {
       method: 'GET',
@@ -152,7 +162,11 @@ export function taskRoutes(manager, registerSession) {
     {
       method: 'POST',
       pattern: /^\/pipeline\/bookmarks$/,
-      handler: async (req, res) => send(res, await manager.saveSelectionBookmark(await payload(req))),
+      handler: async (req, res) => {
+        const out = await manager.saveSelectionBookmark(await payload(req))
+        manager.scheduleBackgroundSync?.(4000, 'bookmarks')
+        send(res, out)
+      },
     },
     {
       method: 'GET',
@@ -201,10 +215,13 @@ export function taskRoutes(manager, registerSession) {
     {
       method: 'POST',
       pattern: /^\/pipeline\/sync\/now$/,
-      handler: async (req, res) => send(
-        res,
-        await manager.syncCloud(await payload(req).catch(() => ({}))),
-      ),
+      handler: async (req, res) => {
+        const args = await payload(req).catch(() => ({}))
+        if (args?.background === true) {
+          return send(res, await manager.triggerBackgroundSync(args))
+        }
+        return send(res, await manager.syncCloud(args))
+      },
     },
 
     // --- Models, adapters & LinguaGacha service ---

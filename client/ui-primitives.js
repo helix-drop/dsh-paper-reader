@@ -254,27 +254,66 @@ function CloudSyncModal({ onClose, onSynced }) {
   const [token, setToken] = useState('')
   const [deviceName, setDeviceName] = useState('PC DSH 主机')
   const [includePdf, setIncludePdf] = useState(true)
+  const [autoSync, setAutoSync] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [resultMsg, setResultMsg] = useState('')
+  const lastSyncRef = useRef(null)
+
+  const applyStatus = useCallback(v => {
+    setStatus(v)
+    if (v?.lastSyncAt && lastSyncRef.current && v.lastSyncAt !== lastSyncRef.current) {
+      onSynced?.()
+    }
+    if (v?.lastSyncAt) lastSyncRef.current = v.lastSyncAt
+    if (v?.lastError) setError(v.lastError)
+    else if (!v?.background?.running && v?.lastResult?.syncedAt && v.lastResult.syncedAt === v.lastSyncAt && resultMsg === '' && v.lastResult.ok) {
+      setError('')
+    }
+  }, [onSynced, resultMsg])
 
   useEffect(() => {
     fetch('/api/paper-reader/pipeline/sync/status')
       .then(r => r.json())
       .then(v => {
-        setStatus(v)
+        applyStatus(v)
         setCloudUrl(v.cloudUrl || '')
         setDeviceName(v.deviceName || 'PC DSH 主机')
         setIncludePdf(v.includePdf !== undefined ? Boolean(v.includePdf) : true)
+        setAutoSync(v.autoSync !== undefined ? Boolean(v.autoSync) : true)
       })
       .catch(e => setError(e.message || '读取同步配置失败'))
   }, [])
 
-  const saveConfig = async () => {
+  useEffect(() => {
+    if (!status?.background?.running) return
+    const timer = setInterval(() => {
+      fetch('/api/paper-reader/pipeline/sync/status')
+        .then(r => r.json())
+        .then(v => {
+          applyStatus(v)
+          if (!v?.background?.running && v?.lastResult && !v?.lastError) {
+            const lr = v.lastResult
+            setResultMsg(`后台同步完成：推送 ${lr.pushedBooks ?? 0} 本书、${lr.pushedPdfs ?? 0} 份 PDF；拉取 ${lr.pulledProgress ?? 0} 条进度、${lr.pulledBookmarks ?? 0} 条书签、${lr.appliedCorrections ?? 0} 条移动端勘误。`)
+          }
+        })
+        .catch(() => {})
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [status?.background?.running, applyStatus])
+
+  const saveConfig = async (extra = {}) => {
     const r = await fetch('/api/paper-reader/pipeline/sync/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cloudUrl, ...(token.trim() ? { token: token.trim() } : {}), deviceName, includePdf })
+      body: JSON.stringify({
+        cloudUrl,
+        ...(token.trim() ? { token: token.trim() } : {}),
+        deviceName,
+        includePdf,
+        autoSync,
+        ...extra,
+      })
     })
     const v = await r.json()
     if (!r.ok) throw new Error(v.error || '保存配置失败')
@@ -286,8 +325,10 @@ function CloudSyncModal({ onClose, onSynced }) {
   const handleSave = async () => {
     setBusy(true); setError(''); setResultMsg('')
     try {
-      await saveConfig()
-      setResultMsg('云端同步配置已保存。')
+      const v = await saveConfig()
+      setResultMsg(v.configured && v.autoSync
+        ? '配置已保存，已转入后台自动同步（可直接关闭此窗口）。'
+        : '云端同步配置已保存。')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -298,22 +339,32 @@ function CloudSyncModal({ onClose, onSynced }) {
   const handleSyncNow = async () => {
     setBusy(true); setError(''); setResultMsg('')
     try {
-      await saveConfig()
+      await saveConfig({ startBackground: false })
       const r = await fetch('/api/paper-reader/pipeline/sync/now', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ includePdf })
+        body: JSON.stringify({ includePdf, background: true })
       })
       const v = await r.json()
-      if (!r.ok) throw new Error(v.error || '云端同步失败')
-      setResultMsg(`同步完成：推送 ${v.pushedBooks ?? 0} 本书、${v.pushedPdfs ?? 0} 份 PDF；拉取 ${v.pulledProgress ?? 0} 条进度、${v.pulledBookmarks ?? 0} 条书签、${v.appliedCorrections ?? 0} 条移动端勘误。`)
-      onSynced?.()
+      if (!r.ok) throw new Error(v.error || '云端同步启动失败')
+      setStatus(v)
+      setResultMsg('已转入后台同步，可随时关闭此窗口继续阅读或处理文献。')
     } catch (e) {
       setError(e.message)
     } finally {
       setBusy(false)
     }
   }
+
+  const bg = status?.background
+  const bgProgressText = bg?.running
+    ? [
+        '后台同步中',
+        bg.totalBooks > 0 ? `(${Math.min(bg.completedBooks + 1, bg.totalBooks)}/${bg.totalBooks})` : '',
+        bg.currentBook ? `《${bg.currentBook}》` : '',
+        bg.detail || '',
+      ].filter(Boolean).join(' ')
+    : ''
 
   return h('div', { className: 'rr-pdfModalOverlay', onClick: e => { if (e.target === e.currentTarget) onClose() } },
     h('div', { style: { background: '#fff', borderRadius: 12, padding: '20px 24px', minWidth: 340, maxWidth: 480, width: '92vw', boxShadow: '0 16px 40px rgba(0,0,0,0.2)' } },
@@ -322,7 +373,7 @@ function CloudSyncModal({ onClose, onSynced }) {
         button(icon('close', 16), onClose, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '关闭' })
       ),
       h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 12px', fontSize: 12 } },
-        '在轻量云服务器部署 sync-server 后，将已转写发布的文献推送至云端，手机与汉王墨水屏 APK 可随时离线下载并双向同步阅读进度、划线笔记与勘误。'
+        '配置完成后默认在后台静默双向同步，不阻塞前台阅读或处理流水线；手机与汉王墨水屏 APK 可随时离线下载并同步进度、划线与勘误。'
       ),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 } },
         h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
@@ -360,17 +411,28 @@ function CloudSyncModal({ onClose, onSynced }) {
             checked: includePdf,
             onChange: e => setIncludePdf(e.target.checked)
           }),
-          '推送原 PDF（手机/汉王可按需查看原书 PDF 页）'
+          '推送原 PDF（支持大文件分片后台上传，手机/汉王可按需查看原书 PDF 页）'
+        ),
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#3f3f46', cursor: 'pointer' } },
+          h('input', {
+            type: 'checkbox',
+            checked: autoSync,
+            onChange: e => setAutoSync(e.target.checked)
+          }),
+          '后台自动同步（启动与变更后默认在后台定期执行，不占用前台）'
         )
       ),
+      bgProgressText ? h('p', { role: 'status', style: { color: '#0369a1', background: '#f0f9ff', padding: '8px 10px', borderRadius: 8, fontSize: 12, margin: '0 0 10px' } },
+        bgProgressText
+      ) : null,
       status?.lastSyncAt ? h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 10px', fontSize: 11 } },
         `上次同步：${new Date(status.lastSyncAt).toLocaleString()}`
       ) : null,
-      error ? h('p', { role: 'alert', style: { color: '#dc2626', fontSize: 12, margin: '0 0 10px' } }, error) : null,
+      error ? h('p', { role: 'alert', style: { color: '#dc2626', fontSize: 12, margin: '0 0 10px', wordBreak: 'break-word' } }, error) : null,
       resultMsg ? h('p', { role: 'status', style: { color: '#15803d', fontSize: 12, margin: '0 0 10px' } }, resultMsg) : null,
       h('div', { className: 'rr-rowActions', style: { justifyContent: 'flex-end', gap: 8 } },
-        button('仅保存配置', handleSave, 'rr-buttonQuiet', { disabled: busy }),
-        button(busy ? '同步中...' : '立即双向同步', handleSyncNow, 'rr-buttonPrimary', { disabled: busy || !cloudUrl.trim() })
+        button('保存配置', handleSave, 'rr-buttonQuiet', { disabled: busy }),
+        button(bg?.running ? '后台排队再同步' : '立即后台同步', handleSyncNow, 'rr-buttonPrimary', { disabled: busy || !cloudUrl.trim() })
       )
     )
   )

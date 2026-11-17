@@ -22,6 +22,8 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   const [toast, setToast] = useState('')
   const [serverProgress, setServerProgress] = useState({})
   const [cloudSyncOpen, setCloudSyncOpen] = useState(false)
+  const [cloudSyncStatus, setCloudSyncStatus] = useState(null)
+  const lastCloudSyncAtRef = useRef(null)
   const exitPipelineReadingRef = useRef(null)
 
   const isReading = view === 'reader' || !!processingReading
@@ -54,6 +56,26 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   }, [])
 
   useEffect(() => { loadLibrary() }, [loadLibrary])
+  useEffect(() => {
+    let alive = true
+    const poll = () => {
+      fetch('/api/paper-reader/pipeline/sync/status')
+        .then(r => (r.ok ? r.json() : null))
+        .then(v => {
+          if (!alive || !v) return
+          setCloudSyncStatus(v)
+          if (v.lastSyncAt && lastCloudSyncAtRef.current && v.lastSyncAt !== lastCloudSyncAtRef.current) {
+            loadLibrary()
+          }
+          if (v.lastSyncAt) lastCloudSyncAtRef.current = v.lastSyncAt
+        })
+        .catch(() => {})
+    }
+    poll()
+    const ms = cloudSyncStatus?.background?.running ? 3000 : 45000
+    const timer = setInterval(poll, ms)
+    return () => { alive = false; clearInterval(timer) }
+  }, [cloudSyncStatus?.background?.running, cloudSyncOpen, loadLibrary])
   useEffect(() => {
     if (view === 'library') {
       setReadingTick(t => t + 1)
@@ -333,7 +355,18 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
         )
       ),
       h('div', { className: 'rr-headerActions' },
-        button('云同步', () => setCloudSyncOpen(true), 'rr-buttonQuiet', { title: '配置轻量云服务器并同步书库、进度与笔记' }),
+        button(
+          cloudSyncStatus?.background?.running ? '云同步 · 后台同步中' : '云同步',
+          () => setCloudSyncOpen(true),
+          'rr-buttonQuiet',
+          {
+            title: cloudSyncStatus?.background?.running
+              ? `后台同步中：${cloudSyncStatus.background.currentBook || cloudSyncStatus.background.detail || ''}`
+              : (cloudSyncStatus?.lastSyncAt
+                  ? `上次后台同步：${new Date(cloudSyncStatus.lastSyncAt).toLocaleString()}`
+                  : '配置轻量云服务器并开启后台自动同步'),
+          },
+        ),
         button(icon('refresh', 16), loadLibrary, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '刷新文献库', title: '刷新文献库' }),
         button(h(React.Fragment, null, icon('close', 15), '退出'), onClose, 'rr-buttonQuiet')
       )

@@ -154,7 +154,11 @@ export function installPipelineModule(ctx, config) {
     const id=exec?.agent?.session?.id??exec?.agent?.session?.header?.id,parent=exec?.agent?.session?.header?.parentSession;if(parent){if(taskSessions.has(parent)&&!taskSessions.has(id))taskSessions.set(id,taskSessions.get(parent));if(inspectSessions.has(parent))inspectSessions.add(id)}const taskId=taskSessions.get(id)
     return sessionGuard(root,exec,{inspect:inspectSessions.has(id),taskDirectory:taskId?manager.dir(taskId):null,authorizedStage:(authorizations[id]??authorizations[parent])?.stage})
   })
-  ctx.on('dispose',()=>{void manager.index.close()})
+  manager.startBackgroundSync?.()
+  ctx.on('dispose',()=>{
+    manager.stopBackgroundSync?.()
+    void manager.index.close()
+  })
   ctx.tools.register({
     name: 'document_pipeline',
     timeoutMs: 24 * 60 * 60 * 1000,
