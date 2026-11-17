@@ -34,12 +34,27 @@ jobs:
           cp native-android/MainActivity.java android/app/src/main/java/com/dsh/paperreader/
           node -e '
             const fs = require("fs");
-            const file = "android/app/src/main/AndroidManifest.xml";
-            let xml = fs.readFileSync(file, "utf8");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const runNum = Math.max(2, Number(process.env.GITHUB_RUN_NUMBER || 2));
+            const verName = `${pkg.version}.${runNum}`;
+
+            const xmlFile = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(xmlFile, "utf8");
             if (!xml.includes("usesCleartextTraffic")) {
               xml = xml.replace("<application", "<application android:usesCleartextTraffic=\"true\"");
-              fs.writeFileSync(file, xml);
+              fs.writeFileSync(xmlFile, xml);
             }
+
+            const gradleFile = "android/app/build.gradle";
+            let gradle = fs.readFileSync(gradleFile, "utf8");
+            gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${runNum}`);
+            gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${verName}"`);
+            fs.writeFileSync(gradleFile, gradle);
+
+            const appJsFile = "www/js/app.js";
+            let appJs = fs.readFileSync(appJsFile, "utf8");
+            appJs = appJs.replace(/const APP_VERSION = \x27[^\x27]*\x27/, `const APP_VERSION = \x27${verName}\x27`);
+            fs.writeFileSync(appJsFile, appJs);
           '
           npx cap sync android
 

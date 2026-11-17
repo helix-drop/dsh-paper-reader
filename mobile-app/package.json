@@ -1,6 +1,6 @@
 {
   "name": "dsh-paper-reader-mobile",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "DSH Paper Reader 手机与汉王墨水屏微信读书风格阅读客户端",

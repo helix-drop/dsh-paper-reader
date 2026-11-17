@@ -6,6 +6,7 @@ import { ReaderController } from './reader-controller.js'
 
 const appEl = document.getElementById('app')
 
+const APP_VERSION = '0.1.1'
 const state = {
   tab: 'shelf', // shelf | notes | settings
   settings: null,
@@ -345,6 +346,10 @@ function renderSettings() {
         <button type="button" class="wr-btnGhost" data-capture="next">${state.keyCaptureTarget === 'next' ? '请按下实体下一页键...' : '录制下一页按键'}</button>
       </div>
     </div>
+
+    <p style="margin:8px 0 16px;text-align:center;font-size:12px;color:var(--fg-muted);">
+      DSH 双语精读 客户端 v${escapeHtml(APP_VERSION)}
+    </p>
   `
 }
 
