@@ -69,8 +69,10 @@ jobs:
                 "        }",
                 "    }",
               ].join("\n");
-              gradle = gradle.replace(/buildTypes\s*\{/, `${signingBlock}\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.release\n        }`);
-              gradle = gradle.replace(/release\s*\{/, `release {\n            signingConfig signingConfigs.release`);
+              gradle = gradle.replace(
+                /buildTypes\s*\{\s*release\s*\{/,
+                `${signingBlock}\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.release\n        }\n        release {\n            signingConfig signingConfigs.release`
+              );
             }
             fs.writeFileSync(gradleFile, gradle);
 
