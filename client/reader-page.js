@@ -18,6 +18,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   const [draggedDocId, setDraggedDocId] = useState(null)
   const [dragOverFolder, setDragOverFolder] = useState(null)
   const [sortMode, setSortMode] = useState('recent')
+  const [shelfLayout, setShelfLayout] = useState(() => readDesktopReaderSettings().shelfLayout || 'list')
   const [readingTick, setReadingTick] = useState(0)
   const [toast, setToast] = useState('')
   const [serverProgress, setServerProgress] = useState({})
@@ -25,6 +26,14 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   const [cloudSyncStatus, setCloudSyncStatus] = useState(null)
   const lastCloudSyncAtRef = useRef(null)
   const exitPipelineReadingRef = useRef(null)
+
+  const toggleShelfLayout = () => {
+    setShelfLayout(prev => {
+      const next = prev === 'grid' ? 'list' : 'grid'
+      saveDesktopReaderSettings({ shelfLayout: next })
+      return next
+    })
+  }
 
   const isReading = view === 'reader' || !!processingReading
 
@@ -540,7 +549,36 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
       // Right Main Area
       h('main', { className: 'rr-libraryMain' },
         h('div', { className: 'rr-libraryContentWrapper' },
-          // Filter Bar: Search + Filter Badge + Show Hidden Toggle
+          // WeRead-style "Continue Reading" hero banner for the most recently read book
+          (() => {
+            if (offset > 0 || query.trim() || selectedFolder !== 'all' || category !== 'all') return null
+            const recentDoc = shown.find(d => (progressMap[d.id]?.percent || 0) > 0)
+            if (!recentDoc) return null
+            const recentProg = progressMap[recentDoc.id]
+            return h('div', {
+              className: 'rr-wrHeroContinue',
+              onClick: () => openDocument(recentDoc.id, recentProg?.blockId, recentProg?.view)
+            },
+              renderDesktopBookCover(recentDoc, 'large'),
+              h('div', { className: 'rr-wrHeroBody' },
+                h('span', { className: 'rr-wrHeroTag' }, `最近阅读 · 读至 ${recentProg?.percent || 0}%${recentProg?.page ? `（第 ${recentProg.page} 页）` : ''}`),
+                h('h3', { className: 'rr-wrHeroTitle' }, recentDoc.name),
+                h('div', { className: 'rr-wrHeroMeta' }, [recentDoc.author, recentDoc.titleSource, ({ book: '整书', paper: '论文', chapter: '章节', collection: '合集' })[recentDoc.kind]].filter(Boolean).join(' · ') || '双语精读文献'),
+                h('div', { style: { marginTop: 4 } },
+                  h('button', {
+                    type: 'button',
+                    className: 'rr-primaryReadBtn',
+                    onClick: e => {
+                      e.stopPropagation()
+                      openDocument(recentDoc.id, recentProg?.blockId, recentProg?.view)
+                    }
+                  }, '继续阅读 ›')
+                )
+              )
+            )
+          })(),
+
+          // Filter Bar: Search + Filter Badge + Show Hidden Toggle + Shelf Layout Toggle
           h('div', { className: 'rr-libraryFilterBar' },
             h('div', { className: 'rr-librarySearchWrap' },
               icon('search', 14),
@@ -553,7 +591,13 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                 'aria-label': '搜索文献'
               })
             ),
-            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+              h('button', {
+                type: 'button',
+                className: 'rr-sidebarAddBtn',
+                onClick: toggleShelfLayout,
+                title: shelfLayout === 'grid' ? '切换为列表视图' : '切换为微信读书封面宫格视图'
+              }, shelfLayout === 'grid' ? '☰ 列表' : '⊞ 宫格'),
               h('button', {
                 type: 'button',
                 className: 'rr-sidebarAddBtn',
@@ -584,26 +628,16 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
           failure ? h('div', { className: 'rr-stateCard', role: 'alert' }, failure, button('重试', loadLibrary)) : null,
           documents === null ? h('p', { style: { color: '#71717a', fontSize: 13, padding: '20px 0' } }, '正在加载文献库...') : null,
 
-          // Documents Card Container
-          h('div', { className: 'rr-documentsCardContainer' },
-            documents !== null && shown.length === 0 ? (
-              h('div', { style: { padding: '40px 20px', textAlign: 'center', color: '#a1a1aa', fontSize: 13 } },
-                query || category !== 'all' || selectedFolder !== 'all'
-                  ? '暂无匹配文献'
-                  : '文献库中暂无文档'
-              )
-            ) : (
+          // Documents Card Container (List vs WeRead Cover Grid)
+          shelfLayout === 'grid' && documents !== null && shown.length > 0 ? (
+            h('div', { className: 'rr-wrBookGrid' },
               shown.slice(offset, offset + 40).map(d => {
                 const meta = itemMeta[d.id] ?? {}
-                const currentIds = (meta.folderId ? String(meta.folderId).split(',').map(s => s.trim()).filter(Boolean) : [])
                 const progress = progressMap[d.id]
                 const pct = (progress && typeof progress.percent === 'number' && progress.percent > 0) ? progress.percent : 0
-                const progressLabel = pct > 0 ? `读至 ${pct}%${progress.page ? ` (第 ${progress.page} 页)` : ''}` : '未读'
-                const isUncategorized = currentIds.length === 0
-
                 return h('div', {
                   key: d.id,
-                  className: `rr-documentCardItem ${isUncategorized ? 'rr-documentCardItemUncategorized' : ''} ${draggedDocId === d.id ? 'rr-taskDragging' : ''}`,
+                  className: `rr-wrGridBookItem ${draggedDocId === d.id ? 'rr-taskDragging' : ''}`,
                   draggable: true,
                   onDragStart: e => {
                     setDraggedDocId(d.id)
@@ -613,66 +647,20 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                   onDragEnd: () => {
                     setDraggedDocId(null)
                     setDragOverFolder(null)
-                  }
+                  },
+                  onClick: () => openDocument(d.id, progress?.blockId, progress?.view)
                 },
-                  // Left: Grip + Title + Tags + Subtitle
-                  h('div', { className: 'rr-documentCardLeft' },
-                    h('div', { className: 'rr-dragGripIcon', title: '拖动归类' },
-                      icon('grip', 15)
-                    ),
-                    h('div', { className: 'rr-documentMetaColumn', ...zhScriptAttrs(detectZhScript([d.name, d.author, d.titleSource].filter(Boolean).join(' '))) },
-                      h('div', { className: 'rr-documentTitleRow' },
-                        h('h3', { className: 'rr-documentTitleText', onClick: () => openDocument(d.id, progress?.blockId, progress?.view) }, d.name),
-                        isUncategorized ? (
-                          h('span', { className: 'rr-uncategorizedBadge' },
-                            h('span', null, '未归类')
-                          )
-                        ) : (
-                          currentIds.map(fId => {
-                            const f = folders.find(x => x.id === fId)
-                            if (!f) return null
-                            return h('span', { key: fId, className: 'rr-folderPillTag' },
-                              h('span', null, f.name),
-                              h('button', {
-                                type: 'button',
-                                title: '移出此文件夹',
-                                onClick: e => {
-                                  e.stopPropagation()
-                                  handleRemoveAssign(d.id, fId)
-                                  showToast(`已从「${f.name}」移出`)
-                                }
-                              }, '×')
-                            )
-                          })
-                        ),
-                        meta.hidden ? h('span', { className: 'rr-hiddenTag' }, '已隐藏') : null
-                      ),
-                      h('div', { className: 'rr-documentSubtitleText' },
-                        [d.author, d.titleSource, ({ book: '整书', paper: '论文', chapter: '章节', collection: '合集' })[d.kind]].filter(Boolean).join(' · ')
-                      )
-                    )
-                  ),
-
-                  // Right: Reading Progress + Button + More Menu
-                  h('div', { className: 'rr-documentCardRight' },
-                    h('div', { className: 'rr-readingProgressWrapper' },
-                      h('div', { className: 'rr-readingProgressText' }, progressLabel),
-                      h('div', { className: 'rr-readingProgressTrack' },
-                        h('div', { className: 'rr-readingProgressFill', style: { width: pct + '%' } })
-                      )
-                    ),
-                    h('button', {
-                      type: 'button',
-                      className: 'rr-primaryReadBtn',
-                      onClick: () => openDocument(d.id, progress?.blockId, progress?.view)
-                    }, pct > 0 ? '继续阅读' : '开始阅读'),
+                  renderDesktopBookCover(d, 'grid', pct > 0 ? `已读 ${pct}%` : ''),
+                  h('h4', { className: 'rr-wrGridBookTitle', title: d.name }, d.name),
+                  h('div', { className: 'rr-wrGridBookSub' }, d.author || ({ book: '整书', paper: '论文', chapter: '章节', collection: '合集' })[d.kind] || 'DSH 文献'),
+                  h('div', { className: 'rr-wrGridBookFoot', onClick: e => e.stopPropagation() },
+                    h('span', { className: 'rr-wrGridBookProg' }, pct > 0 ? `读至 ${pct}%` : '未读'),
                     h('details', {
                       className: 'rr-itemMenu',
                       name: 'rr-document-actions',
-                      onKeyDown: e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } },
                       onClick: e => { if (e.target.closest('button')) e.currentTarget.open = false }
                     },
-                      h('summary', { className: 'rr-sidebarAddBtn' }, '更多'),
+                      h('summary', { className: 'rr-sidebarAddBtn', style: { padding: '1px 6px', fontSize: 10 } }, '···'),
                       h('div', { className: 'rr-itemMenuContent' },
                         button(h(React.Fragment, null, icon('edit', 12), '重命名'), () => setRenameModal({ targetId: d.id, currentName: d.name }), 'rr-buttonQuiet rr-buttonCompact'),
                         button(h(React.Fragment, null, icon('folder', 12), '归类'), () => setAssignModal({ targetId: d.id, targetName: d.name, currentFolderId: meta.folderId }), 'rr-buttonQuiet rr-buttonCompact'),
@@ -683,6 +671,110 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                   )
                 )
               })
+            )
+          ) : (
+            h('div', { className: 'rr-documentsCardContainer' },
+              documents !== null && shown.length === 0 ? (
+                h('div', { style: { padding: '40px 20px', textAlign: 'center', color: '#a1a1aa', fontSize: 13 } },
+                  query || category !== 'all' || selectedFolder !== 'all'
+                    ? '暂无匹配文献'
+                    : '文献库中暂无文档'
+                )
+              ) : (
+                shown.slice(offset, offset + 40).map(d => {
+                  const meta = itemMeta[d.id] ?? {}
+                  const currentIds = (meta.folderId ? String(meta.folderId).split(',').map(s => s.trim()).filter(Boolean) : [])
+                  const progress = progressMap[d.id]
+                  const pct = (progress && typeof progress.percent === 'number' && progress.percent > 0) ? progress.percent : 0
+                  const progressLabel = pct > 0 ? `读至 ${pct}%${progress.page ? ` (第 ${progress.page} 页)` : ''}` : '未读'
+                  const isUncategorized = currentIds.length === 0
+
+                  return h('div', {
+                    key: d.id,
+                    className: `rr-documentCardItem ${isUncategorized ? 'rr-documentCardItemUncategorized' : ''} ${draggedDocId === d.id ? 'rr-taskDragging' : ''}`,
+                    draggable: true,
+                    onDragStart: e => {
+                      setDraggedDocId(d.id)
+                      e.dataTransfer.setData('text/plain', d.id)
+                      e.dataTransfer.effectAllowed = 'copyMove'
+                    },
+                    onDragEnd: () => {
+                      setDraggedDocId(null)
+                      setDragOverFolder(null)
+                    }
+                  },
+                    // Left: Grip + Book Cover + Title + Tags + Subtitle
+                    h('div', { className: 'rr-documentCardLeft' },
+                      h('div', { className: 'rr-dragGripIcon', title: '拖动归类' },
+                        icon('grip', 15)
+                      ),
+                      h('div', { onClick: () => openDocument(d.id, progress?.blockId, progress?.view), style: { cursor: 'pointer', flexShrink: 0 } },
+                        renderDesktopBookCover(d, 'normal')
+                      ),
+                      h('div', { className: 'rr-documentMetaColumn', ...zhScriptAttrs(detectZhScript([d.name, d.author, d.titleSource].filter(Boolean).join(' '))) },
+                        h('div', { className: 'rr-documentTitleRow' },
+                          h('h3', { className: 'rr-documentTitleText', onClick: () => openDocument(d.id, progress?.blockId, progress?.view) }, d.name),
+                          isUncategorized ? (
+                            h('span', { className: 'rr-uncategorizedBadge' },
+                              h('span', null, '未归类')
+                            )
+                          ) : (
+                            currentIds.map(fId => {
+                              const f = folders.find(x => x.id === fId)
+                              if (!f) return null
+                              return h('span', { key: fId, className: 'rr-folderPillTag' },
+                                h('span', null, f.name),
+                                h('button', {
+                                  type: 'button',
+                                  title: '移出此文件夹',
+                                  onClick: e => {
+                                    e.stopPropagation()
+                                    handleRemoveAssign(d.id, fId)
+                                    showToast(`已从「${f.name}」移出`)
+                                  }
+                                }, '×')
+                              )
+                            })
+                          ),
+                          meta.hidden ? h('span', { className: 'rr-hiddenTag' }, '已隐藏') : null
+                        ),
+                        h('div', { className: 'rr-documentSubtitleText' },
+                          [d.author, d.titleSource, ({ book: '整书', paper: '论文', chapter: '章节', collection: '合集' })[d.kind]].filter(Boolean).join(' · ')
+                        )
+                      )
+                    ),
+
+                    // Right: Reading Progress + Button + More Menu
+                    h('div', { className: 'rr-documentCardRight' },
+                      h('div', { className: 'rr-readingProgressWrapper' },
+                        h('div', { className: 'rr-readingProgressText' }, progressLabel),
+                        h('div', { className: 'rr-readingProgressTrack' },
+                          h('div', { className: 'rr-readingProgressFill', style: { width: pct + '%' } })
+                        )
+                      ),
+                      h('button', {
+                        type: 'button',
+                        className: 'rr-primaryReadBtn',
+                        onClick: () => openDocument(d.id, progress?.blockId, progress?.view)
+                      }, pct > 0 ? '继续阅读' : '开始阅读'),
+                      h('details', {
+                        className: 'rr-itemMenu',
+                        name: 'rr-document-actions',
+                        onKeyDown: e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } },
+                        onClick: e => { if (e.target.closest('button')) e.currentTarget.open = false }
+                      },
+                        h('summary', { className: 'rr-sidebarAddBtn' }, '更多'),
+                        h('div', { className: 'rr-itemMenuContent' },
+                          button(h(React.Fragment, null, icon('edit', 12), '重命名'), () => setRenameModal({ targetId: d.id, currentName: d.name }), 'rr-buttonQuiet rr-buttonCompact'),
+                          button(h(React.Fragment, null, icon('folder', 12), '归类'), () => setAssignModal({ targetId: d.id, targetName: d.name, currentFolderId: meta.folderId }), 'rr-buttonQuiet rr-buttonCompact'),
+                          button(h(React.Fragment, null, icon(meta.hidden ? 'eyeOff' : 'eye', 12), meta.hidden ? '取消隐藏' : '隐藏'), () => toggleHideDoc(d.id), 'rr-buttonQuiet rr-buttonCompact'),
+                          button(h(React.Fragment, null, icon('trash', 12), '删除'), () => handleDeleteDoc(d.id, d.name), 'rr-buttonQuiet rr-buttonCompact', { style: { color: 'var(--dsw-alias-state-error-primary,#d32f2f)' } })
+                        )
+                      )
+                    )
+                  )
+                })
+              )
             )
           ),
 

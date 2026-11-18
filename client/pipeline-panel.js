@@ -31,6 +31,8 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
   const [sourceMapPdfId,setSourceMapPdfId]=useState(''),[linguaSettings,setLinguaSettings]=useState(null)
   const [pdfModal,setPdfModal]=useState(null),[splitPdfCompare,setSplitPdfCompare]=useState(false),[pdfPage,setPdfPage]=useState(null),[pdfDisplayPage,setPdfDisplayPage]=useState(null)
   const [folders,setFolders]=useState([]),[itemMeta,setItemMeta]=useState({}),[selectedFolder,setSelectedFolder]=useState('all'),[showHidden,setShowHidden]=useState(false),[assignModal,setAssignModal]=useState(null),[draggedTaskId,setDraggedTaskId]=useState(null),[dragOverFolder,setDragOverFolder]=useState(null),[pipelineSubFilter,setPipelineSubFilter]=useState('all')
+  const [wrSettings,setWrSettings]=useState(()=>readDesktopReaderSettings()),[activeReaderPanel,setActiveReaderPanel]=useState(null),[tocTab,setTocTab]=useState('outline'),[glossaryQuery,setGlossaryQuery]=useState(''),[bilingualMode,setBilingualMode]=useState(false)
+  const updateWrSettings=patch=>setWrSettings(prev=>{const next=saveDesktopReaderSettings({...prev,...patch});return next})
   useEffect(()=>{if(exitReadingRef)exitReadingRef.current=()=>setReading(null)},[exitReadingRef]);
   const [typeSuggestion,setTypeSuggestion]=useState(null),[dragging,setDragging]=useState(false),[renameForm,setRenameForm]=useState(false),[renameValue,setRenameValue]=useState(''),[chapters,setChapters]=useState([]),[chapterSource,setChapterSource]=useState(''),[chapterLoading,setChapterLoading]=useState(false);const nameEdited=useRef(false),detectionEpoch=useRef(0),profileEdits=useRef({});const readingRootRef=useRef(null),fileRef=useRef(null), translationRef=useRef(null), blockRefs=useRef({}), pendingJump=useRef(''),pendingAnchor=useRef(''),markerRefs=useRef({}),previewTimer=useRef(null)
   const api=async (route,method='GET',body) => { const res=await fetch('/api/paper-reader/pipeline'+route,{method,headers:body instanceof File?{}:body===undefined?{}:{'content-type':'application/json'},body:body instanceof File?body:body===undefined?undefined:JSON.stringify(body)});let value;try{value=await res.json()}catch{throw new Error('服务返回异常')};if(!res.ok)throw new Error(value.error||'处理失败');return value }
@@ -541,38 +543,84 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
     return {...comparison,translationNode:richText(b,'translation',h('div',{className:'rr-dialogZh',...zhScriptAttrs(translationScript),'data-bookmark-block':b.id,'data-bookmark-view':'translation'},comparisonText(translationRaw,b,'translation'))),originalNode:b.sourceText?richText(original,'original',
     h('div',{className:'rr-dialogFr',lang:comparison.sourceLanguage,...(originalScript==='hant'?zhScriptAttrs('hant'):{}),'data-bookmark-block':b.sourceBlockId,'data-bookmark-view':'original'},comparisonText(b.sourceText,b,'original')),b.sourceText):h(UnpairedSource,{reading,onEdit:(b,view)=>openEdit(b,view),renderOriginal:b=>richText(b,'original',
     h('span',null,inlineText(b.text,b.id,'original')),b.text),onOriginal:()=>{closeComparison();switchView('original')}})}}
-  const renderText=block=>{
-    const value=block.translation&&!showOriginal?block.translation:block.text
-    if(block.type==='heading')return h('h'+(block.level===1?1:Math.min((activeOutline.outline.find(x=>x.id===block.id)?.level??block.level)+1,6)),null,inlineText(value.replace(/^#+\s*/,'').replace(/\s*\((?:部扉页|篇扉页|扉页)\)/g,''),block.id))
-    if(block.type==='footnote'){const def=value.match(/^\[\^([^\]]+)\]:\s*([\s\S]*)/);if(def)return h('p',null,h('sup',{'data-editor-ignore':'true',contentEditable:false},footnoteLabel(noteNumbers[currentView],def[1])+' '),inlineText(footnoteBody(def[2],def[1]),block.id))}
+  const renderTextForView=(block,view)=>{
+    const value=view==='original'?(block.sourceText??block.text):(reading?.standaloneView==='translation'?block.text:(block.translation??block.text))
+    if(block.type==='heading')return h('h'+(block.level===1?1:Math.min((activeOutline.outline.find(x=>x.id===block.id)?.level??block.level)+1,6)),null,inlineText(value.replace(/^#+\s*/,'').replace(/\s*\((?:部扉页|篇扉页|扉页)\)/g,''),block.id,view))
+    if(block.type==='footnote'){const def=value.match(/^\[\^([^\]]+)\]:\s*([\s\S]*)/);if(def)return h('p',null,h('sup',{'data-editor-ignore':'true',contentEditable:false},footnoteLabel(noteNumbers[view],def[1])+' '),inlineText(footnoteBody(def[2],def[1]),block.id,view))}
     const parsed=parseFootnoteDefs(value)
     if(parsed){
-      const accordion=renderFootnoteAccordion(parsed.items,currentView,block.id,noteTrail.at(-1)?.target===block.id||!parsed.bodyText)
+      const accordion=renderFootnoteAccordion(parsed.items,view,block.id,noteTrail.at(-1)?.target===block.id||!parsed.bodyText)
       if(!parsed.bodyText)return accordion
-      return h(React.Fragment,null,h(block.type==='quote'?'blockquote':'p',{style:{whiteSpace:'pre-wrap'}},inlineText(parsed.bodyText.replace(block.type==='quote'?/^> ?/gm:/^$/,''),block.id)),accordion)
+      return h(React.Fragment,null,h(block.type==='quote'?'blockquote':'p',{style:{whiteSpace:'pre-wrap'}},inlineText(parsed.bodyText.replace(block.type==='quote'?/^> ?/gm:/^$/,''),block.id,view)),accordion)
     }
     if(block.type==='code')return h('pre',null,value)
     if(block.type==='table')return h('pre',{className:'rr-mdTable'},value)
     const image=value.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
-    if(image&&!/^[a-z]+:/i.test(image[2]))return h('img',{src:'/api/paper-reader/pipeline/tasks/'+selected+'/asset?path='+encodeURIComponent(image[2])+(showOriginal?'&kind=original':''),alt:image[1],style:{maxWidth:'100%'}})
-    return h(block.type==='quote'?'blockquote':'p',{style:{whiteSpace:'pre-wrap'}},inlineText(value.replace(block.type==='quote'?/^> ?/gm:/^$/, ''),block.id))
+    if(image&&!/^[a-z]+:/i.test(image[2]))return h('img',{src:'/api/paper-reader/pipeline/tasks/'+selected+'/asset?path='+encodeURIComponent(image[2])+(view==='original'?'&kind=original':''),alt:image[1],style:{maxWidth:'100%'}})
+    return h(block.type==='quote'?'blockquote':'p',{style:{whiteSpace:'pre-wrap'}},inlineText(value.replace(block.type==='quote'?/^> ?/gm:/^$/, ''),block.id,view))
   }
-  const renderBottomPager=()=>readerPages.length>1?h('div',{className:'rr-rowActions rr-readingBottomPager',style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'36px',paddingTop:'16px',borderTop:'1px solid var(--dsw-alias-border-l1)'}},
-    button('上一页',()=>handlePageChange(p=>Math.max(0,p-1)),'rr-buttonQuiet',{disabled:readerPage===0}),h('span',{className:'rr-pipelineNote',style:{margin:0}},`${readerPage+1} / ${readerPages.length}`),
-    button('下一页',()=>handlePageChange(p=>Math.min(readerPages.length-1,p+1)),readerPage>=readerPages.length-1?'rr-buttonQuiet':'rr-buttonPrimary',{disabled:readerPage>=readerPages.length-1})):null
+  const renderText=block=>renderTextForView(block,currentView)
+  const stepChapter=delta=>{
+    const items=activeOutline.outline??[]
+    if(!items.length)return
+    const anchor=currentAnchorBlock()?.id||readerPages[readerPage]?.[0]?.id
+    const order=new Map((activeBlocks||[]).map((b,i)=>[b.id,i]))
+    const curIdx=order.get(anchor)??0
+    let target=null
+    if(delta<0){
+      for(const it of items){const oIdx=order.get(it.id);if(oIdx!==undefined&&oIdx<curIdx)target=it}
+    }else{
+      target=items.find(it=>{const oIdx=order.get(it.id);return oIdx!==undefined&&oIdx>curIdx})
+    }
+    if(target)jumpBlock(target.id)
+  }
+  const renderBottomPager=()=>readerPages.length>1?h('div',{className:'rr-rowActions rr-readingBottomPager',style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'36px',paddingTop:'16px',borderTop:'1px solid var(--rr-theme-border, var(--dsw-alias-border-l1))'}},
+    h('div',{style:{display:'flex',gap:6}},
+      (activeOutline.outline??[]).length?button('上一章',()=>stepChapter(-1),'rr-buttonQuiet'):null,
+      button('‹ 上一页',()=>handlePageChange(p=>Math.max(0,p-1)),'rr-buttonQuiet',{disabled:readerPage===0})
+    ),
+    h('span',{className:'rr-pipelineNote',style:{margin:0}},`第 ${readerPage+1} / ${readerPages.length} 页 · ${Math.round(((readerPage+1)/readerPages.length)*100)}%`),
+    h('div',{style:{display:'flex',gap:6}},
+      button('下一页 ›',()=>handlePageChange(p=>Math.min(readerPages.length-1,p+1)),readerPage>=readerPages.length-1?'rr-buttonQuiet':'rr-buttonPrimary',{disabled:readerPage>=readerPages.length-1}),
+      (activeOutline.outline??[]).length?button('下一章',()=>stepChapter(1),'rr-buttonQuiet'):null
+    )):null
   const renderReaderBoard=(layoutStyle)=>h('div',{className:'rr-mdLayout',style:layoutStyle},
     tocOpen?h('aside',{className:'rr-tocPanel','aria-label':'独立目录',style:{width:tocWidth+'px'},...zhScriptAttrs(readingScript)},
-      h('div',{className:'rr-tocHeader'},h('strong',null,'目录'),button('收起',()=>setTocOpen(false),'rr-buttonQuiet')),
-      h('input',{type:'range',min:150,max:420,step:10,value:tocWidth,'aria-label':'目录宽度',onChange:e=>setTocWidth(Number(e.target.value))}),
-      h('nav',{'aria-label':'章节目录'},tocGroups.map(({item,children})=>h('div',{key:item.id,className:'rr-tocChapter'},button(item.label,()=>jumpBlock(item.id),'rr-buttonQuiet'),children.length?h('details',null,h('summary',null,'小标题 · '+children.length),children.map(child=>button(child.label,()=>jumpBlock(child.id),'rr-buttonQuiet',{key:child.id,style:{paddingLeft:(child.level-1)*8+'px'}}))):null)))
+      h('div',{className:'rr-tocHeader'},
+        h('div',{className:'rr-wrTocTabs'},
+          h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='outline'?'active':''}`,onClick:()=>setTocTab('outline')},`目录 (${(activeOutline.outline??[]).length})`),
+          h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='marks'?'active':''}`,onClick:()=>setTocTab('marks')},`划线 (${savedMarks.length})`),
+          h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='glossary'?'active':''}`,onClick:()=>setTocTab('glossary')},`术语 (${(reading.glossary??[]).length})`)
+        ),
+        button('收起',()=>setTocOpen(false),'rr-buttonQuiet',{style:{minHeight:24,padding:'0 6px',fontSize:11}})
+      ),
+      h('input',{type:'range',min:180,max:420,step:10,value:tocWidth,'aria-label':'目录宽度',onChange:e=>setTocWidth(Number(e.target.value))}),
+      tocTab==='outline'?h('nav',{'aria-label':'章节目录'},tocGroups.length?tocGroups.map(({item,children})=>h('div',{key:item.id,className:'rr-tocChapter'},button(item.label,()=>jumpBlock(item.id),'rr-buttonQuiet'),children.length?h('details',null,h('summary',null,'小标题 · '+children.length),children.map(child=>button(child.label,()=>jumpBlock(child.id),'rr-buttonQuiet',{key:child.id,style:{paddingLeft:(child.level-1)*8+'px'}}))):null)):h('p',{className:'rr-pipelineNote'},'本文档暂无目录结构'))
+      :tocTab==='marks'?h('div',{className:'rr-wrTocMarksList'},
+        savedMarks.length?savedMarks.map(m=>h('div',{key:m.id,className:'rr-wrTocMarkCard',onClick:()=>jumpBlock(m.blockId,m.view)},
+          h('blockquote',null,m.quote||m.exact),
+          m.comment?h('p',null,'💭 '+m.comment):null
+        )):h('p',{className:'rr-pipelineNote',style:{textAlign:'center',padding:'16px 0'}},'本书暂无划线或书签')
+      )
+      :h('div',{className:'rr-wrTocGlossaryList'},
+        h('input',{type:'search',placeholder:'搜索术语...',value:glossaryQuery,onChange:e=>setGlossaryQuery(e.target.value),style:{marginBottom:8,fontSize:12,padding:'5px 8px'}}),
+        (reading.glossary??[]).filter(g=>!glossaryQuery.trim()||[g.source,g.target,g.note].filter(Boolean).join(' ').toLowerCase().includes(glossaryQuery.trim().toLowerCase())).slice(0,150).map((g,i)=>h('div',{key:i,className:'rr-wrTocGlossaryItem'},
+          h('div',{style:{fontWeight:600,fontSize:12.5}},g.source,' → ',h('span',{style:{color:'var(--dsw-alias-brand-primary,#2563eb)'}},g.target)),
+          g.note?h('div',{style:{fontSize:11,opacity:0.75,marginTop:2}},g.note):null
+        ))
+      )
     ):null,
     h('article',null,paperResizeHandles(),
       reading.metadata?h('header',{className:'rr-documentMetadata'},h('h1',null,reading.title),h('p',{className:'rr-originalTitle'},reading.metadata.title?.source),h('p',{className:'rr-metadata'},[reading.metadata.author?.zh??reading.metadata.author?.source,reading.metadata.publication?.journal?.zh??reading.metadata.publication?.journal?.source??reading.metadata.publication?.book?.zh,reading.metadata.publication?.year,reading.metadata.publication?.pages].filter(Boolean).join(' · '))):null,
       (readerPages[readerPage]||[]).map(b=>{
         const rawText=currentView==='translation'?(b.translation??b.text):(b.sourceText??b.text)
         const blockScript=readingScript==='hant'?'hant':detectZhScript(rawText,'hans')
-        return h('div',{key:b.id,ref:el=>{blockRefs.current[b.id]=el},id:'block-'+b.id,'data-bookmark-block':b.id,'data-note-definition':b.type==='footnote'||/^\s*\[footnote-/.test(b.text),...(blockScript!==readingScript?zhScriptAttrs(blockScript):{}),className:'rr-mdBlock'},
-          richText(b,currentView,renderText(b)),
+        const hasInlineBilingual=bilingualMode&&reading.comparisonAvailable&&(b.sourceText||b.translation)&&(b.sourceText??b.text)!==(b.translation??b.text)
+        return h('div',{key:b.id,ref:el=>{blockRefs.current[b.id]=el},id:'block-'+b.id,'data-bookmark-block':b.id,'data-note-definition':b.type==='footnote'||/^\s*\[footnote-/.test(b.text),...(blockScript!==readingScript?zhScriptAttrs(blockScript):{}),className:`rr-mdBlock ${hasInlineBilingual?(wrSettings.bilingualLayout==='stacked'?'rr-bilingualStacked':'rr-bilingualParallel'):''}`.trim()},
+          hasInlineBilingual?h(React.Fragment,null,
+            h('div',{className:'rr-bilingualColPrimary','data-bookmark-block':b.id,'data-bookmark-view':'translation'},richText(b,'translation',renderTextForView(b,'translation'),b.translation??b.text)),
+            h('div',{className:'rr-bilingualColSource','data-bookmark-block':b.sourceBlockId||b.id,'data-bookmark-view':'original'},richText({...b,id:b.sourceBlockId||b.id,text:b.sourceText??b.text},'original',renderTextForView(b,'original'),b.sourceText??b.text))
+          ):richText(b,currentView,renderText(b)),
           noteTrail.at(-1)?.target===b.id?button('返回引用位置',returnFootnote,'rr-buttonQuiet'):null,
           h('div',{className:'rr-readingBlockActions'},reading.comparisonAvailable?button(h('span',{'aria-hidden':true},'›'),e=>compareBlock(b,e.currentTarget),'rr-originalButton rr-compareArrow',{'aria-haspopup':'dialog','aria-label':currentView==='original'?'逐段对照译文':'逐段对照原文',title:currentView==='original'?'逐段对照译文':'逐段对照原文',disabled:!!editBlock}):null))
       }),
@@ -591,7 +639,24 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
     observer.observe(readingRootRef.current)
     return () => observer.disconnect()
   }, [!!reading])
-  return h('div',{className:'rr-workbench',ref:readingRootRef,style:{'--rr-reading-size':([16,17.5,19][fontStep])+'px'},onKeyDown:e=>{if(e.key==='Escape'&&!busy){setPhaseRequest(null);setDetailTab('flow');setServices(false);setNewForm(false);setEditBlock(null);setNotePreview(null);setContextMenu(null)}}},
+  const activeThemeObj=WEREAD_THEMES.find(t=>t.id===wrSettings.theme)||WEREAD_THEMES[1]
+  const dimmerAlpha=Math.max(0,Math.min(0.65,(100-Number(wrSettings.brightness??100))/100)).toFixed(2)
+  const readerCssVars={
+    '--rr-reading-size':(wrSettings.fontSize||([16,17.5,19][fontStep])||17.5)+'px',
+    '--rr-reading-wght':String(wrSettings.fontWeight||470),
+    '--rr-reading-font':resolveDesktopFontStack(wrSettings.fontFamily),
+    '--rr-reading-lh':String(wrSettings.lineHeight||1.82),
+    '--rr-reading-para-gap':(wrSettings.paraSpacing??0.45)+'em',
+    '--rr-reading-indent':wrSettings.textIndent===false?'0em':'2em',
+    '--rr-reading-align':wrSettings.textAlign||'justify',
+    '--rr-theme-bg':activeThemeObj.bg,
+    '--rr-theme-paper':activeThemeObj.paperBg,
+    '--rr-theme-fg':activeThemeObj.fg,
+    '--rr-theme-muted':activeThemeObj.muted,
+    '--rr-theme-border':activeThemeObj.border,
+    '--rr-dimmer-alpha':dimmerAlpha,
+  }
+  return h('div',{className:'rr-workbench','data-wr-theme':reading?wrSettings.theme:undefined,ref:readingRootRef,style:readerCssVars,onKeyDown:e=>{if(e.key==='Escape'&&!busy){setPhaseRequest(null);setDetailTab('flow');setServices(false);setNewForm(false);setEditBlock(null);setNotePreview(null);setContextMenu(null);setActiveReaderPanel(null)}}},
     h('input',{type:'file',accept:'.pdf,.md,.markdown',hidden:true,ref:fileRef,onChange:e=>{upload(e.target.files?.[0]);e.target.value=''}}),
     message&&!newForm?h('p',{className:'rr-pipelineNote',role:'status'},message):null,
     newForm&&mode==='processing'?h('div',{className:'rr-centeredOverlay'},h('section',{className:'rr-centeredDialog rr-newTaskDialog',role:'dialog','aria-modal':true,'aria-label':'新增任务'},
@@ -639,16 +704,111 @@ function PipelinePanel({ sessionForPaper, promptSession, openSession, listModels
     contextMenu?h('div',{className:'rr-correctionMenu',ref:placeEditMenu,role:'menu',style:{left:contextMenu.x,top:contextMenu.y},onKeyDown:e=>{if(e.key==='Escape'){e.stopPropagation();
       setContextMenu(null)}}},contextMenu.highlightIds?button('取消高亮',clearHighlight,'rr-buttonQuiet',{role:'menuitem',autoFocus:!!contextMenu.locked}):null,contextMenu.locked?null:button(h(React.Fragment,null,
       h('span',{'aria-hidden':true},editBlock?.id===contextMenu.block.id&&editBlock?.view===contextMenu.view?'☑':'☐'),'修改'),toggleEdit,'rr-buttonQuiet',{role:'menuitemcheckbox',autoFocus:!contextMenu.locked,'aria-checked':editBlock?.id===contextMenu.block.id&&editBlock?.view===contextMenu.view})):null,
-    reading?h('section',{className:'rr-mdReader',...zhScriptAttrs(readingScript)},h(SelectionBookmark,{source:{kind:'task',id:selected},view:currentView,scope:'.rr-mdReader article,.rr-bookComparison',title:reading.title,disabled:!!editBlock,savedMarks,onSaved:reloadMarks}),
+    reading?h('section',{className:'rr-mdReader','data-wr-theme':wrSettings.theme,...zhScriptAttrs(readingScript)},
+      h('div',{className:'rr-wrBrightnessDimmer'}),
+      h(SelectionBookmark,{source:{kind:'task',id:selected},view:currentView,scope:'.rr-mdReader article,.rr-bookComparison',title:reading.title,disabled:!!editBlock,savedMarks,onSaved:reloadMarks}),
       h('div',{className:'rr-rowActions rr-readingToolbar'},mode==='reader'?null:button(h(React.Fragment,null,icon('back',14),mode==='reader'?'返回文献库':'返回主页'),()=>mode==='reader'?onCloseReading?.():setReading(null),'rr-buttonPrimary rr-buttonCloseReading',{'aria-label':mode==='reader'?'返回文献库':'返回主页'}),
-      button('A−',()=>setFontStep(v=>Math.max(0,v-1)),'rr-buttonQuiet',{'aria-label':'缩小阅读字号',disabled:fontStep===0}),
-      button('A+',()=>setFontStep(v=>Math.min(2,v+1)),'rr-buttonQuiet',{'aria-label':'放大阅读字号',disabled:fontStep===2}),
-      button(tocOpen?'收起目录':'展开目录',()=>setTocOpen(v=>!v),'rr-buttonQuiet',{'aria-expanded':tocOpen}),button('上一页',()=>handlePageChange(p=>Math.max(0,p-1)),'rr-buttonQuiet',{disabled:readerPage===0}),
-      h('span',{className:'rr-pipelineNote'},`${readerPage+1} / ${readerPages.length}`),button('下一页',()=>handlePageChange(p=>Math.min(readerPages.length-1,p+1)),'rr-buttonQuiet',{disabled:readerPage>=readerPages.length-1}),noteTrail.length?button('返回引用位置',returnFootnote,'rr-buttonQuiet'):null,reading.comparisonAvailable?h(React.Fragment,null,
-      h('span',{className:'rr-viewToggle',role:'group','aria-label':'阅读版本切换'},button(reading.zhConverted?'原文（繁体）':'原文',()=>switchView('original'),currentView==='original'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':currentView==='original',disabled:busy}),
-      button(reading.zhConverted?'译文（简体）':'译文',()=>switchView('translation'),currentView==='translation'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':currentView==='translation',disabled:busy})),reading.zhConverted?button('关闭繁简',()=>toggleZhConvert(false),'rr-buttonQuiet',{disabled:busy,title:'关闭繁简转换并恢复仅繁体视图'}):null):h(React.Fragment,null,
+      button('A−',()=>{setFontStep(v=>Math.max(0,v-1));updateWrSettings({fontSize:Math.max(13,Math.round(((wrSettings.fontSize||17.5)-1)*2)/2)})},'rr-buttonQuiet',{'aria-label':'缩小阅读字号',disabled:(wrSettings.fontSize||17.5)<=13}),
+      button('A+',()=>{setFontStep(v=>Math.min(2,v+1));updateWrSettings({fontSize:Math.min(28,Math.round(((wrSettings.fontSize||17.5)+1)*2)/2)})},'rr-buttonQuiet',{'aria-label':'放大阅读字号',disabled:(wrSettings.fontSize||17.5)>=28}),
+      button('◐ 背景',()=>setActiveReaderPanel(p=>p==='theme'?null:'theme'),activeReaderPanel==='theme'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-expanded':activeReaderPanel==='theme',title:'切换微信读书同款背景主题与亮度'}),
+      button('Aa 字体/排版',()=>setActiveReaderPanel(p=>p==='typography'?null:'typography'),activeReaderPanel==='typography'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-expanded':activeReaderPanel==='typography',title:'切换字体、字重、行距、段距与双语版式'}),
+      button(tocOpen?'收起目录':'展开目录',()=>setTocOpen(v=>!v),'rr-buttonQuiet',{'aria-expanded':tocOpen}),
+      (activeOutline.outline??[]).length?button('上一章',()=>stepChapter(-1),'rr-buttonQuiet',{title:'跳转上一章'}):null,
+      button('上一页',()=>handlePageChange(p=>Math.max(0,p-1)),'rr-buttonQuiet',{disabled:readerPage===0}),
+      h('span',{className:'rr-pipelineNote'},`${readerPage+1} / ${readerPages.length}`),
+      button('下一页',()=>handlePageChange(p=>Math.min(readerPages.length-1,p+1)),'rr-buttonQuiet',{disabled:readerPage>=readerPages.length-1}),
+      (activeOutline.outline??[]).length?button('下一章',()=>stepChapter(1),'rr-buttonQuiet',{title:'跳转下一章'}):null,
+      noteTrail.length?button('返回引用位置',returnFootnote,'rr-buttonQuiet'):null,reading.comparisonAvailable?h(React.Fragment,null,
+      h('span',{className:'rr-viewToggle',role:'group','aria-label':'阅读版本切换'},
+        button(reading.zhConverted?'原文（繁体）':'原文',()=>{setBilingualMode(false);switchView('original')},!bilingualMode&&currentView==='original'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':!bilingualMode&&currentView==='original',disabled:busy}),
+        button('双语',()=>setBilingualMode(v=>!v),bilingualMode?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':bilingualMode,disabled:busy,title:'在正文内直接开启双语对照阅读'}),
+        button(reading.zhConverted?'译文（简体）':'译文',()=>{setBilingualMode(false);switchView('translation')},!bilingualMode&&currentView==='translation'?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':!bilingualMode&&currentView==='translation',disabled:busy})
+      ),reading.zhConverted?button('关闭繁简',()=>toggleZhConvert(false),'rr-buttonQuiet',{disabled:busy,title:'关闭繁简转换并恢复仅繁体视图'}):null):h(React.Fragment,null,
       h('span',{className:'rr-pipelineNote'},currentView==='translation'?'当前为译文':'当前为原文'),reading.zhConvertEligible?button(busy?'转换中…':'繁简转换',()=>toggleZhConvert(true),'rr-buttonQuiet',{disabled:busy,title:'将繁体原文转换为简体译文，并支持原文/译文切换与逐段对照'}):null),(task?.legacy?.artifacts?.sourcePdf||task?.input?.type==='pdf'||reading.sourceMapAvailable)?button(splitPdfCompare?'关闭 PDF 对比':'对比原 PDF',togglePdfComparison,splitPdfCompare?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':splitPdfCompare}):null,
-      h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/download?kind='+currentView},currentView==='translation'?'下载译文':'下载原文'),reading.sourceMapViews?.[currentView]?h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/source-map?view='+currentView},'下载来源映射'):null,reading.correctionCount?h('span',{className:'rr-pipelineNote'},'勘误 '+reading.correctionCount+' 处'):null),splitPdfCompare?h('div',{className:'rr-splitPdfCompare'},
+      h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/download?kind='+currentView},currentView==='translation'?'下载译文':'下载原文'),reading.sourceMapViews?.[currentView]?h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/source-map?view='+currentView},'下载来源映射'):null,reading.correctionCount?h('span',{className:'rr-pipelineNote'},'勘误 '+reading.correctionCount+' 处'):null),
+      activeReaderPanel?h('div',{className:'rr-wrPopoverPanel',role:'region','aria-label':activeReaderPanel==='theme'?'背景与亮度设置':'字体与排版设置'},
+        activeReaderPanel==='theme'?h('div',{className:'rr-wrPopoverBody'},
+          h('div',{className:'rr-wrPopoverRow'},
+            h('span',{className:'rr-wrPopoverLabel'},'背景主题'),
+            h('div',{className:'rr-wrSwatchList'},
+              WEREAD_THEMES.map(t=>h('button',{
+                key:t.id,
+                type:'button',
+                className:`rr-wrSwatchBtn ${wrSettings.theme===t.id?'active':''}`,
+                onClick:()=>updateWrSettings({theme:t.id})
+              },
+                h('span',{className:'rr-wrSwatchCircle',style:{background:t.swatch,color:t.fg,borderColor:wrSettings.theme===t.id?'#2563eb':t.border}},wrSettings.theme===t.id?'✓':(t.id==='eink'?'墨':'')),
+                h('span',{className:'rr-wrSwatchName'},t.label)
+              ))
+            )
+          ),
+          h('div',{className:'rr-wrPopoverRow'},
+            h('span',{className:'rr-wrPopoverLabel'},'护眼亮度'),
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flex:1,maxWidth:360}},
+              h('span',null,'🔅'),
+              h('input',{type:'range',min:40,max:100,step:1,value:wrSettings.brightness??100,onChange:e=>updateWrSettings({brightness:Number(e.target.value)}),style:{margin:0,flex:1}}),
+              h('span',null,'🔆'),
+              h('span',{style:{fontSize:12,minWidth:38}},`${wrSettings.brightness??100}%`)
+            ),
+            h('span',{className:'rr-wrPopoverLabel',style:{marginLeft:16}},'版心宽度'),
+            h('div',{className:'rr-viewToggle'},
+              [[680,'窄栏'],[780,'标准'],[940,'宽栏'],[1140,'超宽']].map(([w,lbl])=>button(lbl,()=>{setPaperWidth(w);storePaperWidth(w)},Math.abs(paperWidth-w)<30?'rr-buttonPrimary':'rr-buttonQuiet'))
+            ),
+            button('收起',()=>setActiveReaderPanel(null),'rr-buttonQuiet',{style:{marginLeft:'auto'}})
+          )
+        ):h('div',{className:'rr-wrPopoverBody'},
+          h('div',{className:'rr-wrPopoverRow'},
+            h('span',{className:'rr-wrPopoverLabel'},'字号与字重'),
+            h('div',{className:'rr-wrStepperWrap'},
+              button('A−',()=>updateWrSettings({fontSize:Math.max(13,Math.round(((wrSettings.fontSize||17.5)-0.5)*2)/2)}),'rr-buttonQuiet'),
+              h('input',{type:'range',min:13,max:28,step:0.5,value:wrSettings.fontSize||17.5,onChange:e=>updateWrSettings({fontSize:Number(e.target.value)}),style:{margin:0,width:140}}),
+              h('span',{style:{fontSize:12,fontWeight:600,minWidth:42,textAlign:'center'}},`${wrSettings.fontSize||17.5}px`),
+              button('A+',()=>updateWrSettings({fontSize:Math.min(28,Math.round(((wrSettings.fontSize||17.5)+0.5)*2)/2)}),'rr-buttonQuiet')
+            ),
+            h('div',{className:'rr-viewToggle',style:{marginLeft:8}},
+              [[400,'标准'],[470,'适中'],[520,'中粗'],[600,'加粗']].map(([w,lbl])=>button(lbl,()=>updateWrSettings({fontWeight:w}),(wrSettings.fontWeight||470)===w?'rr-buttonPrimary':'rr-buttonQuiet'))
+            ),
+            button('收起',()=>setActiveReaderPanel(null),'rr-buttonQuiet',{style:{marginLeft:'auto'}})
+          ),
+          h('div',{className:'rr-wrPopoverRow'},
+            h('span',{className:'rr-wrPopoverLabel'},'精选字体'),
+            h('div',{className:'rr-wrFontGrid'},
+              WEREAD_FONTS.map(f=>h('button',{
+                key:f.id,
+                type:'button',
+                className:`rr-wrFontCard ${wrSettings.fontFamily===f.id?'active':''}`,
+                onClick:()=>updateWrSettings({fontFamily:f.id})
+              },
+                h('span',{className:'rr-wrFontCardTitle',style:{fontFamily:f.stack}},f.label),
+                h('span',{className:'rr-wrFontCardSub'},f.sub)
+              ))
+            )
+          ),
+          h('div',{className:'rr-wrPopoverRow',style:{flexWrap:'wrap'}},
+            h('span',{className:'rr-wrPopoverLabel'},'间距与对齐'),
+            h('div',{className:'rr-viewToggle'},
+              WEREAD_SPACING_PRESETS.map(p=>button(p.label,()=>updateWrSettings({lineHeight:p.lineHeight,paraSpacing:p.paraSpacing}),Math.abs((wrSettings.lineHeight||1.82)-p.lineHeight)<0.04?'rr-buttonPrimary':'rr-buttonQuiet'))
+            ),
+            h('label',{style:{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,margin:0}},
+              `行距 ${wrSettings.lineHeight||1.82}`,
+              h('input',{type:'range',min:1.4,max:2.3,step:0.04,value:wrSettings.lineHeight||1.82,onChange:e=>updateWrSettings({lineHeight:Number(e.target.value)}),style:{width:90,margin:0}})
+            ),
+            h('label',{style:{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,margin:0}},
+              `段距 ${wrSettings.paraSpacing??0.45}em`,
+              h('input',{type:'range',min:0.15,max:1.35,step:0.05,value:wrSettings.paraSpacing??0.45,onChange:e=>updateWrSettings({paraSpacing:Number(e.target.value)}),style:{width:90,margin:0}})
+            ),
+            h('div',{className:'rr-viewToggle'},
+              button('首行缩进',()=>updateWrSettings({textIndent:wrSettings.textIndent===false}),wrSettings.textIndent!==false?'rr-buttonPrimary':'rr-buttonQuiet'),
+              button((wrSettings.textAlign||'justify')==='justify'?'两端对齐':'左对齐',()=>updateWrSettings({textAlign:(wrSettings.textAlign||'justify')==='justify'?'left':'justify'}),(wrSettings.textAlign||'justify')==='justify'?'rr-buttonPrimary':'rr-buttonQuiet')
+            ),
+            reading.comparisonAvailable?h('div',{className:'rr-viewToggle'},
+              button('双语并排',()=>updateWrSettings({bilingualLayout:'parallel'}),(wrSettings.bilingualLayout||'parallel')==='parallel'?'rr-buttonPrimary':'rr-buttonQuiet'),
+              button('双语叠排',()=>updateWrSettings({bilingualLayout:'stacked'}),wrSettings.bilingualLayout==='stacked'?'rr-buttonPrimary':'rr-buttonQuiet')
+            ):null
+          )
+        )
+      ):null,
+      splitPdfCompare?h('div',{className:'rr-splitPdfCompare'},
       h('div',{className:'rr-splitPdfPane'},h('div',{className:'rr-pdfLocation',role:'status'},pdfPage?'原 PDF 第 '+pdfPage+' 页':reading.pdfLocationWarning??'当前段落暂无可靠页码，PDF 可手动翻页'),
       h('iframe',{key:selected+':'+pdfDisplayPage,src:'/api/paper-reader/pipeline/tasks/'+selected+'/source'+(pdfDisplayPage?'#page='+pdfDisplayPage+'&view=FitH':''),title:pdfDisplayPage?'原 PDF 对照 · 第 '+pdfDisplayPage+' 页':'原 PDF 对照'})),
       h('div',{className:'rr-splitReaderPane'},renderReaderBoard({padding:0,'--rr-paper-width':paperWidth+'px'}))):renderReaderBoard({'--rr-paper-width':paperWidth+'px'})):null,
