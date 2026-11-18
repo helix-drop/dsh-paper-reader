@@ -16,6 +16,11 @@ import {
   footnoteDisplayNumbers,
   extractGlossaryHits,
   validateCorrectionMarkers,
+  WEREAD_THEMES,
+  WEREAD_FONTS,
+  WEREAD_SPACING_PRESETS,
+  resolveFontStack,
+  bookCoverPalette,
 } from '../mobile-app/www/js/reading-core.js'
 
 async function startHttpRoutes(routes) {
@@ -507,5 +512,25 @@ test('chunked PDF upload (>8MB) and background default autoSync work without blo
     await fs.rm(cloudData, { recursive: true, force: true })
   }
 })
+
+test('WeRead themes, font families, spacing presets, and scholarly cover palettes are complete and deterministic', () => {
+  assert.ok(WEREAD_THEMES.length >= 10, 'at least 10 curated WeRead background themes')
+  assert.ok(WEREAD_FONTS.length >= 8, 'at least 8 curated WeRead font presets')
+  assert.equal(WEREAD_SPACING_PRESETS.length, 3)
+
+  for (const t of WEREAD_THEMES) {
+    assert.ok(t.id && t.label && t.bg && t.fg && t.border)
+  }
+  assert.match(resolveFontStack('kaiti'), /Kaiti|楷/i)
+  assert.match(resolveFontStack('fangsong'), /FangSong|仿宋/i)
+  assert.match(resolveFontStack('literary'), /Georgia|Palatino/i)
+
+  const cover1 = bookCoverPalette('疯癫与文明', false)
+  const cover2 = bookCoverPalette('疯癫与文明', false)
+  assert.deepEqual(cover1, cover2)
+  const einkCover = bookCoverPalette('疯癫与文明', true)
+  assert.equal(einkCover.fg, '#000000')
+})
+
 
 

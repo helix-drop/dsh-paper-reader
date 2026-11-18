@@ -1,10 +1,10 @@
 :root {
-  --bg: #f7f5f0;
-  --surface: #ffffff;
-  --surface-alt: #efece4;
-  --fg: #262420;
-  --fg-muted: #767168;
-  --border: #e5e0d5;
+  --bg: #f6f1e7;
+  --surface: #fbf8f2;
+  --surface-alt: #ede5d6;
+  --fg: #2c2620;
+  --fg-muted: #786e62;
+  --border: #e2d8c5;
   --accent: #1b6ef3;
   --accent-fg: #ffffff;
   --highlight-bg: rgba(250, 204, 21, 0.34);
@@ -13,41 +13,107 @@
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --reader-font: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
-  --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+  --reader-font: "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", Georgia, serif;
+  --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", sans-serif;
   --reader-size: 18px;
+  --reader-weight: 400;
   --reader-lh: 1.78;
+  --reader-para-gap: 0.85em;
+  --reader-indent: 0em;
+  --reader-align: justify;
   --reader-pad-x: 20px;
+  --reader-dimmer: 0;
 }
 
 body[data-theme="white"] {
   --bg: #ffffff;
   --surface: #ffffff;
-  --surface-alt: #f4f4f5;
-  --fg: #18181b;
-  --fg-muted: #71717a;
-  --border: #e4e4e7;
+  --surface-alt: #f4f5f7;
+  --fg: #1f2329;
+  --fg-muted: #646a73;
+  --border: #e4e6eb;
+}
+
+body[data-theme="paper"] {
+  --bg: #f6f1e7;
+  --surface: #fbf8f2;
+  --surface-alt: #ede5d6;
+  --fg: #2c2620;
+  --fg-muted: #786e62;
+  --border: #e2d8c5;
+}
+
+body[data-theme="kraft"] {
+  --bg: #eadcc9;
+  --surface: #f1e6d6;
+  --surface-alt: #dfd0ba;
+  --fg: #382c1e;
+  --fg-muted: #6e5c47;
+  --border: #cfb999;
+  --accent: #9c5221;
 }
 
 body[data-theme="green"] {
-  --bg: #cce8cf;
-  --surface: #daf0dc;
-  --surface-alt: #bdddc0;
-  --fg: #1d2b1f;
-  --fg-muted: #4b614e;
-  --border: #aed0b2;
+  --bg: #d8ebd9;
+  --surface: #e4f3e5;
+  --surface-alt: #c7e0c9;
+  --fg: #1e3022;
+  --fg-muted: #4b6650;
+  --border: #b6d5b8;
+  --accent: #1d7a46;
 }
 
-body[data-theme="night"] {
-  --bg: #141416;
-  --surface: #1e1e22;
-  --surface-alt: #27272c;
-  --fg: #d4d4d8;
-  --fg-muted: #8e8e98;
-  --border: #323238;
+body[data-theme="cyan"] {
+  --bg: #dceaf2;
+  --surface: #e8f2f8;
+  --surface-alt: #cbe0ec;
+  --fg: #1d2d38;
+  --fg-muted: #4e6575;
+  --border: #b5cfdf;
+  --accent: #1668a8;
+}
+
+body[data-theme="rose"] {
+  --bg: #f5e4e6;
+  --surface: #faeff0;
+  --surface-alt: #ebd4d7;
+  --fg: #362225;
+  --fg-muted: #78565b;
+  --border: #dec0c4;
+  --accent: #b83b5e;
+}
+
+body[data-theme="gray"] {
+  --bg: #eaecf0;
+  --surface: #f4f5f8;
+  --surface-alt: #dfe2e8;
+  --fg: #1f2329;
+  --fg-muted: #5f6672;
+  --border: #cfd4dc;
+}
+
+body[data-theme="dark"] {
+  --bg: #19191c;
+  --surface: #232328;
+  --surface-alt: #2d2d34;
+  --fg: #c2c2cc;
+  --fg-muted: #858592;
+  --border: #34343d;
   --accent: #4c8dff;
   --highlight-bg: rgba(234, 179, 8, 0.24);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+body[data-theme="night"] {
+  --bg: #000000;
+  --surface: #121215;
+  --surface-alt: #1c1c21;
+  --fg: #9a9aa6;
+  --fg-muted: #666672;
+  --border: #25252c;
+  --accent: #4c8dff;
+  --highlight-bg: rgba(234, 179, 8, 0.22);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
 }
 
 body[data-theme="eink"],
@@ -354,13 +420,19 @@ body {
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.wr-pagesTrack.no-anim {
+  transition: none !important;
+}
+
 .wr-columns {
   height: 100%;
   column-fill: auto;
   column-gap: 0;
   font-family: var(--reader-font);
   font-size: var(--reader-size);
+  font-weight: var(--reader-weight);
   line-height: var(--reader-lh);
+  text-align: var(--reader-align);
 }
 
 .wr-scrollFlow {
@@ -368,12 +440,14 @@ body {
   margin: 0 auto;
   font-family: var(--reader-font);
   font-size: var(--reader-size);
+  font-weight: var(--reader-weight);
   line-height: var(--reader-lh);
+  text-align: var(--reader-align);
 }
 
 .wr-block {
   position: relative;
-  margin: 0 0 0.85em;
+  margin: 0 0 var(--reader-para-gap);
   padding: 0 var(--reader-pad-x);
   word-break: break-word;
 }
@@ -389,6 +463,8 @@ body {
   margin: 0.7em 0 0.45em;
   line-height: 1.35;
   font-weight: 700;
+  text-align: left;
+  text-indent: 0;
   break-after: avoid;
 }
 
@@ -398,6 +474,13 @@ body {
 
 .wr-block p {
   margin: 0;
+  text-indent: var(--reader-indent);
+}
+
+.wr-block p.wr-footnoteDef {
+  text-indent: 0;
+  font-size: 0.9em;
+  color: var(--fg-muted);
 }
 
 .wr-block blockquote {
@@ -868,4 +951,361 @@ body[data-theme="eink"] .wr-sheetBackdrop {
   margin-top: 6px;
   border-top: 1px solid var(--border);
 }
+
+/* --- WeRead Brightness Dimmer Overlay --- */
+.wr-brightnessDimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  background: #000000;
+  opacity: var(--reader-dimmer, 0);
+  pointer-events: none;
+}
+
+/* --- WeRead Bookshelf Hero, Book Cover Art & 3-Col Grid --- */
+.wr-heroContinue {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.wr-bookCover {
+  position: relative;
+  width: 62px;
+  height: 86px;
+  border-radius: 4px 7px 7px 4px;
+  padding: 7px 7px 6px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+body[data-eink="true"] .wr-bookCover,
+body[data-theme="eink"] .wr-bookCover {
+  border: 2px solid #000000;
+  box-shadow: none;
+}
+
+.wr-bookCover::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1.5px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+body[data-eink="true"] .wr-bookCover::before,
+body[data-theme="eink"] .wr-bookCover::before {
+  background: #000000;
+}
+
+.wr-bookCoverKind {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.86;
+}
+
+.wr-bookCoverTitle {
+  font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.26;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.wr-bookCoverAuthor {
+  font-size: 8.5px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wr-bookCardWithCover {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  cursor: pointer;
+}
+
+.wr-bookCardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wr-bookGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 12px;
+  padding-top: 4px;
+}
+
+@media (min-width: 640px) {
+  .wr-bookGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px 16px;
+  }
+}
+
+@media (min-width: 980px) {
+  .wr-bookGrid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 20px 18px;
+  }
+}
+
+.wr-gridBookItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.wr-gridBookItem .wr-bookCover {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4.15;
+  padding: 10px 10px 9px 13px;
+}
+
+.wr-gridBookItem .wr-bookCoverTitle {
+  font-size: 12.5px;
+  -webkit-line-clamp: 4;
+}
+
+.wr-gridBookName {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.32;
+  color: var(--fg);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wr-gridBookSub {
+  font-size: 11px;
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* --- WeRead Bottom 4-Tab Dock & Expandable Panels --- */
+.wr-overlayBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0 0 var(--safe-bottom);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  box-shadow: var(--shadow);
+}
+
+.wr-dockPanel {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.wr-dockNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 6px 8px;
+}
+
+.wr-dockBtn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 6px 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-radius: 10px;
+}
+
+.wr-dockBtn .wr-dockIcon {
+  font-size: 16px;
+  line-height: 1.1;
+  font-weight: 600;
+}
+
+.wr-dockBtn.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* --- WeRead Circular Background Swatches --- */
+.wr-swatchScroll {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+}
+
+.wr-swatchItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.wr-swatchCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wr-swatchItem.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.wr-swatchItem.active .wr-swatchCircle {
+  border: 2.5px solid var(--accent);
+  transform: scale(1.05);
+}
+
+/* --- WeRead Font Cards & A-/A+ Stepper --- */
+.wr-stepperBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wr-stepBtn {
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.wr-fontGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 560px) {
+  .wr-fontGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.wr-fontCard {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wr-fontCardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.wr-fontCardSub {
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  font-family: var(--ui-font);
+}
+
+.wr-fontCard.active {
+  border: 1.5px solid var(--accent);
+  background: var(--surface-alt);
+  color: var(--accent);
+}
+
+/* --- TOC Drawer Tabs --- */
+.wr-tocTabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+
+.wr-tocTab {
+  flex: 1;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 8px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wr-tocTab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 

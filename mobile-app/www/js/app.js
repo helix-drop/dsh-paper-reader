@@ -1,4 +1,4 @@
-import { escapeHtml } from './reading-core.js'
+import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack } from './reading-core.js'
 import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
@@ -6,7 +6,7 @@ import { ReaderController } from './reader-controller.js'
 
 const appEl = document.getElementById('app')
 
-const APP_VERSION = '0.1.1'
+const APP_VERSION = '0.2.0'
 const state = {
   tab: 'shelf', // shelf | notes | settings
   settings: null,
@@ -55,11 +55,13 @@ function renderToast() {
 }
 
 function applyThemeAttributes(settings) {
-  document.body.setAttribute('data-theme', settings.theme || 'paper')
-  document.body.setAttribute('data-eink', settings.deviceMode === 'eink' || settings.theme === 'eink' ? 'true' : 'false')
+  const themeId = settings.theme || 'paper'
+  document.body.setAttribute('data-theme', themeId)
+  document.body.setAttribute('data-eink', settings.deviceMode === 'eink' || themeId === 'eink' ? 'true' : 'false')
   const metaTheme = document.querySelector('meta[name="theme-color"]')
   if (metaTheme) {
-    metaTheme.setAttribute('content', settings.theme === 'night' ? '#141416' : settings.theme === 'eink' || settings.theme === 'white' ? '#ffffff' : '#f7f5f0')
+    const found = WEREAD_THEMES.find(t => t.id === themeId)
+    metaTheme.setAttribute('content', found ? found.bg : '#f6f1e7')
   }
 }
 
@@ -146,6 +148,18 @@ function progressForDoc(doc) {
   return best
 }
 
+function renderBookCoverHtml(doc, isEink, badgeText = '') {
+  const pal = bookCoverPalette(doc.name, isEink)
+  const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+  return `
+    <div class="wr-bookCover" style="background:${pal.bg};color:${pal.fg};">
+      ${badgeText ? `<span class="wr-bookCoverBadge">${escapeHtml(badgeText)}</span>` : ''}
+      <div class="wr-bookCoverTitle">${escapeHtml(doc.name || '未命名文献')}</div>
+      <div class="wr-bookCoverAuthor">${escapeHtml(doc.author || kindLabel[doc.kind] || 'DSH 文献')}</div>
+    </div>
+  `
+}
+
 function renderShelf() {
   const docs = (state.library.documents ?? []).filter(d => {
     const meta = state.library.meta?.[d.id] ?? {}
@@ -171,14 +185,35 @@ function renderShelf() {
 
   const folders = state.library.folders ?? []
   const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
-
   const isEink = state.settings?.deviceMode === 'eink' || state.settings?.theme === 'eink'
-  const pageSize = window.innerWidth >= 980 ? 9 : window.innerWidth >= 640 ? 6 : 6
+  const shelfLayout = state.settings?.shelfLayout || 'list'
+  const pageSize = shelfLayout === 'grid'
+    ? (window.innerWidth >= 980 ? 12 : 9)
+    : (window.innerWidth >= 980 ? 9 : 6)
   state.shelfTotalPages = isEink ? Math.max(1, Math.ceil(docs.length / pageSize)) : 1
   state.shelfPage = Math.max(0, Math.min(state.shelfTotalPages - 1, state.shelfPage))
   const visibleDocs = isEink ? docs.slice(state.shelfPage * pageSize, (state.shelfPage + 1) * pageSize) : docs
 
+  // Find most recently read book for the top "Continue Reading" hero banner
+  const recentDoc = !state.searchQuery.trim() && state.selectedFolder === 'all' && state.shelfPage === 0
+    ? docs.find(d => (progressForDoc(d)?.percent || 0) > 0)
+    : null
+  const recentProg = recentDoc ? progressForDoc(recentDoc) : null
+
   return `
+    ${recentDoc ? `
+      <div class="wr-heroContinue" data-open-book="${escapeHtml(recentDoc.id)}">
+        ${renderBookCoverHtml(recentDoc, isEink)}
+        <div class="wr-heroBody">
+          <span class="wr-heroTag">最近阅读 · 读至 ${recentProg?.percent || 0}%${recentProg?.pageIndex ? `（第 ${recentProg.pageIndex} 页）` : ''}</span>
+          <h3 class="wr-heroTitle">${escapeHtml(recentDoc.name)}</h3>
+          <div class="wr-heroMeta">${escapeHtml([recentDoc.author, recentDoc.titleSource].filter(Boolean).join(' · ') || '双语精读文献')}</div>
+          <div>
+            <button type="button" class="wr-btnPrimary" data-read-book="${escapeHtml(recentDoc.id)}" style="padding:5px 14px;font-size:12px;">继续阅读 ›</button>
+          </div>
+        </div>
+      </div>
+    ` : ''}
     <div class="wr-searchRow">
       <input type="search" class="wr-input" placeholder="搜索书名或作者..." value="${escapeHtml(state.searchQuery)}" data-act="search-shelf" />
     </div>
@@ -191,6 +226,21 @@ function renderShelf() {
       <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
         <p style="margin:12px 0;">${state.library.documents?.length ? '没有匹配的文献' : '书架为空，请先在「设置」配置轻量云服务器并点击同步。'}</p>
       </div>
+    ` : shelfLayout === 'grid' ? `
+      <div class="wr-bookGrid">
+        ${visibleDocs.map(d => {
+          const prog = progressForDoc(d)
+          const pct = prog?.percent || 0
+          const isCached = state.cachedIds.has(d.id)
+          return `
+            <div class="wr-gridBookItem" data-open-book="${escapeHtml(d.id)}">
+              ${renderBookCoverHtml(d, isEink, isCached ? '离线' : '')}
+              <h4 class="wr-gridBookName">${escapeHtml(d.name)}</h4>
+              <span class="wr-gridBookProg">${pct > 0 ? `已读 ${pct}%` : '未读'}</span>
+            </div>
+          `
+        }).join('')}
+      </div>
     ` : `
       <div class="wr-bookList">
         ${visibleDocs.map(d => {
@@ -199,34 +249,37 @@ function renderShelf() {
           const isCached = state.cachedIds.has(d.id)
           const busy = state.downloadingId === d.id
           return `
-            <div class="wr-bookCard" data-open-book="${escapeHtml(d.id)}">
-              <div class="wr-bookTop">
-                <div>
-                  <h3 class="wr-bookTitle">${escapeHtml(d.name)}</h3>
-                  <div class="wr-bookMeta">${escapeHtml([d.author, d.titleSource, kindLabel[d.kind] || d.kind].filter(Boolean).join(' · '))}</div>
+            <div class="wr-bookCard wr-bookCardWithCover" data-open-book="${escapeHtml(d.id)}">
+              ${renderBookCoverHtml(d, isEink)}
+              <div class="wr-bookCardMain">
+                <div class="wr-bookTop">
+                  <div style="min-width:0;">
+                    <h3 class="wr-bookTitle">${escapeHtml(d.name)}</h3>
+                    <div class="wr-bookMeta">${escapeHtml([d.author, d.titleSource, kindLabel[d.kind] || d.kind].filter(Boolean).join(' · '))}</div>
+                  </div>
+                  <span class="wr-badge ${isCached ? 'offline' : ''}" style="flex-shrink:0;">${isCached ? '已离线' : '云端'}</span>
                 </div>
-                <span class="wr-badge ${isCached ? 'offline' : ''}">${isCached ? '已离线' : '云端'}</span>
-              </div>
-              <div class="wr-progressTrack"><div class="wr-progressFill" style="width:${pct}%"></div></div>
-              <div class="wr-bookActions">
-                <span style="font-size:12px;color:var(--fg-muted);">${pct > 0 ? `已读 ${pct}%` : '未读'}</span>
-                <div style="display:flex;gap:6px;">
-                  <button type="button" class="wr-btnGhost" data-dl-book="${escapeHtml(d.id)}" style="padding:5px 10px;font-size:12px;">${busy ? '下载中...' : isCached ? '更新离线' : '缓存离线'}</button>
-                  <button type="button" class="wr-btnPrimary" data-read-book="${escapeHtml(d.id)}" style="padding:5px 12px;font-size:12px;">${pct > 0 ? '继续阅读' : '开始阅读'}</button>
+                <div class="wr-progressTrack"><div class="wr-progressFill" style="width:${pct}%"></div></div>
+                <div class="wr-bookActions">
+                  <span style="font-size:12px;color:var(--fg-muted);">${pct > 0 ? `已读 ${pct}%${prog?.pageIndex ? ` · 第 ${prog.pageIndex} 页` : ''}` : '未读'}</span>
+                  <div style="display:flex;gap:6px;">
+                    <button type="button" class="wr-btnGhost" data-dl-book="${escapeHtml(d.id)}" style="padding:5px 10px;font-size:12px;">${busy ? '下载中...' : isCached ? '更新离线' : '缓存离线'}</button>
+                    <button type="button" class="wr-btnPrimary" data-read-book="${escapeHtml(d.id)}" style="padding:5px 12px;font-size:12px;">${pct > 0 ? '继续阅读' : '开始阅读'}</button>
+                  </div>
                 </div>
               </div>
             </div>
           `
         }).join('')}
       </div>
-      ${isEink && state.shelfTotalPages > 1 ? `
-        <div class="wr-einkPager" style="margin-top:12px;">
-          <button type="button" class="wr-btnGhost" data-shelf-page="prev" ${state.shelfPage <= 0 ? 'disabled' : ''}>‹ 上一页</button>
-          <span style="font-size:12px;color:var(--fg-muted);">书架 第 ${state.shelfPage + 1} / ${state.shelfTotalPages} 页</span>
-          <button type="button" class="wr-btnGhost" data-shelf-page="next" ${state.shelfPage >= state.shelfTotalPages - 1 ? 'disabled' : ''}>下一页 ›</button>
-        </div>
-      ` : ''}
     `}
+    ${isEink && state.shelfTotalPages > 1 ? `
+      <div class="wr-einkPager" style="margin-top:12px;">
+        <button type="button" class="wr-btnGhost" data-shelf-page="prev" ${state.shelfPage <= 0 ? 'disabled' : ''}>‹ 上一页</button>
+        <span style="font-size:12px;color:var(--fg-muted);">书架 第 ${state.shelfPage + 1} / ${state.shelfTotalPages} 页</span>
+        <button type="button" class="wr-btnGhost" data-shelf-page="next" ${state.shelfPage >= state.shelfTotalPages - 1 ? 'disabled' : ''}>下一页 ›</button>
+      </div>
+    ` : ''}
   `
 }
 
@@ -276,6 +329,8 @@ function renderSettings() {
   const colMode = s.columnLayout || 'auto'
   const biMode = s.bilingualLayout || 'auto'
   const tapMode = s.tapZoneMode || 'ergonomic'
+  const curTheme = s.theme || 'paper'
+  const curFont = s.fontFamily || 'serif'
   return `
     <div class="wr-card">
       <h3 class="wr-cardTitle">云端书库连接</h3>
@@ -296,6 +351,30 @@ function renderSettings() {
       <p style="margin:8px 0 0;font-size:12px;color:var(--fg-muted);">
         待上传离线队列：${state.outboxCount} 条 · 已离线缓存：${state.cachedIds.size} 本
       </p>
+    </div>
+
+    <div class="wr-card">
+      <h3 class="wr-cardTitle">阅读主题背景与字体预览</h3>
+      <div class="wr-field">背景主题（阅读页底部「背景」菜单可随时切换）
+        <div class="wr-swatchScroll" style="margin-top:6px;">
+          ${WEREAD_THEMES.map(t => `
+            <button type="button" class="wr-swatchItem ${curTheme === t.id ? 'active' : ''}" data-set-theme="${t.id}">
+              <span class="wr-swatchCircle" style="background:${t.swatch};color:${t.fg};border-color:${curTheme === t.id ? 'var(--accent)' : t.border};">${curTheme === t.id ? '✓' : (t.id === 'eink' ? '墨' : '')}</span>
+              <span>${escapeHtml(t.label)}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="wr-field" style="margin-bottom:0;">默认阅读字体（阅读页底部「Aa」菜单可精细调节字重/间距）
+        <div class="wr-fontGrid" style="margin-top:6px;">
+          ${WEREAD_FONTS.map(f => `
+            <button type="button" class="wr-fontCard ${curFont === f.id ? 'active' : ''}" data-set-font="${f.id}">
+              <span class="wr-fontCardTitle" style="font-family:${escapeHtml(f.stack)};">${escapeHtml(f.label)}</span>
+              <span class="wr-fontCardSub">${escapeHtml(f.sub)}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
     </div>
 
     <div class="wr-card">
@@ -356,6 +435,7 @@ function renderSettings() {
 function render() {
   if (state.reader) return
   const bodyHtml = state.tab === 'notes' ? renderNotes() : state.tab === 'settings' ? renderSettings() : renderShelf()
+  const shelfLayout = state.settings?.shelfLayout || 'list'
 
   appEl.innerHTML = `
     <div class="wr-shell">
@@ -363,6 +443,9 @@ function render() {
         <span class="wr-brand">DSH 双语精读</span>
         <div style="display:flex;align-items:center;gap:8px;">
           ${state.outboxCount > 0 ? `<span class="wr-badge">待传 ${state.outboxCount}</span>` : ''}
+          ${state.tab === 'shelf' ? `
+            <button type="button" class="wr-iconBtn" data-act="toggle-shelf-layout">${shelfLayout === 'grid' ? '☰ 列表' : '⊞ 宫格'}</button>
+          ` : ''}
           <button type="button" class="wr-iconBtn" data-act="top-sync">${state.syncing ? '同步中...' : '↻ 同步'}</button>
         </div>
       </header>
@@ -383,6 +466,15 @@ function render() {
   })
 
   appEl.querySelector('[data-act="top-sync"]').onclick = () => performSync(false)
+  const layoutBtn = appEl.querySelector('[data-act="toggle-shelf-layout"]')
+  if (layoutBtn) {
+    layoutBtn.onclick = async () => {
+      const next = (state.settings?.shelfLayout || 'list') === 'grid' ? 'list' : 'grid'
+      await updateSettings({ shelfLayout: next })
+      state.shelfPage = 0
+      render()
+    }
+  }
 
   if (state.tab === 'shelf') {
     const search = appEl.querySelector('[data-act="search-shelf"]')
@@ -470,6 +562,22 @@ function render() {
       await updateSettings(readConn())
       await performSync(false)
     }
+    appEl.querySelectorAll('[data-set-theme]').forEach(btn => {
+      btn.onclick = async () => {
+        const theme = btn.dataset.setTheme
+        await updateSettings({
+          theme,
+          deviceMode: theme === 'eink' ? 'eink' : state.settings.deviceMode === 'eink' ? 'phone' : state.settings.deviceMode,
+        })
+        render()
+      }
+    })
+    appEl.querySelectorAll('[data-set-font]').forEach(btn => {
+      btn.onclick = async () => {
+        await updateSettings({ fontFamily: btn.dataset.setFont })
+        render()
+      }
+    })
     appEl.querySelectorAll('[data-devmode]').forEach(btn => {
       btn.onclick = async () => {
         const mode = btn.dataset.devmode

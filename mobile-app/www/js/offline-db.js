@@ -6,17 +6,24 @@ export const DEFAULT_SETTINGS = {
   token: '',
   deviceId: '',
   deviceName: '我的移动设备',
-  theme: 'paper', // paper | white | green | night | eink
+  shelfLayout: 'list', // list (书封+详情卡片) | grid (微信读书三列书封宫格)
+  theme: 'paper', // white | paper | kraft | green | cyan | rose | gray | dark | night | eink
   deviceMode: 'phone', // phone | eink
   pageMode: 'paginated', // paginated | scroll
+  pageTransition: 'slide', // slide (微信读书平滑平移) | none (瞬切无动画)
   columnLayout: 'auto', // auto (1 col on phone, 2 cols on wide >=860px) | single | double
   bilingualLayout: 'auto', // auto (stacked on phone <640px, side-by-side on wide >=640px) | stacked | parallel
   tapZoneMode: 'ergonomic', // ergonomic (thumb-friendly bottom-center next) | classic | bottomNext | keysOnly (stylus/Hanwang anti-mistouch)
   showPageTurnBar: false, // explicit bottom prev/next bar for stylus-only E-ink devices (e.g. Hanwang N10)
   fontSize: 18,
+  fontWeight: 400, // 400 | 450 | 500 | 600
   lineHeight: 1.78,
+  paraSpacing: 0.85,
   marginX: 20,
-  fontFamily: 'serif', // serif | sans | mono
+  textIndent: false, // 首行缩进两字符
+  textAlign: 'justify', // justify | left
+  brightness: 100, // 35..100
+  fontFamily: 'serif', // serif | fzsong | kaiti | fangsong | sans | yuan | literary | mono
   prevKeys: ['VolumeUp', 'PageUp', 'ArrowLeft', 'ArrowUp', 24, 92, 19, 21],
   nextKeys: ['VolumeDown', 'PageDown', 'ArrowRight', 'ArrowDown', 25, 93, 20, 22],
 }

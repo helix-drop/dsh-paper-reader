@@ -326,3 +326,100 @@ export function resolveTapZoneAction({ xRatio, yRatio, tapZoneMode = 'ergonomic'
   return 'menu'
 }
 
+export const WEREAD_THEMES = [
+  { id: 'white', label: '纯白', bg: '#ffffff', fg: '#1f2329', swatch: '#ffffff', border: '#e4e6eb', dark: false },
+  { id: 'paper', label: '羊皮纸', bg: '#f6f1e7', fg: '#2c2620', swatch: '#f3ead8', border: '#e2d8c5', dark: false },
+  { id: 'kraft', label: '牛皮纸', bg: '#eadcc9', fg: '#382c1e', swatch: '#e2cfb4', border: '#cfb999', dark: false },
+  { id: 'green', label: '护眼绿', bg: '#d8ebd9', fg: '#1e3022', swatch: '#cce5ce', border: '#b6d5b8', dark: false },
+  { id: 'cyan', label: '海天蓝', bg: '#dceaf2', fg: '#1d2d38', swatch: '#cce0ec', border: '#b5cfdf', dark: false },
+  { id: 'rose', label: '胭脂粉', bg: '#f5e4e6', fg: '#362225', swatch: '#efd5d8', border: '#dec0c4', dark: false },
+  { id: 'gray', label: '极简灰', bg: '#eaecf0', fg: '#1f2329', swatch: '#dfe2e8', border: '#cfd4dc', dark: false },
+  { id: 'dark', label: '暗夜灰', bg: '#19191c', fg: '#b8b8c2', swatch: '#242429', border: '#34343d', dark: true },
+  { id: 'night', label: '纯黑', bg: '#000000', fg: '#9a9aa6', swatch: '#0a0a0c', border: '#27272f', dark: true },
+  { id: 'eink', label: '水墨屏', bg: '#ffffff', fg: '#000000', swatch: '#ffffff', border: '#000000', dark: false, eink: true },
+]
+
+export const WEREAD_FONTS = [
+  {
+    id: 'serif',
+    label: '思源宋体',
+    sub: '经典书宋',
+    stack: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif',
+  },
+  {
+    id: 'fzsong',
+    label: '方正新书宋',
+    sub: '人文雅宋',
+    stack: '"FZNewShuSong-Z10", "FZShuSong-Z01", "FZXiaoBiaoSong-B05S", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif',
+  },
+  {
+    id: 'kaiti',
+    label: '霞鹜文楷',
+    sub: '温润手写楷',
+    stack: '"LXGW WenKai", "Kaiti SC", "STKaiti", "FZKai-Z03", "KaiTi", "DFKai-SB", "Noto Serif SC", serif',
+  },
+  {
+    id: 'fangsong',
+    label: '书刻仿宋',
+    sub: '古籍清朗',
+    stack: '"FangSong", "STFangsong", "FZFangSong-Z02", "Kaiti SC", "Noto Serif SC", serif',
+  },
+  {
+    id: 'sans',
+    label: '系统黑体',
+    sub: '现代清晰',
+    stack: '-apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif',
+  },
+  {
+    id: 'yuan',
+    label: '雅致圆体',
+    sub: '柔和舒缓',
+    stack: '"STYuanti-SC-Regular", "YouYuan", "FZY3JW--GB1-0", "PingFang SC", "HarmonyOS Sans SC", sans-serif',
+  },
+  {
+    id: 'literary',
+    label: '西文衬线',
+    sub: '外文双语优享',
+    stack: 'Georgia, "Palatino Linotype", "Book Antiqua", "Times New Roman", "Source Han Serif SC", "Noto Serif SC", serif',
+  },
+  {
+    id: 'mono',
+    label: '等宽字体',
+    sub: '严谨对齐',
+    stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "PingFang SC", monospace',
+  },
+]
+
+export const WEREAD_SPACING_PRESETS = [
+  { id: 'compact', label: '紧凑', lineHeight: 1.55, paraSpacing: 0.55, marginX: 16 },
+  { id: 'normal', label: '适中', lineHeight: 1.78, paraSpacing: 0.85, marginX: 20 },
+  { id: 'loose', label: '宽松', lineHeight: 2.05, paraSpacing: 1.15, marginX: 28 },
+]
+
+export function resolveFontStack(fontId) {
+  const hit = WEREAD_FONTS.find(f => f.id === fontId)
+  return hit ? hit.stack : WEREAD_FONTS[0].stack
+}
+
+const COVER_PALETTES = [
+  { bg: 'linear-gradient(145deg, #2b3a4a 0%, #1d2833 100%)', fg: '#f4efe6', accent: '#d4b483' },
+  { bg: 'linear-gradient(145deg, #4a3531 0%, #2f201d 100%)', fg: '#f7efe8', accent: '#e0a96d' },
+  { bg: 'linear-gradient(145deg, #2d4239 0%, #1c2b24 100%)', fg: '#eef3ef', accent: '#a3c9a8' },
+  { bg: 'linear-gradient(145deg, #3d354b 0%, #251f30 100%)', fg: '#f2eef7', accent: '#c8b6e2' },
+  { bg: 'linear-gradient(145deg, #4b4234 0%, #30291f 100%)', fg: '#f7f3eb', accent: '#d8c39e' },
+  { bg: 'linear-gradient(145deg, #263f4d 0%, #172730 100%)', fg: '#edf4f7', accent: '#90bfd6' },
+]
+
+export function bookCoverPalette(title = '', isEink = false) {
+  if (isEink) {
+    return { bg: '#ffffff', fg: '#000000', accent: '#000000', eink: true }
+  }
+  const str = String(title || 'book')
+  let h = 0
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0
+  }
+  return COVER_PALETTES[Math.abs(h) % COVER_PALETTES.length]
+}
+
+
