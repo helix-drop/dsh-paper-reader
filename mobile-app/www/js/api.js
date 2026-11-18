@@ -35,8 +35,53 @@ async function apiJson(settings, route, options = {}) {
 }
 
 const assetUrlCache = new Map()
+const coverUrlCache = new Map()
+const coverLoadPromises = new Map()
 
 export const readerApi = {
+  getCachedCoverUrl(taskId) {
+    return coverUrlCache.get(taskId)
+  },
+
+  async loadCoverUrl(settings, taskId) {
+    if (!taskId) return null
+    if (coverUrlCache.has(taskId)) return coverUrlCache.get(taskId)
+    if (coverLoadPromises.has(taskId)) return coverLoadPromises.get(taskId)
+
+    const job = (async () => {
+      try {
+        const cached = await offlineDb.getAsset(taskId, '__cover_page_1__')
+        if (cached?.blob) {
+          const url = URL.createObjectURL(cached.blob)
+          coverUrlCache.set(taskId, url)
+          return url
+        }
+        const res = await apiFetch(
+          settings,
+          `/pipeline/tasks/${encodeURIComponent(taskId)}/pdf-page/1?dpi=120`,
+        )
+        if (!res.ok) {
+          if (res.status === 400 || res.status === 404 || res.status === 501) {
+            coverUrlCache.set(taskId, null)
+          }
+          return null
+        }
+        const blob = await res.blob()
+        await offlineDb.saveAsset(taskId, '__cover_page_1__', blob, blob.type || 'image/png').catch(() => {})
+        const url = URL.createObjectURL(blob)
+        coverUrlCache.set(taskId, url)
+        return url
+      } catch {
+        return null
+      } finally {
+        coverLoadPromises.delete(taskId)
+      }
+    })()
+
+    coverLoadPromises.set(taskId, job)
+    return job
+  },
+
   async testConnection(settings) {
     return apiJson(settings, '/sync/health')
   },
@@ -145,6 +190,7 @@ export const readerApi = {
       }
       onProgress?.(i + 1, list.length)
     }
+    await this.loadCoverUrl(settings, taskId).catch(() => null)
     return { reading, assetsCount: list.length }
   },
 

@@ -151,13 +151,55 @@ function progressForDoc(doc) {
 function renderBookCoverHtml(doc, isEink, badgeText = '') {
   const pal = bookCoverPalette(doc.name, isEink)
   const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+  const coverState = doc.hasPdf === false ? null : readerApi.getCachedCoverUrl(doc.id)
+  const coverImgHtml = typeof coverState === 'string'
+    ? `<img class="wr-bookCoverImg loaded" src="${escapeHtml(coverState)}" alt="" />`
+    : coverState === null
+      ? ''
+      : `<img class="wr-bookCoverImg" data-cover-task="${escapeHtml(doc.id)}" alt="" />`
   return `
     <div class="wr-bookCover" style="background:${pal.bg};color:${pal.fg};">
+      ${coverImgHtml}
       ${badgeText ? `<span class="wr-bookCoverBadge">${escapeHtml(badgeText)}</span>` : ''}
       <div class="wr-bookCoverTitle">${escapeHtml(doc.name || '未命名文献')}</div>
       <div class="wr-bookCoverAuthor">${escapeHtml(doc.author || kindLabel[doc.kind] || 'DSH 文献')}</div>
     </div>
   `
+}
+
+let coverHydrateToken = 0
+async function hydrateShelfCovers() {
+  const token = ++coverHydrateToken
+  const imgs = [...appEl.querySelectorAll('img.wr-bookCoverImg[data-cover-task]')]
+  if (!imgs.length) return
+  const byTask = new Map()
+  for (const img of imgs) {
+    const taskId = img.getAttribute('data-cover-task')
+    if (!taskId) continue
+    if (!byTask.has(taskId)) byTask.set(taskId, [])
+    byTask.get(taskId).push(img)
+  }
+  const tasks = [...byTask.keys()]
+  const concurrency = 4
+  let idx = 0
+  const worker = async () => {
+    while (idx < tasks.length) {
+      if (token !== coverHydrateToken) return
+      const taskId = tasks[idx++]
+      const url = await readerApi.loadCoverUrl(state.settings, taskId)
+      if (token !== coverHydrateToken) return
+      for (const el of byTask.get(taskId) ?? []) {
+        el.removeAttribute('data-cover-task')
+        if (url) {
+          el.src = url
+          el.classList.add('loaded')
+        } else {
+          el.remove()
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()))
 }
 
 function renderShelf() {
@@ -515,6 +557,7 @@ function render() {
     appEl.querySelectorAll('[data-open-book]').forEach(card => {
       card.onclick = () => openBook(card.dataset.openBook)
     })
+    hydrateShelfCovers()
   } else if (state.tab === 'notes') {
     const ns = appEl.querySelector('[data-act="search-notes"]')
     if (ns) ns.oninput = () => { state.noteSearch = ns.value; render() }

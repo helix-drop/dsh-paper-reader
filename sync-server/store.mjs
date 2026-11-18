@@ -84,7 +84,10 @@ export class CloudSyncStore {
   async libraryPayload() {
     const state = await this.readLibraryState()
     return {
-      documents: state.documents,
+      documents: state.documents.map(d => ({
+        ...d,
+        hasPdf: Boolean(state.manifest[d.id]?.hasPdf ?? d.hasPdf),
+      })),
       folders: state.folders,
       meta: state.itemMeta,
     }

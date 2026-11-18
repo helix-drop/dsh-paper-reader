@@ -2047,6 +2047,7 @@ window.__ModuleLoader__.load({
   flex-direction: column;
   justify-content: space-between;
   position: relative;
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 3px 8px rgba(0,0,0,0.14), inset 3px 0 5px rgba(255,255,255,0.14);
   overflow: hidden;
   flex-shrink: 0;
@@ -2060,6 +2061,24 @@ window.__ModuleLoader__.load({
   bottom: 0;
   width: 1.5px;
   background: rgba(0, 0, 0, 0.24);
+  z-index: 3;
+  pointer-events: none;
+}
+.rr-wrBookCoverImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  background: #ffffff;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+.rr-wrBookCoverImg.loaded {
+  opacity: 1;
 }
 .rr-wrBookCoverLarge {
   width: 68px;
@@ -2108,9 +2127,10 @@ window.__ModuleLoader__.load({
   font-size: 9.5px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.55);
   color: #ffffff;
   font-weight: 600;
+  z-index: 4;
 }
 
 .rr-wrHeroContinue {
@@ -2821,10 +2841,22 @@ window.__ModuleLoader__.load({
     function renderDesktopBookCover(doc, size = 'normal', badgeText = '') {
       const pal = bookCoverPalette(doc?.name)
       const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+      const coverUrl = doc?.id && doc?.hasPdf !== false
+        ? `/api/paper-reader/pipeline/tasks/${encodeURIComponent(doc.id)}/pdf-page/1?dpi=120`
+        : null
       return h('div', {
         className: `rr-wrBookCover ${size === 'large' ? 'rr-wrBookCoverLarge' : size === 'grid' ? 'rr-wrBookCoverGrid' : ''}`.trim(),
         style: { background: pal.bg, color: pal.fg }
       },
+        coverUrl ? h('img', {
+          className: 'rr-wrBookCoverImg',
+          src: coverUrl,
+          loading: 'lazy',
+          alt: '',
+          ref: el => { if (el && el.complete && el.naturalWidth > 0) el.classList.add('loaded') },
+          onLoad: e => { e.currentTarget.classList.add('loaded') },
+          onError: e => { e.currentTarget.style.display = 'none' },
+        }) : null,
         badgeText ? h('span', { className: 'rr-wrBookCoverBadge' }, badgeText) : null,
         h('div', { className: 'rr-wrBookCoverTitle' }, doc?.name || '未命名文献'),
         h('div', { className: 'rr-wrBookCoverAuthor' }, doc?.author || kindLabel[doc?.kind] || 'DSH 文献')

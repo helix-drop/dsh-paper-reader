@@ -507,6 +507,32 @@ body[data-theme="eink"] .wr-bookCover {
   left: 5px;
   width: 1.5px;
   background: rgba(255, 255, 255, 0.22);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.wr-bookCoverImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  background: #ffffff;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+
+.wr-bookCoverImg.loaded {
+  opacity: 1;
+}
+
+body[data-eink="true"] .wr-bookCoverImg,
+body[data-theme="eink"] .wr-bookCoverImg {
+  filter: grayscale(100%) contrast(1.08);
+  transition: none;
 }
 
 body[data-eink="true"] .wr-bookCover::before,
@@ -518,6 +544,7 @@ body[data-theme="eink"] .wr-bookCover::before {
   position: absolute;
   top: 5px;
   right: 5px;
+  z-index: 4;
   font-size: 9px;
   font-weight: 700;
   padding: 1px 4px;

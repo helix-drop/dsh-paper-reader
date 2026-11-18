@@ -94,10 +94,22 @@ function bookCoverPalette(title = '') {
 function renderDesktopBookCover(doc, size = 'normal', badgeText = '') {
   const pal = bookCoverPalette(doc?.name)
   const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+  const coverUrl = doc?.id && doc?.hasPdf !== false
+    ? `/api/paper-reader/pipeline/tasks/${encodeURIComponent(doc.id)}/pdf-page/1?dpi=120`
+    : null
   return h('div', {
     className: `rr-wrBookCover ${size === 'large' ? 'rr-wrBookCoverLarge' : size === 'grid' ? 'rr-wrBookCoverGrid' : ''}`.trim(),
     style: { background: pal.bg, color: pal.fg }
   },
+    coverUrl ? h('img', {
+      className: 'rr-wrBookCoverImg',
+      src: coverUrl,
+      loading: 'lazy',
+      alt: '',
+      ref: el => { if (el && el.complete && el.naturalWidth > 0) el.classList.add('loaded') },
+      onLoad: e => { e.currentTarget.classList.add('loaded') },
+      onError: e => { e.currentTarget.style.display = 'none' },
+    }) : null,
     badgeText ? h('span', { className: 'rr-wrBookCoverBadge' }, badgeText) : null,
     h('div', { className: 'rr-wrBookCoverTitle' }, doc?.name || '未命名文献'),
     h('div', { className: 'rr-wrBookCoverAuthor' }, doc?.author || kindLabel[doc?.kind] || 'DSH 文献')

@@ -8,6 +8,7 @@ import { reviewMonitorHtml } from './review-monitor.js'
 import { exportBookmarks } from './bookmarks.js'
 import { resolveWorkspaceAsset } from '../../shared/workspace.js'
 import { taskSourcePdf, loadSourceMap } from './source-map.js'
+import { renderPdfPage } from './pdf-location.js'
 import { hash } from './markdown.js'
 import { TaskManager, STAGES } from './tasks.js'
 import { openLinguaGacha, adapterStatus, startSubscriptionAdapter } from './linguagacha.js'
@@ -512,6 +513,55 @@ export function taskRoutes(manager, registerSession) {
           'x-content-type-options': 'nosniff',
         })
         res.end(bytes)
+      },
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/tasks\/([^/]+)\/pdf-page\/(\d+)$/,
+      handler: async (_req, res, url, m) => {
+        const t = await manager.get(m[1])
+        const page = Math.max(1, Number(m[2]) || 1)
+        const dpi = Math.max(72, Math.min(300, Number(url.searchParams.get('dpi') ?? 120) || 120))
+        const source = await taskSourcePdf(manager, t).catch(() => null)
+        if (source) {
+          const isFile = await fs.stat(source).then(s => s.isFile()).catch(() => false)
+          if (isFile) {
+            const result = await renderPdfPage({
+              pdfFile: source,
+              cacheDir: path.join(manager.dir(t.id), 'pdf-pages'),
+              page,
+              dpi,
+              pythonBin: manager.python || 'python3',
+            })
+            if (result?.supported && result.bytes) {
+              res.writeHead(200, {
+                'content-type': 'image/png',
+                'cache-control': 'public, max-age=86400',
+                'x-content-type-options': 'nosniff',
+              })
+              res.end(result.bytes)
+              return
+            }
+          }
+        }
+        const aiDir = manager.aiDir?.(t)
+        if (aiDir) {
+          for (const pad of [3, 4]) {
+            const imgPath = path.join(aiDir, 'page_images', `page_${String(page).padStart(pad, '0')}.png`)
+            try {
+              const bytes = await fs.readFile(imgPath)
+              res.writeHead(200, {
+                'content-type': 'image/png',
+                'cache-control': 'public, max-age=86400',
+                'x-content-type-options': 'nosniff',
+              })
+              res.end(bytes)
+              return
+            } catch {}
+          }
+        }
+        res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: '此任务暂无可用 PDF 页面图像' }))
       },
     },
     {
