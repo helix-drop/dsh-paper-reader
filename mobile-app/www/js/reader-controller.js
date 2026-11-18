@@ -1,22 +1,18 @@
 import {
-  WEREAD_FONTS,
-  WEREAD_SPACING_PRESETS,
-  WEREAD_THEMES,
   buildFootnoteIndex,
   computeViewportLayout,
   escapeHtml,
-  extractGlossaryHits,
   footnoteDisplayNumbers,
-  plainText,
   renderBlockBodyHtml,
   resolveFontStack,
   resolveFootnote,
   resolveTapZoneAction,
-  validateCorrectionMarkers,
 } from './reading-core.js'
 import { readerApi } from './api.js'
 import { offlineDb } from './offline-db.js'
 import { nativeBridge } from './native-bridge.js'
+import { renderReaderChrome, renderSelectionCapsule } from './reader-menus.js'
+import { renderReaderSheet } from './reader-sheets.js'
 
 function nowClock() {
   const d = new Date()
@@ -33,7 +29,9 @@ export class ReaderController {
     this.onToast = onToast
     this.onSettingsChange = onSettingsChange
 
-    const hasTrans = Boolean(reading.comparisonAvailable || reading.blocks?.some(b => b.translation) || reading.standaloneView === 'translation')
+    const hasTrans = Boolean(
+      reading.comparisonAvailable || reading.blocks?.some(b => b.translation) || reading.standaloneView === 'translation'
+    )
     if (initialView && ['original', 'translation', 'bilingual'].includes(initialView)) {
       this.viewMode = initialView === 'original' || hasTrans ? initialView : 'original'
     } else {
@@ -45,7 +43,7 @@ export class ReaderController {
     this.barsVisible = false
     this.activeBottomPanel = 'progress' // 'progress' | 'theme' | 'typography'
     this.tocSubTab = 'outline' // 'outline' | 'marks' | 'glossary'
-    this.activeSheet = null // 'toc' | 'typography' | 'drawer' | 'footnote' | 'noteEditor' | 'correction' | 'pdf'
+    this.activeSheet = null // 'toc' | 'drawer' | 'footnote' | 'noteEditor' | 'correction' | 'pdf'
     this.sheetData = null
     this.selectionInfo = null
     this.currentPage = 0
@@ -133,9 +131,10 @@ export class ReaderController {
   }
 
   hiddenSet() {
-    const list = this.viewMode === 'original'
-      ? (this.reading.originalOutline?.hiddenBlocks ?? [])
-      : (this.reading.hiddenBlocks ?? [])
+    const list =
+      this.viewMode === 'original'
+        ? (this.reading.originalOutline?.hiddenBlocks ?? [])
+        : (this.reading.hiddenBlocks ?? [])
     return new Set(list)
   }
 
@@ -313,10 +312,19 @@ export class ReaderController {
     const blocks = this.visibleBlocks()
     const isTrans = this.viewMode !== 'original'
     const outline = this.outlineItems()
-    const noteNumbers = footnoteDisplayNumbers(this.activeBlocks(), this.reading.kind === 'paper' ? [] : outline, isTrans && !this.reading.standaloneView)
-    const origNoteNumbers = this.viewMode === 'bilingual'
-      ? footnoteDisplayNumbers(this.reading.originalBlocks ?? this.reading.blocks ?? [], this.reading.kind === 'paper' ? [] : (this.reading.originalOutline?.outline ?? []), false)
-      : noteNumbers
+    const noteNumbers = footnoteDisplayNumbers(
+      this.activeBlocks(),
+      this.reading.kind === 'paper' ? [] : outline,
+      isTrans && !this.reading.standaloneView
+    )
+    const origNoteNumbers =
+      this.viewMode === 'bilingual'
+        ? footnoteDisplayNumbers(
+            this.reading.originalBlocks ?? this.reading.blocks ?? [],
+            this.reading.kind === 'paper' ? [] : (this.reading.originalOutline?.outline ?? []),
+            false
+          )
+        : noteNumbers
 
     const marksByBlock = new Map()
     const activeViewKey = this.viewMode === 'original' ? 'original' : 'translation'
@@ -328,36 +336,43 @@ export class ReaderController {
 
     const useParallelBilingual = this.viewMode === 'bilingual' && this.layoutInfo.effectiveBilingual === 'parallel'
 
-    const html = blocks.map(b => {
-      const mainText = this.viewMode === 'original'
-        ? (b.sourceText ?? b.text)
-        : (this.reading.standaloneView === 'translation' ? b.text : (b.translation ?? b.text))
-      const blockMarks = (marksByBlock.get(b.id) ?? []).filter(m => m.view === (this.viewMode === 'original' ? 'original' : 'translation'))
-      const showTrigger = this.viewMode === 'translation' && Boolean(b.sourceText || b.pdfPage)
-      const body = renderBlockBodyHtml(mainText, b, {
-        view: this.viewMode === 'original' ? 'original' : 'translation',
-        marks: blockMarks,
-        noteNumbers,
-        showDrawerTrigger: showTrigger,
-      })
-
-      if (this.viewMode === 'bilingual' && b.sourceText && b.sourceText !== mainText) {
-        const srcMarks = (marksByBlock.get(b.id) ?? []).filter(m => m.view === 'original')
-        const srcHtml = renderBlockBodyHtml(b.sourceText, b, {
-          view: 'original',
-          marks: srcMarks,
-          noteNumbers: origNoteNumbers,
-          showDrawerTrigger: Boolean(b.pdfPage),
+    const html = blocks
+      .map(b => {
+        const mainText =
+          this.viewMode === 'original'
+            ? (b.sourceText ?? b.text)
+            : this.reading.standaloneView === 'translation'
+            ? b.text
+            : (b.translation ?? b.text)
+        const blockMarks = (marksByBlock.get(b.id) ?? []).filter(
+          m => m.view === (this.viewMode === 'original' ? 'original' : 'translation')
+        )
+        const showTrigger = this.viewMode === 'translation' && Boolean(b.sourceText || b.pdfPage)
+        const body = renderBlockBodyHtml(mainText, b, {
+          view: this.viewMode === 'original' ? 'original' : 'translation',
+          marks: blockMarks,
+          noteNumbers,
+          showDrawerTrigger: showTrigger,
         })
-        if (useParallelBilingual) {
-          return `<div class="wr-block bilingual-parallel" data-block-id="${escapeHtml(b.id)}"><div class="wr-bilingualPrimary" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}</div><div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div></div>`
-        }
-        const bilingualExtra = `<div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div>`
-        return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}${bilingualExtra}</div>`
-      }
 
-      return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="${this.viewMode === 'original' ? 'original' : 'translation'}">${body}</div>`
-    }).join('')
+        if (this.viewMode === 'bilingual' && b.sourceText && b.sourceText !== mainText) {
+          const srcMarks = (marksByBlock.get(b.id) ?? []).filter(m => m.view === 'original')
+          const srcHtml = renderBlockBodyHtml(b.sourceText, b, {
+            view: 'original',
+            marks: srcMarks,
+            noteNumbers: origNoteNumbers,
+            showDrawerTrigger: Boolean(b.pdfPage),
+          })
+          if (useParallelBilingual) {
+            return `<div class="wr-block bilingual-parallel" data-block-id="${escapeHtml(b.id)}"><div class="wr-bilingualPrimary" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}</div><div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div></div>`
+          }
+          const bilingualExtra = `<div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div>`
+          return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}${bilingualExtra}</div>`
+        }
+
+        return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="${this.viewMode === 'original' ? 'original' : 'translation'}">${body}</div>`
+      })
+      .join('')
 
     this.columnsEl.innerHTML = html
     this.hydrateImages()
@@ -368,7 +383,8 @@ export class ReaderController {
     const imgs = this.columnsEl?.querySelectorAll('img[data-asset-ref]') ?? []
     for (const img of imgs) {
       const ref = img.getAttribute('data-asset-ref')
-      readerApi.loadAssetUrl(this.settings, this.taskId, ref)
+      readerApi
+        .loadAssetUrl(this.settings, this.taskId, ref)
         .then(url => {
           if (this.destroyed) return
           img.src = url
@@ -388,7 +404,6 @@ export class ReaderController {
     this.layoutInfo = layout
     this.applyTypographyVars()
 
-    // If screen rotated across 640px threshold while in bilingual mode, re-render blocks to toggle stacked vs parallel
     if (this.viewMode === 'bilingual' && prevBilingual && prevBilingual !== layout.effectiveBilingual) {
       this.pendingBlockId = this.currentTopBlockId()
       this.renderBlocks()
@@ -611,48 +626,61 @@ export class ReaderController {
       deviceName: this.settings.deviceName,
       updatedAt: Date.now(),
     }
-    if (immediate) {
-      void readerApi.saveProgress(this.settings, entry)
-    } else {
-      void readerApi.saveProgress(this.settings, entry)
-    }
+    void readerApi.saveProgress(this.settings, entry)
   }
 
   bindReaderInteractions() {
     const vp = this.viewportEl
     if (!vp) return
 
-    vp.addEventListener('scroll', () => {
-      if (this.settings.pageMode === 'scroll') {
-        this.updatePageIndicator()
-        this.scheduleSaveProgress()
-      }
-    }, { passive: true })
+    vp.addEventListener(
+      'scroll',
+      () => {
+        if (this.settings.pageMode === 'scroll') {
+          this.updatePageIndicator()
+          this.scheduleSaveProgress()
+        }
+      },
+      { passive: true }
+    )
 
-    // Support both finger touch and Hanwang Wacom electromagnetic stylus (PointerEvent)
-    vp.addEventListener('pointerdown', e => {
-      if (e.button && e.button !== 0) return
-      this.touchStart = { x: e.clientX, y: e.clientY, time: Date.now(), pointerType: e.pointerType }
-    }, { passive: true })
+    vp.addEventListener(
+      'pointerdown',
+      e => {
+        if (e.button && e.button !== 0) return
+        this.touchStart = { x: e.clientX, y: e.clientY, time: Date.now(), pointerType: e.pointerType }
+      },
+      { passive: true }
+    )
 
-    vp.addEventListener('pointerup', e => {
-      if (!this.touchStart) return
-      const sel = window.getSelection()
-      if (sel && !sel.isCollapsed) {
+    vp.addEventListener(
+      'pointerup',
+      e => {
+        if (!this.touchStart) return
+        const sel = window.getSelection()
+        if (sel && !sel.isCollapsed) {
+          this.touchStart = null
+          setTimeout(() => this.inspectSelection(), 60)
+          return
+        }
+        const dx = e.clientX - this.touchStart.x
+        const dy = e.clientY - this.touchStart.y
+        const dt = Date.now() - this.touchStart.time
         this.touchStart = null
-        setTimeout(() => this.inspectSelection(), 60)
-        return
-      }
-      const dx = e.clientX - this.touchStart.x
-      const dy = e.clientY - this.touchStart.y
-      const dt = Date.now() - this.touchStart.time
-      this.touchStart = null
-      if (this.settings.pageMode === 'paginated' && this.settings.tapZoneMode !== 'keysOnly' && dt < 450 && Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-        this.lastSwipeAt = Date.now()
-        if (dx < 0) this.nextPage()
-        else this.prevPage()
-      }
-    }, { passive: true })
+        if (
+          this.settings.pageMode === 'paginated' &&
+          this.settings.tapZoneMode !== 'keysOnly' &&
+          dt < 450 &&
+          Math.abs(dx) > 45 &&
+          Math.abs(dx) > Math.abs(dy) * 1.4
+        ) {
+          this.lastSwipeAt = Date.now()
+          if (dx < 0) this.nextPage()
+          else this.prevPage()
+        }
+      },
+      { passive: true }
+    )
 
     vp.addEventListener('click', e => {
       if (Date.now() - this.lastSwipeAt < 280) return
@@ -748,476 +776,18 @@ export class ReaderController {
 
   clearSelection() {
     this.selectionInfo = null
-    try { window.getSelection()?.removeAllRanges() } catch {}
+    try {
+      window.getSelection()?.removeAllRanges()
+    } catch {}
     this.renderCapsule()
   }
 
   renderCapsule() {
-    const host = this.root.querySelector('[data-role="capsule"]')
-    if (!host) return
-    if (!this.selectionInfo) {
-      host.innerHTML = ''
-      return
-    }
-    const existing = this.marks.filter(m => m.view === this.selectionInfo.view && m.exact === this.selectionInfo.exact && (m.blockId === this.selectionInfo.startBlockId || m.blockId === this.selectionInfo.endBlockId))
-    const hasHighlight = existing.some(m => m.kind === 'highlight')
-
-    host.innerHTML = `
-      <div class="wr-selectionCapsule" style="left:${this.selectionInfo.left}px;top:${this.selectionInfo.top}px;">
-        <button type="button" class="wr-capsuleBtn" data-cap="highlight">${hasHighlight ? '取消划线' : '划线'}</button>
-        <button type="button" class="wr-capsuleBtn" data-cap="note">写想法</button>
-        <button type="button" class="wr-capsuleBtn" data-cap="original">看原文</button>
-        <button type="button" class="wr-capsuleBtn" data-cap="correct">纠错</button>
-        <button type="button" class="wr-capsuleBtn" data-cap="copy">复制</button>
-      </div>
-    `
-
-    host.querySelector('[data-cap="highlight"]').onclick = async () => {
-      const sel = this.selectionInfo
-      if (!sel) return
-      if (hasHighlight) {
-        const hIds = [...new Set(existing.filter(m => m.kind === 'highlight').map(m => m.id))]
-        for (const id of hIds) {
-          await readerApi.postBookmarkAction(this.settings, { source: { kind: 'task', id: this.taskId }, removeHighlight: id })
-        }
-        this.marks = this.marks.filter(m => !hIds.includes(m.id))
-        this.onToast('已取消划线')
-      } else {
-        const created = await readerApi.postBookmarkAction(this.settings, {
-          source: { kind: 'task', id: this.taskId },
-          selection: sel,
-          highlightOnly: true,
-        })
-        this.marks.push({
-          id: created?.id || 'local-' + Date.now(),
-          kind: 'highlight',
-          view: sel.view,
-          blockId: sel.startBlockId,
-          quote: sel.exact,
-          exact: sel.exact,
-        })
-        this.onToast('已划线')
-      }
-      await offlineDb.saveMarks(this.taskId, this.marks)
-      this.clearSelection()
-      this.renderBlocks()
-    }
-
-    host.querySelector('[data-cap="note"]').onclick = () => {
-      const sel = this.selectionInfo
-      this.activeSheet = 'noteEditor'
-      this.sheetData = { selection: sel }
-      this.clearSelection()
-      this.renderSheet()
-    }
-
-    host.querySelector('[data-cap="original"]').onclick = () => {
-      const id = this.selectionInfo?.startBlockId
-      this.clearSelection()
-      if (id) this.openBilingualDrawer(id)
-    }
-
-    host.querySelector('[data-cap="correct"]').onclick = () => {
-      const sel = this.selectionInfo
-      this.clearSelection()
-      if (sel) this.openCorrectionSheet(sel.startBlockId, sel.view)
-    }
-
-    host.querySelector('[data-cap="copy"]').onclick = async () => {
-      try { await navigator.clipboard.writeText(this.selectionInfo.exact); this.onToast('已复制') } catch {}
-      this.clearSelection()
-    }
+    renderSelectionCapsule(this, this.root.querySelector('[data-role="capsule"]'))
   }
 
   renderChrome() {
-    const host = this.root.querySelector('[data-role="chrome"]')
-    if (!host) return
-    const bannerHtml = this.syncBanner ? `
-      <div class="wr-syncBanner">
-        <span>同步到「${escapeHtml(this.syncBanner.deviceName || '其他设备')}」的进度（${this.syncBanner.percent || 1}%）</span>
-        <div style="display:flex;gap:6px;flex-shrink:0;">
-          <button type="button" class="wr-btnGhost" data-banner="dismiss" style="padding:4px 8px;font-size:12px;">忽略</button>
-          <button type="button" class="wr-btnPrimary" data-banner="jump" style="padding:4px 10px;font-size:12px;">跳转</button>
-        </div>
-      </div>
-    ` : ''
-
-    if (!this.barsVisible) {
-      host.innerHTML = bannerHtml
-      this.bindBanner(host)
-      return
-    }
-
-    const viewSegs = this.hasTranslation
-      ? `
-        <div class="wr-segGroup">
-          <button type="button" class="wr-segBtn ${this.viewMode === 'translation' ? 'active' : ''}" data-view="translation">译文</button>
-          <button type="button" class="wr-segBtn ${this.viewMode === 'bilingual' ? 'active' : ''}" data-view="bilingual">双语</button>
-          <button type="button" class="wr-segBtn ${this.viewMode === 'original' ? 'active' : ''}" data-view="original">原文</button>
-        </div>
-      `
-      : `<span style="font-size:13px;font-weight:600;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(this.reading.title || '')}</span>`
-
-    const s = this.settings
-    const panel = this.activeBottomPanel || 'progress'
-    const colMode = s.columnLayout || 'auto'
-    const biMode = s.bilingualLayout || 'auto'
-    const tapMode = s.tapZoneMode || 'ergonomic'
-
-    let panelHtml = ''
-    if (panel === 'progress') {
-      const pct = this.settings.pageMode === 'scroll'
-        ? Math.min(100, Math.max(1, Math.round(((this.viewportEl?.scrollTop ?? 0) / Math.max(1, (this.viewportEl?.scrollHeight ?? 1) - (this.viewportEl?.clientHeight ?? 0))) * 100)))
-        : Math.min(100, Math.max(1, Math.round(((this.currentPage + 1) / Math.max(1, this.totalPages)) * 100)))
-      panelHtml = `
-        <div class="wr-dockPanel">
-          <div style="text-align:center;font-size:12px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            ${escapeHtml(this.currentChapterLabel())} · ${s.pageMode === 'scroll' ? `滚动 ${pct}%` : `第 ${this.currentPage + 1}/${this.totalPages} 页 (${pct}%)`}
-          </div>
-          <div class="wr-barRow">
-            <button type="button" class="wr-btnGhost" data-act="prev-chapter" style="padding:6px 10px;font-size:12px;">上一章</button>
-            ${s.pageMode === 'paginated'
-              ? `<input type="range" min="1" max="${this.totalPages}" value="${this.currentPage + 1}" data-act="scrub" style="flex:1;" />`
-              : `<div style="flex:1;text-align:center;font-size:12px;color:var(--fg-muted);">上下连续滚动阅读中</div>`}
-            <button type="button" class="wr-btnGhost" data-act="next-chapter" style="padding:6px 10px;font-size:12px;">下一章</button>
-          </div>
-          <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
-            <span style="font-size:12px;color:var(--fg-muted);">翻页方式</span>
-            <div class="wr-segGroup">
-              <button type="button" class="wr-segBtn ${s.pageMode === 'paginated' && s.pageTransition !== 'none' ? 'active' : ''}" data-pagemode="slide">平移翻页</button>
-              <button type="button" class="wr-segBtn ${s.pageMode === 'paginated' && s.pageTransition === 'none' ? 'active' : ''}" data-pagemode="none">瞬切翻页</button>
-              <button type="button" class="wr-segBtn ${s.pageMode === 'scroll' ? 'active' : ''}" data-pagemode="scroll">上下滚动</button>
-            </div>
-          </div>
-          <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
-            <span style="font-size:12px;color:var(--fg-muted);">分栏与对照</span>
-            <div class="wr-segGroup">
-              <button type="button" class="wr-segBtn ${colMode === 'auto' ? 'active' : ''}" data-col-layout="auto">自动分栏</button>
-              <button type="button" class="wr-segBtn ${colMode === 'single' ? 'active' : ''}" data-col-layout="single">单栏</button>
-              <button type="button" class="wr-segBtn ${colMode === 'double' ? 'active' : ''}" data-col-layout="double">双栏</button>
-            </div>
-            <div class="wr-segGroup">
-              <button type="button" class="wr-segBtn ${biMode === 'stacked' ? 'active' : ''}" data-bi-layout="stacked">双语叠排</button>
-              <button type="button" class="wr-segBtn ${biMode === 'parallel' ? 'active' : ''}" data-bi-layout="parallel">双语并排</button>
-            </div>
-          </div>
-        </div>
-      `
-    } else if (panel === 'theme') {
-      panelHtml = `
-        <div class="wr-dockPanel">
-          <div class="wr-barRow">
-            <span style="font-size:12px;color:var(--fg-muted);">亮度</span>
-            <span style="font-size:13px;">🔅</span>
-            <input type="range" min="35" max="100" step="1" value="${s.brightness ?? 100}" data-typo="brightness" style="flex:1;" />
-            <span style="font-size:13px;">🔆</span>
-            <button type="button" class="wr-btnGhost" data-act="eink" style="padding:5px 10px;font-size:12px;">${s.theme === 'eink' ? '✓ 水墨屏' : '水墨屏'}</button>
-          </div>
-          <div class="wr-swatchScroll">
-            ${WEREAD_THEMES.map(t => `
-              <button type="button" class="wr-swatchItem ${s.theme === t.id ? 'active' : ''}" data-theme-pick="${t.id}">
-                <span class="wr-swatchCircle" style="background:${t.swatch};color:${t.fg};border-color:${s.theme === t.id ? 'var(--accent)' : t.border};">
-                  ${s.theme === t.id ? '✓' : (t.id === 'eink' ? '墨' : '')}
-                </span>
-                <span>${t.label}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-      `
-    } else if (panel === 'typography') {
-      const activePreset = WEREAD_SPACING_PRESETS.find(p => Math.abs(p.lineHeight - Number(s.lineHeight)) < 0.03 && Math.abs(p.paraSpacing - Number(s.paraSpacing ?? 0.85)) < 0.05)?.id || ''
-      panelHtml = `
-        <div class="wr-dockPanel">
-          <div class="wr-stepperBar">
-            <button type="button" class="wr-stepBtn" data-font-step="-1">A-</button>
-            <input type="range" min="14" max="32" step="1" value="${s.fontSize || 18}" data-typo="fontSize" style="flex:1;" />
-            <span style="font-size:12px;font-weight:700;min-width:34px;text-align:center;">${s.fontSize || 18}</span>
-            <button type="button" class="wr-stepBtn" data-font-step="1">A+</button>
-          </div>
-          <div class="wr-barRow">
-            <span style="font-size:12px;color:var(--fg-muted);">字重粗细</span>
-            <div class="wr-segGroup">
-              ${[
-                [400, '标准'],
-                [450, '适中'],
-                [500, '中粗'],
-                [600, '加粗'],
-              ].map(([w, label]) => `<button type="button" class="wr-segBtn ${(s.fontWeight || 400) === w ? 'active' : ''}" data-font-weight="${w}">${label}</button>`).join('')}
-            </div>
-          </div>
-          <div class="wr-fontGrid">
-            ${WEREAD_FONTS.map(f => `
-              <button type="button" class="wr-fontCard ${s.fontFamily === f.id ? 'active' : ''}" data-font="${f.id}">
-                <span class="wr-fontCardTitle" style="font-family:${escapeHtml(f.stack)};">${escapeHtml(f.label)}</span>
-                <span class="wr-fontCardSub">${escapeHtml(f.sub)}</span>
-              </button>
-            `).join('')}
-          </div>
-          <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
-            <span style="font-size:12px;color:var(--fg-muted);">版面疏密</span>
-            <div class="wr-segGroup">
-              ${WEREAD_SPACING_PRESETS.map(p => `<button type="button" class="wr-segBtn ${activePreset === p.id ? 'active' : ''}" data-spacing-preset="${p.id}">${p.label}</button>`).join('')}
-            </div>
-            <div class="wr-segGroup">
-              <button type="button" class="wr-segBtn ${s.textIndent ? 'active' : ''}" data-act="toggle-indent">首行缩进</button>
-              <button type="button" class="wr-segBtn ${(s.textAlign || 'justify') === 'justify' ? 'active' : ''}" data-act="toggle-align">${(s.textAlign || 'justify') === 'justify' ? '两端对齐' : '左对齐'}</button>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
-            <label class="wr-field" style="margin:0;">行距 ${s.lineHeight}
-              <input type="range" min="1.35" max="2.35" step="0.05" value="${s.lineHeight}" data-typo="lineHeight" />
-            </label>
-            <label class="wr-field" style="margin:0;">段距 ${s.paraSpacing ?? 0.85}
-              <input type="range" min="0.35" max="1.5" step="0.05" value="${s.paraSpacing ?? 0.85}" data-typo="paraSpacing" />
-            </label>
-            <label class="wr-field" style="margin:0;">边距 ${s.marginX}px
-              <input type="range" min="10" max="42" step="2" value="${s.marginX}" data-typo="marginX" />
-            </label>
-          </div>
-          <div class="wr-barRow" style="flex-wrap:wrap;">
-            <span style="font-size:12px;color:var(--fg-muted);">点击翻页热区</span>
-            <div class="wr-segGroup" style="flex-wrap:wrap;">
-              <button type="button" class="wr-segBtn ${tapMode === 'ergonomic' ? 'active' : ''}" data-tap-mode="ergonomic">单手拇指</button>
-              <button type="button" class="wr-segBtn ${tapMode === 'classic' ? 'active' : ''}" data-tap-mode="classic">经典三区</button>
-              <button type="button" class="wr-segBtn ${tapMode === 'bottomNext' ? 'active' : ''}" data-tap-mode="bottomNext">下半屏</button>
-              <button type="button" class="wr-segBtn ${tapMode === 'keysOnly' ? 'active' : ''}" data-tap-mode="keysOnly">防误触</button>
-            </div>
-          </div>
-        </div>
-      `
-    }
-
-    host.innerHTML = `
-      ${bannerHtml}
-      <div class="wr-overlayTop">
-        <button type="button" class="wr-btnGhost" data-act="back" style="padding:6px 10px;">‹ 书架</button>
-        ${viewSegs}
-        <div style="display:flex;gap:6px;">
-          ${this.reading.pdfLocationAvailable || this.reading.pdfAvailable ? '<button type="button" class="wr-btnGhost" data-act="pdf" style="padding:6px 10px;">原页PDF</button>' : ''}
-          <button type="button" class="wr-btnGhost" data-act="drawer" style="padding:6px 10px;">本段对照</button>
-        </div>
-      </div>
-      <div class="wr-overlayBottom">
-        ${panelHtml}
-        <div class="wr-dockNav">
-          <button type="button" class="wr-dockBtn" data-act="toc">
-            <span class="wr-dockIcon">☰</span>
-            <span>目录/笔记</span>
-          </button>
-          <button type="button" class="wr-dockBtn ${panel === 'progress' ? 'active' : ''}" data-dock-panel="progress">
-            <span class="wr-dockIcon">⇄</span>
-            <span>进度/版式</span>
-          </button>
-          <button type="button" class="wr-dockBtn ${panel === 'theme' ? 'active' : ''}" data-dock-panel="theme">
-            <span class="wr-dockIcon">◐</span>
-            <span>背景/亮度</span>
-          </button>
-          <button type="button" class="wr-dockBtn ${panel === 'typography' ? 'active' : ''}" data-dock-panel="typography">
-            <span class="wr-dockIcon">Aa</span>
-            <span>字体/排版</span>
-          </button>
-        </div>
-      </div>
-    `
-
-    this.bindBanner(host)
-    host.querySelector('[data-act="back"]').onclick = () => this.onExit()
-    host.querySelectorAll('[data-view]').forEach(btn => {
-      btn.onclick = () => {
-        const nextView = btn.dataset.view
-        if (nextView === this.viewMode) return
-        const anchor = this.currentTopBlockId()
-        this.viewMode = nextView
-        this.pendingBlockId = anchor
-        this.barsVisible = false
-        this.render()
-        this.scheduleSaveProgress()
-      }
-    })
-    host.querySelectorAll('[data-dock-panel]').forEach(btn => {
-      btn.onclick = () => {
-        this.activeBottomPanel = btn.dataset.dockPanel
-        this.renderChrome()
-      }
-    })
-    host.querySelector('[data-act="toc"]').onclick = () => {
-      this.barsVisible = false
-      this.activeSheet = 'toc'
-      const items = this.outlineItems()
-      const currentBlock = this.currentTopBlockId()
-      const activeIdx = Math.max(0, items.findIndex(it => it.id === currentBlock))
-      this.tocPage = Math.floor(activeIdx / 10)
-      this.renderChrome()
-      this.renderSheet()
-    }
-    const pdfBtn = host.querySelector('[data-act="pdf"]')
-    if (pdfBtn) {
-      pdfBtn.onclick = () => {
-        const block = this.visibleBlocks().find(b => b.id === this.currentTopBlockId())
-        this.barsVisible = false
-        this.renderChrome()
-        this.openPdfViewer(block?.pdfPage || 1)
-      }
-    }
-    host.querySelector('[data-act="drawer"]').onclick = () => {
-      const id = this.currentTopBlockId() || this.visibleBlocks()[0]?.id
-      this.barsVisible = false
-      this.renderChrome()
-      if (id) this.openBilingualDrawer(id)
-    }
-    host.querySelector('[data-act="prev-chapter"]')?.addEventListener('click', () => this.prevChapter())
-    host.querySelector('[data-act="next-chapter"]')?.addEventListener('click', () => this.nextChapter())
-    const scrub = host.querySelector('[data-act="scrub"]')
-    if (scrub) {
-      scrub.oninput = () => {
-        this.currentPage = Math.max(0, Math.min(this.totalPages - 1, Number(scrub.value) - 1))
-        this.applyPageTransform()
-      }
-      scrub.onchange = () => {
-        this.scheduleSaveProgress()
-        this.renderChrome()
-      }
-    }
-    host.querySelectorAll('[data-pagemode]').forEach(btn => {
-      btn.onclick = async () => {
-        const mode = btn.dataset.pagemode
-        const anchor = this.currentTopBlockId()
-        if (mode === 'scroll') {
-          this.settings = await this.onSettingsChange({ pageMode: 'scroll' })
-        } else {
-          this.settings = await this.onSettingsChange({ pageMode: 'paginated', pageTransition: mode })
-        }
-        this.pendingBlockId = anchor
-        this.render()
-      }
-    })
-    host.querySelectorAll('[data-theme-pick]').forEach(btn => {
-      btn.onclick = async () => {
-        const t = btn.dataset.themePick
-        this.settings = await this.onSettingsChange({ theme: t, deviceMode: t === 'eink' ? 'eink' : 'phone' })
-        this.applyTypographyVars()
-        this.renderPageTurnBar()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelector('[data-act="eink"]')?.addEventListener('click', async () => {
-      const toEink = this.settings.theme !== 'eink'
-      this.settings = await this.onSettingsChange({
-        theme: toEink ? 'eink' : 'paper',
-        deviceMode: toEink ? 'eink' : 'phone',
-      })
-      this.applyTypographyVars()
-      this.renderPageTurnBar()
-      this.recomputeLayout(true)
-      this.renderChrome()
-    })
-    host.querySelectorAll('[data-font-step]').forEach(btn => {
-      btn.onclick = async () => {
-        const delta = Number(btn.dataset.fontStep)
-        const nextSize = Math.max(14, Math.min(32, (Number(this.settings.fontSize) || 18) + delta))
-        this.settings = await this.onSettingsChange({ fontSize: nextSize })
-        this.applyTypographyVars()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-font-weight]').forEach(btn => {
-      btn.onclick = async () => {
-        this.settings = await this.onSettingsChange({ fontWeight: Number(btn.dataset.fontWeight) })
-        this.applyTypographyVars()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-font]').forEach(btn => {
-      btn.onclick = async () => {
-        this.settings = await this.onSettingsChange({ fontFamily: btn.dataset.font })
-        this.applyTypographyVars()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-spacing-preset]').forEach(btn => {
-      btn.onclick = async () => {
-        const preset = WEREAD_SPACING_PRESETS.find(p => p.id === btn.dataset.spacingPreset)
-        if (!preset) return
-        this.settings = await this.onSettingsChange({
-          lineHeight: preset.lineHeight,
-          paraSpacing: preset.paraSpacing,
-          marginX: preset.marginX,
-        })
-        this.applyTypographyVars()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelector('[data-act="toggle-indent"]')?.addEventListener('click', async () => {
-      this.settings = await this.onSettingsChange({ textIndent: !this.settings.textIndent })
-      this.applyTypographyVars()
-      this.recomputeLayout(true)
-      this.renderChrome()
-    })
-    host.querySelector('[data-act="toggle-align"]')?.addEventListener('click', async () => {
-      const next = (this.settings.textAlign || 'justify') === 'justify' ? 'left' : 'justify'
-      this.settings = await this.onSettingsChange({ textAlign: next })
-      this.applyTypographyVars()
-      this.recomputeLayout(true)
-      this.renderChrome()
-    })
-    host.querySelectorAll('[data-typo]').forEach(inp => {
-      inp.oninput = () => {
-        const k = inp.dataset.typo
-        if (k === 'brightness') {
-          this.settings.brightness = Number(inp.value)
-          this.applyTypographyVars()
-        }
-      }
-      inp.onchange = async () => {
-        this.settings = await this.onSettingsChange({ [inp.dataset.typo]: Number(inp.value) })
-        this.applyTypographyVars()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-col-layout]').forEach(btn => {
-      btn.onclick = async () => {
-        this.settings = await this.onSettingsChange({ columnLayout: btn.dataset.colLayout })
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-bi-layout]').forEach(btn => {
-      btn.onclick = async () => {
-        this.settings = await this.onSettingsChange({ bilingualLayout: btn.dataset.biLayout })
-        this.pendingBlockId = this.currentTopBlockId()
-        this.renderBlocks()
-        this.renderChrome()
-      }
-    })
-    host.querySelectorAll('[data-tap-mode]').forEach(btn => {
-      btn.onclick = async () => {
-        this.settings = await this.onSettingsChange({ tapZoneMode: btn.dataset.tapMode })
-        this.renderPageTurnBar()
-        this.recomputeLayout(true)
-        this.renderChrome()
-      }
-    })
-  }
-
-  bindBanner(host) {
-    const dismiss = host.querySelector('[data-banner="dismiss"]')
-    const jump = host.querySelector('[data-banner="jump"]')
-    if (dismiss) dismiss.onclick = () => { this.syncBanner = null; this.renderChrome() }
-    if (jump) {
-      jump.onclick = () => {
-        const target = this.syncBanner
-        this.syncBanner = null
-        if (target?.blockId) this.jumpToBlock(target.blockId, target.view)
-        else this.renderChrome()
-      }
-    }
+    renderReaderChrome(this, this.root.querySelector('[data-role="chrome"]'))
   }
 
   turnTocPage(delta) {
@@ -1243,7 +813,6 @@ export class ReaderController {
     const idx = buildFootnoteIndex(blocks, isTrans)
     const entry = resolveFootnote(idx, fnId)
 
-    // Also resolve counterpart footnote if available
     const altBlocks = isTrans ? (this.reading.originalBlocks ?? this.reading.blocks) : this.reading.blocks
     const altIdx = buildFootnoteIndex(altBlocks, !isTrans && !this.reading.standaloneView)
     const altEntry = this.hasTranslation ? resolveFootnote(altIdx, fnId) : null
@@ -1256,9 +825,12 @@ export class ReaderController {
   openCorrectionSheet(blockId, view) {
     const block = this.activeBlocks().find(b => b.id === blockId)
     if (!block) return
-    const raw = view === 'original'
-      ? (block.sourceText ?? block.text)
-      : (this.reading.standaloneView === 'translation' ? block.text : (block.translation ?? block.text))
+    const raw =
+      view === 'original'
+        ? (block.sourceText ?? block.text)
+        : this.reading.standaloneView === 'translation'
+        ? block.text
+        : (block.translation ?? block.text)
     this.activeSheet = 'correction'
     this.sheetData = { block, view, raw }
     this.renderSheet()
@@ -1284,7 +856,12 @@ export class ReaderController {
     this.pdfState.error = ''
     this.renderSheet()
     try {
-      const res = await readerApi.loadPdfPageImageUrl(this.settings, this.taskId, this.pdfState.page, this.settings.theme === 'eink' ? 200 : 180)
+      const res = await readerApi.loadPdfPageImageUrl(
+        this.settings,
+        this.taskId,
+        this.pdfState.page,
+        this.settings.theme === 'eink' ? 200 : 180
+      )
       if (this.destroyed || this.activeSheet !== 'pdf') return
       if (res.fallback === 'pdf') {
         const pdfUrl = await readerApi.downloadFullPdf(this.settings, this.taskId)
@@ -1308,373 +885,6 @@ export class ReaderController {
   }
 
   renderSheet() {
-    const host = this.root.querySelector('[data-role="sheet"]')
-    if (!host) return
-    if (!this.activeSheet) {
-      host.innerHTML = ''
-      return
-    }
-
-    if (this.activeSheet === 'pdf') {
-      const p = this.pdfState
-      host.innerHTML = `
-        <div class="wr-modalFull">
-          <div class="wr-topbar">
-            <button type="button" class="wr-btnGhost" data-act="close">‹ 返回阅读</button>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <button type="button" class="wr-btnGhost" data-pdf="prev">上一页</button>
-              <span style="font-size:13px;font-weight:600;">第 ${p.page} 页</span>
-              <button type="button" class="wr-btnGhost" data-pdf="next">下一页</button>
-            </div>
-            <button type="button" class="wr-btnGhost" data-pdf="zoom">${p.zoom}%</button>
-          </div>
-          <div class="wr-pdfCanvasWrap">
-            ${p.loading ? '<p>正在渲染原书 PDF 页面...</p>' : p.error ? `<p style="color:#dc2626;">${escapeHtml(p.error)}</p>` : p.fallbackPdfUrl ? `<iframe src="${p.fallbackPdfUrl}#page=${p.page}" style="width:100%;height:100%;border:none;"></iframe>` : `<img class="wr-pdfPageImg" src="${p.imgUrl}" style="width:${p.zoom}%;max-width:none;" />`}
-          </div>
-        </div>
-      `
-      host.querySelector('[data-act="close"]').onclick = () => this.closeSheet()
-      host.querySelector('[data-pdf="prev"]').onclick = () => { if (p.page > 1) this.loadPdfPage(p.page - 1) }
-      host.querySelector('[data-pdf="next"]').onclick = () => this.loadPdfPage(p.page + 1)
-      host.querySelector('[data-pdf="zoom"]').onclick = () => {
-        p.zoom = p.zoom === 100 ? 150 : p.zoom === 150 ? 200 : 100
-        this.renderSheet()
-      }
-      return
-    }
-
-    let inner = ''
-    if (this.activeSheet === 'toc') {
-      const currentBlock = this.currentTopBlockId()
-      const items = this.outlineItems()
-      const glossary = this.reading.glossary ?? []
-      const subTab = this.tocSubTab || 'outline'
-      const usePagination = this.settings.deviceMode === 'eink' || this.settings.theme === 'eink' || items.length > 12
-      const pageSize = 10
-      this.tocTotalPages = usePagination ? Math.max(1, Math.ceil(items.length / pageSize)) : 1
-      this.tocPage = Math.max(0, Math.min(this.tocTotalPages - 1, this.tocPage))
-      const slice = usePagination ? items.slice(this.tocPage * pageSize, (this.tocPage + 1) * pageSize) : items
-
-      let tabBody = ''
-      if (subTab === 'outline') {
-        tabBody = `
-          <div>
-            ${slice.length ? slice.map(it => `
-              <button type="button" class="wr-tocItem ${it.id === currentBlock ? 'active' : ''}" data-toc-id="${escapeHtml(it.id)}" style="padding-left:${(it.level - 1) * 14 + 6}px;">
-                ${escapeHtml(it.label)}
-              </button>
-            `).join('') : '<p style="color:var(--fg-muted);font-size:13px;">本文档暂无目录结构</p>'}
-          </div>
-          ${usePagination && this.tocTotalPages > 1 ? `
-            <div class="wr-einkPager">
-              <button type="button" class="wr-btnGhost" data-toc-page="prev" ${this.tocPage <= 0 ? 'disabled' : ''}>‹ 上一章页</button>
-              <span style="font-size:12px;color:var(--fg-muted);">第 ${this.tocPage + 1} / ${this.tocTotalPages} 页</span>
-              <button type="button" class="wr-btnGhost" data-toc-page="next" ${this.tocPage >= this.tocTotalPages - 1 ? 'disabled' : ''}>下一章页 ›</button>
-            </div>
-          ` : ''}
-        `
-      } else if (subTab === 'marks') {
-        tabBody = `
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            ${this.marks.length ? this.marks.map(m => `
-              <div class="wr-card" style="margin:0;padding:10px 12px;cursor:pointer;" data-toc-id="${escapeHtml(m.blockId)}">
-                <blockquote class="wr-quoteBox" style="margin-bottom:${m.comment ? '6px' : '0'};">${escapeHtml(m.quote)}</blockquote>
-                ${m.comment ? `<p style="margin:0;font-size:13px;line-height:1.5;">💭 ${escapeHtml(m.comment)}</p>` : ''}
-              </div>
-            `).join('') : '<p style="color:var(--fg-muted);font-size:13px;text-align:center;margin:16px 0;">本书暂无划线或想法</p>'}
-          </div>
-        `
-      } else {
-        tabBody = `
-          <div style="display:flex;flex-direction:column;gap:6px;">
-            ${glossary.length ? glossary.slice(0, 120).map(g => `
-              <div style="padding:8px 6px;border-bottom:1px solid var(--border);font-size:13px;">
-                <div style="font-weight:600;">${escapeHtml(g.source || g.src || '')} → <span style="color:var(--accent);">${escapeHtml(g.target || g.dst || '')}</span></div>
-                ${(g.note || g.info) ? `<div style="font-size:11.5px;color:var(--fg-muted);margin-top:2px;">${escapeHtml(g.note || g.info)}</div>` : ''}
-              </div>
-            `).join('') : '<p style="color:var(--fg-muted);font-size:13px;text-align:center;margin:16px 0;">本书暂无术语表</p>'}
-          </div>
-        `
-      }
-
-      inner = `
-        <div class="wr-barRow">
-          <div class="wr-tocTabs" style="flex:1;">
-            <button type="button" class="wr-tocTab ${subTab === 'outline' ? 'active' : ''}" data-toc-tab="outline">目录 (${items.length})</button>
-            <button type="button" class="wr-tocTab ${subTab === 'marks' ? 'active' : ''}" data-toc-tab="marks">划线 (${this.marks.length})</button>
-            <button type="button" class="wr-tocTab ${subTab === 'glossary' ? 'active' : ''}" data-toc-tab="glossary">术语 (${glossary.length})</button>
-          </div>
-          <button type="button" class="wr-btnGhost" data-act="close" style="padding:5px 10px;">关闭</button>
-        </div>
-        ${tabBody}
-      `
-    } else if (this.activeSheet === 'typography') {
-      const s = this.settings
-      const colMode = s.columnLayout || 'auto'
-      const biMode = s.bilingualLayout || 'auto'
-      const tapMode = s.tapZoneMode || 'ergonomic'
-      inner = `
-        <div class="wr-barRow">
-          <h3 style="margin:0;font-size:16px;">排版、分栏与操控</h3>
-          <button type="button" class="wr-btnGhost" data-act="close">完成</button>
-        </div>
-        <div class="wr-themeChips">
-          ${[
-            ['paper', '纸质'],
-            ['white', '纯白'],
-            ['green', '护眼'],
-            ['night', '夜间'],
-            ['eink', '墨水屏'],
-          ].map(([id, label]) => `<button type="button" class="wr-themeChip ${s.theme === id ? 'active' : ''}" data-theme-pick="${id}">${label}</button>`).join('')}
-        </div>
-        <label class="wr-field">字号 (${s.fontSize}px)
-          <input type="range" min="14" max="28" step="1" value="${s.fontSize}" data-typo="fontSize" />
-        </label>
-        <label class="wr-field">行距 (${s.lineHeight})
-          <input type="range" min="1.4" max="2.3" step="0.05" value="${s.lineHeight}" data-typo="lineHeight" />
-        </label>
-        <label class="wr-field">页边距 (${s.marginX}px)
-          <input type="range" min="10" max="40" step="2" value="${s.marginX}" data-typo="marginX" />
-        </label>
-        <div class="wr-field">字体
-          <div class="wr-segGroup">
-            <button type="button" class="wr-segBtn ${s.fontFamily === 'serif' ? 'active' : ''}" data-font="serif">宋体/衬线</button>
-            <button type="button" class="wr-segBtn ${s.fontFamily === 'sans' ? 'active' : ''}" data-font="sans">黑体/无衬线</button>
-            <button type="button" class="wr-segBtn ${s.fontFamily === 'mono' ? 'active' : ''}" data-font="mono">等宽</button>
-          </div>
-        </div>
-        <div class="wr-field">分栏版式（适配宽屏墨水屏 / 手机横竖屏）
-          <div class="wr-segGroup">
-            <button type="button" class="wr-segBtn ${colMode === 'auto' ? 'active' : ''}" data-col-layout="auto">自动(宽屏双栏)</button>
-            <button type="button" class="wr-segBtn ${colMode === 'single' ? 'active' : ''}" data-col-layout="single">单栏适宽</button>
-            <button type="button" class="wr-segBtn ${colMode === 'double' ? 'active' : ''}" data-col-layout="double">双栏对开</button>
-          </div>
-        </div>
-        <div class="wr-field">双语对照排版（手机竖屏 vs 墨水屏宽屏）
-          <div class="wr-segGroup">
-            <button type="button" class="wr-segBtn ${biMode === 'auto' ? 'active' : ''}" data-bi-layout="auto">自动适配</button>
-            <button type="button" class="wr-segBtn ${biMode === 'stacked' ? 'active' : ''}" data-bi-layout="stacked">上下叠排</button>
-            <button type="button" class="wr-segBtn ${biMode === 'parallel' ? 'active' : ''}" data-bi-layout="parallel">左右并排</button>
-          </div>
-        </div>
-        <div class="wr-field">触控与手写笔翻页热区
-          <div class="wr-segGroup" style="flex-wrap:wrap;">
-            <button type="button" class="wr-segBtn ${tapMode === 'ergonomic' ? 'active' : ''}" data-tap-mode="ergonomic">单手拇指</button>
-            <button type="button" class="wr-segBtn ${tapMode === 'classic' ? 'active' : ''}" data-tap-mode="classic">经典三区</button>
-            <button type="button" class="wr-segBtn ${tapMode === 'bottomNext' ? 'active' : ''}" data-tap-mode="bottomNext">下半屏下翻</button>
-            <button type="button" class="wr-segBtn ${tapMode === 'keysOnly' ? 'active' : ''}" data-tap-mode="keysOnly">手写笔防误触</button>
-          </div>
-        </div>
-        <div class="wr-barRow">
-          <span style="font-size:12px;color:var(--fg-muted);">底部显式翻页栏（适合电磁笔点按 / 无触控机型）</span>
-          <button type="button" class="wr-btnGhost" data-act="toggle-pt-bar" style="padding:5px 10px;font-size:12px;">${s.showPageTurnBar || tapMode === 'keysOnly' ? '✓ 已开启' : '开启'}</button>
-        </div>
-      `
-    } else if (this.activeSheet === 'drawer') {
-      const b = this.sheetData.block
-      const transText = this.reading.standaloneView === 'translation' ? b.text : (b.translation ?? b.text)
-      const origText = b.sourceText ?? b.text
-      const glossaryHits = extractGlossaryHits(transText, origText, this.reading.glossary)
-      inner = `
-        <div class="wr-barRow">
-          <h3 style="margin:0;font-size:16px;">双语对照${b.pdfPage ? ` · 原书第 ${b.pdfPage} 页` : ''}</h3>
-          <button type="button" class="wr-btnGhost" data-act="close">关闭</button>
-        </div>
-        ${this.hasTranslation ? `<div><div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">译文</div><p style="margin:0;line-height:1.65;">${escapeHtml(plainText(transText))}</p></div>` : ''}
-        <div><div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">原文</div><p style="margin:0;line-height:1.65;color:var(--fg-muted);">${escapeHtml(plainText(origText))}</p></div>
-        ${glossaryHits.length ? `
-          <div>
-            <div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">命中术语</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">
-              ${glossaryHits.map(g => `<span class="wr-badge">${escapeHtml(g.source)} → ${escapeHtml(g.target)}</span>`).join('')}
-            </div>
-          </div>
-        ` : ''}
-        <div class="wr-barRow" style="margin-top:4px;">
-          <button type="button" class="wr-btnGhost" data-act="correct-from-drawer">段落纠错</button>
-          ${b.pdfPage ? `<button type="button" class="wr-btnPrimary" data-act="open-pdf-page">查看原 PDF 第 ${b.pdfPage} 页</button>` : ''}
-        </div>
-      `
-    } else if (this.activeSheet === 'footnote') {
-      const d = this.sheetData
-      const shown = d.showAlt && d.altEntry ? d.altEntry : d.entry
-      inner = `
-        <div class="wr-barRow">
-          <h3 style="margin:0;font-size:16px;">注释 [${escapeHtml(d.fnId)}]</h3>
-          <div style="display:flex;gap:6px;">
-            ${d.altEntry ? `<button type="button" class="wr-btnGhost" data-act="toggle-fn">${d.showAlt ? '看当前语言' : '看对应语言'}</button>` : ''}
-            <button type="button" class="wr-btnGhost" data-act="close">关闭</button>
-          </div>
-        </div>
-        <p style="margin:0;line-height:1.7;font-size:15px;">${shown ? escapeHtml(shown.text) : '未找到该脚注定义'}</p>
-      `
-    } else if (this.activeSheet === 'noteEditor') {
-      const sel = this.sheetData.selection
-      inner = `
-        <div class="wr-barRow">
-          <h3 style="margin:0;font-size:16px;">写想法 · 书签</h3>
-          <button type="button" class="wr-btnGhost" data-act="close">取消</button>
-        </div>
-        <blockquote class="wr-quoteBox">${escapeHtml(sel.exact)}</blockquote>
-        <textarea class="wr-textarea" data-note="comment" placeholder="写下你的批注或想法..."></textarea>
-        <input class="wr-input" data-note="tags" placeholder="标签（用逗号分隔，可留空）" />
-        <button type="button" class="wr-btnPrimary" data-act="save-note">保存书签与想法</button>
-      `
-    } else if (this.activeSheet === 'correction') {
-      const d = this.sheetData
-      inner = `
-        <div class="wr-barRow">
-          <h3 style="margin:0;font-size:16px;">段落勘误（${d.view === 'original' ? '修改原文' : '修改译文'}）</h3>
-          <button type="button" class="wr-btnGhost" data-act="close">取消</button>
-        </div>
-        <p style="margin:0;font-size:12px;color:var(--fg-muted);">请保留原有注号（如 [^1]）与标题层级，保存后将同步到云端与 PC。</p>
-        <textarea class="wr-textarea" data-corr="text" style="min-height:140px;">${escapeHtml(d.raw)}</textarea>
-        <input class="wr-input" data-corr="reason" placeholder="勘误说明（选填）" />
-        <button type="button" class="wr-btnPrimary" data-act="save-corr">保存修订</button>
-      `
-    }
-
-    const dockSide = Boolean(this.layoutInfo?.dockSideSheet)
-    host.innerHTML = `<div class="wr-sheetBackdrop ${dockSide ? 'dock-side' : ''}" data-backdrop="1"><div class="wr-sheet">${inner}</div></div>`
-    host.querySelector('[data-backdrop="1"]').onclick = e => { if (e.target === e.currentTarget) this.closeSheet() }
-    host.querySelector('[data-act="close"]')?.addEventListener('click', () => this.closeSheet())
-
-    if (this.activeSheet === 'toc') {
-      host.querySelectorAll('[data-toc-tab]').forEach(btn => {
-        btn.onclick = () => {
-          this.tocSubTab = btn.dataset.tocTab
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-toc-id]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.dataset.tocId
-          this.closeSheet()
-          this.jumpToBlock(id)
-        }
-      })
-      host.querySelector('[data-toc-page="prev"]')?.addEventListener('click', () => this.turnTocPage(-1))
-      host.querySelector('[data-toc-page="next"]')?.addEventListener('click', () => this.turnTocPage(1))
-    } else if (this.activeSheet === 'typography') {
-      host.querySelectorAll('[data-theme-pick]').forEach(btn => {
-        btn.onclick = async () => {
-          const t = btn.dataset.themePick
-          this.settings = await this.onSettingsChange({ theme: t, deviceMode: t === 'eink' ? 'eink' : 'phone' })
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-typo]').forEach(inp => {
-        inp.onchange = async () => {
-          this.settings = await this.onSettingsChange({ [inp.dataset.typo]: Number(inp.value) })
-          this.applyTypographyVars()
-          this.recomputeLayout(true)
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-font]').forEach(btn => {
-        btn.onclick = async () => {
-          this.settings = await this.onSettingsChange({ fontFamily: btn.dataset.font })
-          this.applyTypographyVars()
-          this.recomputeLayout(true)
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-col-layout]').forEach(btn => {
-        btn.onclick = async () => {
-          this.settings = await this.onSettingsChange({ columnLayout: btn.dataset.colLayout })
-          this.recomputeLayout(true)
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-bi-layout]').forEach(btn => {
-        btn.onclick = async () => {
-          this.settings = await this.onSettingsChange({ bilingualLayout: btn.dataset.biLayout })
-          this.pendingBlockId = this.currentTopBlockId()
-          this.renderBlocks()
-          this.renderSheet()
-        }
-      })
-      host.querySelectorAll('[data-tap-mode]').forEach(btn => {
-        btn.onclick = async () => {
-          this.settings = await this.onSettingsChange({ tapZoneMode: btn.dataset.tapMode })
-          this.renderPageTurnBar()
-          this.recomputeLayout(true)
-          this.renderSheet()
-        }
-      })
-      host.querySelector('[data-act="toggle-pt-bar"]')?.addEventListener('click', async () => {
-        this.settings = await this.onSettingsChange({ showPageTurnBar: !this.settings.showPageTurnBar })
-        this.renderPageTurnBar()
-        this.recomputeLayout(true)
-        this.renderSheet()
-      })
-    } else if (this.activeSheet === 'drawer') {
-      const b = this.sheetData.block
-      host.querySelector('[data-act="correct-from-drawer"]').onclick = () => {
-        this.openCorrectionSheet(b.id, this.viewMode === 'original' ? 'original' : 'translation')
-      }
-      host.querySelector('[data-act="open-pdf-page"]')?.addEventListener('click', () => {
-        this.openPdfViewer(b.pdfPage)
-      })
-    } else if (this.activeSheet === 'footnote') {
-      host.querySelector('[data-act="toggle-fn"]')?.addEventListener('click', () => {
-        this.sheetData.showAlt = !this.sheetData.showAlt
-        this.renderSheet()
-      })
-    } else if (this.activeSheet === 'noteEditor') {
-      host.querySelector('[data-act="save-note"]').onclick = async () => {
-        const comment = host.querySelector('[data-note="comment"]').value
-        const tagsRaw = host.querySelector('[data-note="tags"]').value
-        const tags = tagsRaw.split(/[，,]/).map(s => s.trim()).filter(Boolean)
-        const created = await readerApi.postBookmarkAction(this.settings, {
-          source: { kind: 'task', id: this.taskId },
-          selection: this.sheetData.selection,
-          comment,
-          tags,
-        })
-        this.marks.push({
-          id: created?.id || 'local-' + Date.now(),
-          kind: 'bookmark',
-          view: this.sheetData.selection.view,
-          blockId: this.sheetData.selection.startBlockId,
-          quote: this.sheetData.selection.exact,
-          exact: this.sheetData.selection.exact,
-          comment,
-        })
-        await offlineDb.saveMarks(this.taskId, this.marks)
-        this.closeSheet()
-        this.renderBlocks()
-        this.onToast(created?.offlineQueued ? '已离线暂存书签，联网后自动同步' : '已保存书签')
-      }
-    } else if (this.activeSheet === 'correction') {
-      host.querySelector('[data-act="save-corr"]').onclick = async () => {
-        const d = this.sheetData
-        const nextText = host.querySelector('[data-corr="text"]').value
-        const reason = host.querySelector('[data-corr="reason"]').value
-        try {
-          validateCorrectionMarkers(d.raw, nextText)
-          const res = await readerApi.submitCorrection(this.settings, this.taskId, {
-            blockId: d.block.id,
-            view: d.view,
-            version: this.reading.version,
-            text: nextText,
-            reason,
-            deviceName: this.settings.deviceName,
-          })
-          if (res.reading) {
-            this.reading = res.reading
-            this.pendingBlockId = d.block.id
-            this.closeSheet()
-            this.renderBlocks()
-            this.onToast('勘误已保存并同步到云端')
-          } else {
-            this.closeSheet()
-            this.onToast('已加入离线同步队列，联网后提交')
-          }
-        } catch (err) {
-          this.onToast(err.message)
-        }
-      }
-    }
+    renderReaderSheet(this, this.root.querySelector('[data-role="sheet"]'))
   }
 }

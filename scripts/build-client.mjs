@@ -10,8 +10,14 @@ const OUTPUT_FILE = path.join(ROOT_DIR, 'client.js')
 export const CLIENT_SOURCE_FILES = [
   'i18n.js',
   'styles.css',
+  'styles-pipeline.css',
+  'styles-reader.css',
   'ui-primitives.js',
+  'weread-presets.js',
   'reading-helpers.js',
+  'reader-board.js',
+  'pipeline-drawers.js',
+  'pipeline-workspace.js',
   'task-helpers.js',
   'pipeline-panel.js',
   'reader-page.js',
@@ -33,9 +39,17 @@ export async function buildClientSource(clientDir = CLIENT_DIR) {
     parts[name] = await fs.readFile(path.join(clientDir, name), 'utf8')
   }
 
-  const rawCss = parts['styles.css'].replace(/\r\n/g, '\n').replace(/\n$/, '')
+  const rawCss = (
+    parts['styles.css'] +
+    '\n' +
+    parts['styles-pipeline.css'] +
+    '\n' +
+    parts['styles-reader.css']
+  )
+    .replace(/\r\n/g, '\n')
+    .replace(/\n$/, '')
   if (rawCss.includes('`') || rawCss.includes('${')) {
-    throw new Error('client/styles.css must not contain unescaped backticks (`) or template interpolations (${)')
+    throw new Error('client/styles*.css must not contain unescaped backticks (`) or template interpolations (${)')
   }
 
   const assembled = [
@@ -57,7 +71,11 @@ export async function buildClientSource(clientDir = CLIENT_DIR) {
     '`',
     '',
     indentBody(parts['ui-primitives.js']),
+    indentBody(parts['weread-presets.js']),
     indentBody(parts['reading-helpers.js']),
+    indentBody(parts['reader-board.js']),
+    indentBody(parts['pipeline-drawers.js']),
+    indentBody(parts['pipeline-workspace.js']),
     indentBody(parts['task-helpers.js']),
     indentBody(parts['pipeline-panel.js']),
     '',

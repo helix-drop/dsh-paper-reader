@@ -24,6 +24,25 @@ test('client.js stays byte-for-byte in sync with modular client/* sources and co
     'client.js drifted from client/* sources — run `npm run build:client` to synchronize',
   )
   assert.doesNotThrow(() => new vm.Script(actual, { filename: 'client.js' }))
+
+  // Ensure every modular frontend file in client/ and mobile-app/www/ stays below 1,000 lines
+  const frontendDirs = [
+    path.join(ROOT_DIR, 'client'),
+    path.join(ROOT_DIR, 'mobile-app', 'www', 'js'),
+    path.join(ROOT_DIR, 'mobile-app', 'www', 'css'),
+  ]
+  for (const dir of frontendDirs) {
+    const names = (await fs.readdir(dir)).filter(name => !name.startsWith('.'))
+    for (const name of names) {
+      const filePath = path.join(dir, name)
+      const content = await fs.readFile(filePath, 'utf8')
+      const lineCount = content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+      assert.ok(
+        lineCount <= 1000,
+        `${path.relative(ROOT_DIR, filePath)} exceeds 1000-line modular budget (${lineCount} lines)`,
+      )
+    }
+  }
 })
 
 test('pipeline backend modules preserve full export/prototype contracts without minified mega-lines', async () => {

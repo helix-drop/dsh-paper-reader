@@ -440,68 +440,6 @@ window.__ModuleLoader__.load({
   .rr-newTaskDialog .rr-pipelineFields{grid-template-columns:1fr}
 }
 
-/* Active Obsidian Blue Topaz + book-reading-tune + citeframe reading settings. */
-.rr-shell,.rr-overlay{--rr-reading-font:Georgia,"方正屏显雅宋简体","FZPingXianYaSongS-R-GB","Source Han Serif SC VF","思源宋体 VF","Source Han Serif SC","Noto Serif CJK SC","Noto Serif SC","Songti SC","STSong",serif;--rr-reading-wght:470;--rr-reading-size:17.5px;--rr-reading-ink:#403f3c}
-.rr-mdLayout article,.rr-readingBody,.rr-dialogZh,.rr-dialogFr,.rr-liveEditor{font-family:var(--rr-reading-font)!important;font-size:var(--rr-font,var(--rr-reading-size))!important;line-height:1.82!important;font-weight:400;font-variation-settings:"wght" var(--rr-reading-wght,470);font-synthesis:none;font-kerning:normal;font-variant-numeric:lining-nums proportional-nums;letter-spacing:0.01em!important;text-align:justify;text-justify:inter-ideograph;text-align-last:auto;color:var(--rr-reading-ink);-webkit-font-smoothing:antialiased}
-.rr-mdLayout article{flex:1;max-width:var(--rr-paper-width,780px)!important;position:relative;width:100%;margin:12px auto 40px!important;padding:48px 56px 64px!important;border:1px solid #dfdacd!important;border-radius:4px!important;box-shadow:0 4px 24px -2px rgba(80,70,50,0.08),0 1px 4px 0 rgba(80,70,50,0.04)!important}
-.rr-editableText{max-width:100%}
-.rr-readingPaper{max-width:700px;padding-left:36px;padding-right:36px}
-.rr-hero h1,.rr-originalTitle,.rr-paperTitle{font-family:var(--rr-reading-font)!important}
-.rr-articleHeader h1{font-size:27.34375px!important;line-height:1.35!important}
-.rr-readingBody .rr-block:not(.rr-abstract){margin-top:0!important;margin-bottom:0!important}
-.rr-mdLayout article p,.rr-readingBody .rr-paragraphText,.rr-dialogZh,.rr-dialogFr,.rr-liveEditor p{margin-top:0!important;margin-bottom:0.4em!important;text-indent:2em;line-height:inherit}
-.rr-dialogFr[lang=en]{line-height:1.62!important;text-indent:1.25em;text-justify:auto}
-.rr-mdLayout article :is(h1,h2,h3,h4),.rr-readingBody .rr-heading,.rr-articleHeader h1{font-family:var(--rr-reading-font)!important;font-weight:600;font-variation-settings:"wght" 650;line-height:1.35;letter-spacing:0;color:#22211e}
-.rr-mdLayout article h1{font-size:1.5625em!important;margin:2.4em 0 .9em!important}
-.rr-mdLayout article h2,.rr-readingBody h2{font-size:1.4375em!important;margin:2em 0 .72em!important}
-.rr-mdLayout article h3,.rr-readingBody h3{font-size:1.3125em!important;margin:1.6em 0 .52em!important}
-.rr-mdLayout article h4,.rr-readingBody h4{font-size:1.1875em!important;margin:1.3em 0 .4em!important}
-.rr-mdLayout article strong,.rr-readingBody strong{color:#22211e}
-.rr-mdLayout article :is(strong,b),.rr-readingBody :is(strong,b),.rr-dialogZh :is(strong,b),.rr-dialogFr :is(strong,b),.rr-liveEditor :is(strong,b){font-weight:700;font-variation-settings:"wght" 680}
-.rr-dialogFr em,[lang]:not([lang^=zh]) em,.rr-em-western{font-family:Georgia,serif!important;font-style:italic!important;font-synthesis:none!important;text-emphasis:none!important;-webkit-text-emphasis:none!important;color:inherit}
-.rr-dialogZh em,.rr-mdLayout article em,.rr-readingBody em,.rr-liveEditor em,.rr-em-cjk,em{font-style:normal!important;font-synthesis:none!important;text-emphasis:filled circle;-webkit-text-emphasis:filled circle;text-emphasis-position:under right;-webkit-text-emphasis-position:under;text-emphasis-color:currentColor;-webkit-text-emphasis-color:currentColor;color:inherit}
-.rr-dialogZh .rr-em-western,.rr-mdLayout article .rr-em-western,.rr-readingBody .rr-em-western{font-family:Georgia,serif!important;font-style:italic!important;font-synthesis:none!important;text-emphasis:none!important;-webkit-text-emphasis:none!important;color:inherit}
-.rr-mdLayout article blockquote,.rr-readingBody blockquote{margin:1.2em 1.5em!important;padding:.8em 1.25em!important;border:1px solid #ded7c7!important;background:color-mix(in srgb,#f7f4ed 70%,#eae4d4)!important;border-radius:4px!important;box-shadow:0 1px 3px rgba(0,0,0,0.02)!important;font-family:"STKaiti","KaiTi","STFangsong","FangSong","Songti SC",serif!important;font-variation-settings:normal;font-size:0.89em!important;line-height:1.68!important;color:#3b3a37!important}
-.rr-mdLayout article blockquote p,.rr-readingBody blockquote p{margin:0!important;text-indent:2em!important;font-size:inherit!important;line-height:inherit!important}
-.rr-mdLayout article li p,.rr-notes p,.rr-notePreviewText p{text-indent:0!important}
-.rr-footnoteLink,sup{display:inline-block!important;font-size:0.65em!important;line-height:0!important;vertical-align:super!important;margin:0 1.5px!important;padding:0 1px!important;font-family:Georgia,"Times New Roman",serif!important;font-weight:500!important;font-variation-settings:normal;color:color-mix(in srgb,var(--dsw-alias-brand-primary) 70%,var(--rr-reading-ink,#50504c))!important;opacity:0.75!important;cursor:pointer!important;transition:opacity .15s,color .15s!important;text-decoration:none!important}
-.rr-footnoteLink:hover,.rr-footnoteLink:focus-visible{opacity:1!important;color:var(--dsw-alias-brand-primary)!important;text-decoration:underline!important}
-.rr-mdLayout article img{display:block;max-width:90%;margin:2em auto}.rr-mdLayout article ::selection,.rr-readingBody ::selection,.rr-dialogZh::selection,.rr-dialogFr::selection{background:rgba(180,160,120,.25)}
-.rr-mdBlock{padding-right:30px}
-.rr-readingBlockActions{position:absolute;right:0;top:50%;transform:translateY(-50%);margin:0}
-.rr-compareArrow{border:0!important;background:transparent!important;min-height:24px!important;width:24px;padding:0!important;font:21px/1 system-ui!important;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))!important;opacity:.38}
-.rr-compareArrow:hover,.rr-compareArrow:focus-visible{opacity:1}
-.rr-paragraph{position:relative;display:block;padding-right:30px}
-.rr-paragraph>.rr-compareArrow{position:absolute;right:0;top:50%;transform:translateY(-50%)}
-.rr-viewToggle{display:inline-flex;align-items:center;padding:2px;border:1px solid var(--dsw-alias-border-l2,#d4d4d8);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f4f4f5);gap:2px}
-.rr-viewToggle .rr-button{min-height:24px;padding:0 9px;font-size:12px;border-radius:6px;border:0}
-.rr-liveEditor{outline:1px solid var(--dsw-alias-border-l2);outline-offset:3px;border-radius:3px;min-height:1.7em}
-.rr-inlineEditActions{display:flex;gap:6px;margin:6px 0 8px;font:12px/1.4 Inter,system-ui,sans-serif;text-align:left}
-.rr-correctionMenu{position:fixed;z-index:1500;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 5px 18px #0002;padding:4px;border-radius:7px;min-width:110px}
-.rr-correctionMenu .rr-button{gap:9px;font:13px/1.5 Inter,system-ui,sans-serif;min-height:29px}
-.rr-mdBlock[data-note-definition=true]{font-size:13.5px!important;line-height:1.56!important;color:color-mix(in srgb,var(--rr-reading-ink,#403f3c) 88%,var(--dsw-alias-label-secondary))!important;padding-top:4px!important;padding-bottom:4px!important}
-.rr-mdBlock[data-note-definition=true] p{text-indent:0!important;font-size:13.5px!important;line-height:1.56!important}
-.rr-mdBlock[data-note-definition=true] .rr-liveEditor{font-size:13.5px!important;line-height:1.56!important}
-.rr-footnoteAccordion{margin:10px 0 14px!important;border:1px solid var(--dsw-alias-border-l1,#e4e4e7);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fafafa);overflow:hidden;transition:background .2s,border-color .2s}
-.rr-footnoteAccordion[open]{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1,#fafafa) 92%,var(--dsw-alias-brand-primary,#2563eb) 8%);border-color:color-mix(in srgb,var(--dsw-alias-border-l1,#e4e4e7) 70%,var(--dsw-alias-brand-primary,#2563eb) 30%)}
-.rr-footnoteSummary{cursor:pointer;list-style:none;padding:5px 10px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary,#71717a);user-select:none;text-indent:0!important}
-.rr-footnoteSummary::-webkit-details-marker{display:none}
-.rr-footnoteSummary::before{content:'▸';display:inline-block;transition:transform .18s;font-size:11px}
-.rr-footnoteAccordion[open]>.rr-footnoteSummary::before{transform:rotate(90deg)}
-.rr-footnotePill{display:inline-flex;align-items:center;gap:6px}
-.rr-footnoteBodyList{padding:8px 12px 10px;border-top:1px dashed var(--dsw-alias-border-l1,#e4e4e7);font-size:13.5px!important;line-height:1.62!important;color:color-mix(in srgb,var(--rr-reading-ink,#403f3c) 88%,var(--dsw-alias-label-secondary,#71717a))!important}
-.rr-footnoteItem{margin:6px 0!important;text-indent:0!important}
-.rr-notePreviewText{font-size:13.5px!important;line-height:1.56!important;text-indent:0!important;color:#403f3c!important}
-.rr-footnotePreview{font-size:13.5px!important;line-height:1.56!important}
-.rr-note{font-size:13px!important;line-height:1.56!important}
-.rr-shell[data-view=reader] .rr-scroll,.rr-shell:has(.rr-mdReader) .rr-scroll,.rr-workbench:has(.rr-mdReader),.rr-mdReader{background:#ffffff!important}
-.rr-mdReader{padding:0 20px 60px!important;background:#ffffff!important}
-.rr-readingToolbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,0.95)!important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:8px 16px!important;border-bottom:1px solid var(--dsw-alias-border-l1,#e5e5e5)!important}
-.rr-mdLayout{display:flex;align-items:flex-start;justify-content:center;gap:24px;padding:20px 10px 60px;background:#ffffff!important}
-.rr-mdLayout .rr-tocPanel{background:#ffffff!important;border:1px solid var(--dsw-alias-border-l1,#e5e5e5)!important;box-shadow:0 2px 12px rgba(0,0,0,0.04)}
-.rr-mdLayout article,.rr-readingPaper{background:#f7f4ed!important;border:1px solid #dfdacd!important;box-shadow:0 4px 24px -2px rgba(80,70,50,0.08),0 1px 4px 0 rgba(80,70,50,0.04)!important}
-.rr-dialogColumn,.rr-liveEditor,.rr-footnotePreview{background:#ffffff!important}
-@container paper-reader (max-width:700px){.rr-shell{--rr-reading-size:17px}.rr-mdLayout article{padding:28px 20px 40px!important}}
 .rr-pdfModalOverlay{position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center}
 .rr-pdfModalContent{width:min(1120px,94vw);height:88vh;background:#ffffff;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.25);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l1,#e5e5e5)}
 .rr-pdfModalHeader{padding:12px 18px;border-bottom:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;background:#fafafa}
@@ -1765,6 +1703,69 @@ window.__ModuleLoader__.load({
   .rr-mdLayout article { padding:20px 14px 28px!important; }
 }
 
+/* Active Obsidian Blue Topaz + book-reading-tune + citeframe reading settings. */
+.rr-shell,.rr-overlay{--rr-reading-font:Georgia,"方正屏显雅宋简体","FZPingXianYaSongS-R-GB","Source Han Serif SC VF","思源宋体 VF","Source Han Serif SC","Noto Serif CJK SC","Noto Serif SC","Songti SC","STSong",serif;--rr-reading-wght:470;--rr-reading-size:17.5px;--rr-reading-ink:#403f3c}
+.rr-mdLayout article,.rr-readingBody,.rr-dialogZh,.rr-dialogFr,.rr-liveEditor{font-family:var(--rr-reading-font)!important;font-size:var(--rr-font,var(--rr-reading-size))!important;line-height:1.82!important;font-weight:400;font-variation-settings:"wght" var(--rr-reading-wght,470);font-synthesis:none;font-kerning:normal;font-variant-numeric:lining-nums proportional-nums;letter-spacing:0.01em!important;text-align:justify;text-justify:inter-ideograph;text-align-last:auto;color:var(--rr-reading-ink);-webkit-font-smoothing:antialiased}
+.rr-mdLayout article{flex:1;max-width:var(--rr-paper-width,780px)!important;position:relative;width:100%;margin:12px auto 40px!important;padding:48px 56px 64px!important;border:1px solid #dfdacd!important;border-radius:4px!important;box-shadow:0 4px 24px -2px rgba(80,70,50,0.08),0 1px 4px 0 rgba(80,70,50,0.04)!important}
+.rr-editableText{max-width:100%}
+.rr-readingPaper{max-width:700px;padding-left:36px;padding-right:36px}
+.rr-hero h1,.rr-originalTitle,.rr-paperTitle{font-family:var(--rr-reading-font)!important}
+.rr-articleHeader h1{font-size:27.34375px!important;line-height:1.35!important}
+.rr-readingBody .rr-block:not(.rr-abstract){margin-top:0!important;margin-bottom:0!important}
+.rr-mdLayout article p,.rr-readingBody .rr-paragraphText,.rr-dialogZh,.rr-dialogFr,.rr-liveEditor p{margin-top:0!important;margin-bottom:0.4em!important;text-indent:2em;line-height:inherit}
+.rr-dialogFr[lang=en]{line-height:1.62!important;text-indent:1.25em;text-justify:auto}
+.rr-mdLayout article :is(h1,h2,h3,h4),.rr-readingBody .rr-heading,.rr-articleHeader h1{font-family:var(--rr-reading-font)!important;font-weight:600;font-variation-settings:"wght" 650;line-height:1.35;letter-spacing:0;color:#22211e}
+.rr-mdLayout article h1{font-size:1.5625em!important;margin:2.4em 0 .9em!important}
+.rr-mdLayout article h2,.rr-readingBody h2{font-size:1.4375em!important;margin:2em 0 .72em!important}
+.rr-mdLayout article h3,.rr-readingBody h3{font-size:1.3125em!important;margin:1.6em 0 .52em!important}
+.rr-mdLayout article h4,.rr-readingBody h4{font-size:1.1875em!important;margin:1.3em 0 .4em!important}
+.rr-mdLayout article strong,.rr-readingBody strong{color:#22211e}
+.rr-mdLayout article :is(strong,b),.rr-readingBody :is(strong,b),.rr-dialogZh :is(strong,b),.rr-dialogFr :is(strong,b),.rr-liveEditor :is(strong,b){font-weight:700;font-variation-settings:"wght" 680}
+.rr-dialogFr em,[lang]:not([lang^=zh]) em,.rr-em-western{font-family:Georgia,serif!important;font-style:italic!important;font-synthesis:none!important;text-emphasis:none!important;-webkit-text-emphasis:none!important;color:inherit}
+.rr-dialogZh em,.rr-mdLayout article em,.rr-readingBody em,.rr-liveEditor em,.rr-em-cjk,em{font-style:normal!important;font-synthesis:none!important;text-emphasis:filled circle;-webkit-text-emphasis:filled circle;text-emphasis-position:under right;-webkit-text-emphasis-position:under;text-emphasis-color:currentColor;-webkit-text-emphasis-color:currentColor;color:inherit}
+.rr-dialogZh .rr-em-western,.rr-mdLayout article .rr-em-western,.rr-readingBody .rr-em-western{font-family:Georgia,serif!important;font-style:italic!important;font-synthesis:none!important;text-emphasis:none!important;-webkit-text-emphasis:none!important;color:inherit}
+.rr-mdLayout article blockquote,.rr-readingBody blockquote{margin:1.2em 1.5em!important;padding:.8em 1.25em!important;border:1px solid #ded7c7!important;background:color-mix(in srgb,#f7f4ed 70%,#eae4d4)!important;border-radius:4px!important;box-shadow:0 1px 3px rgba(0,0,0,0.02)!important;font-family:"STKaiti","KaiTi","STFangsong","FangSong","Songti SC",serif!important;font-variation-settings:normal;font-size:0.89em!important;line-height:1.68!important;color:#3b3a37!important}
+.rr-mdLayout article blockquote p,.rr-readingBody blockquote p{margin:0!important;text-indent:2em!important;font-size:inherit!important;line-height:inherit!important}
+.rr-mdLayout article li p,.rr-notes p,.rr-notePreviewText p{text-indent:0!important}
+.rr-footnoteLink,sup{display:inline-block!important;font-size:0.65em!important;line-height:0!important;vertical-align:super!important;margin:0 1.5px!important;padding:0 1px!important;font-family:Georgia,"Times New Roman",serif!important;font-weight:500!important;font-variation-settings:normal;color:color-mix(in srgb,var(--dsw-alias-brand-primary) 70%,var(--rr-reading-ink,#50504c))!important;opacity:0.75!important;cursor:pointer!important;transition:opacity .15s,color .15s!important;text-decoration:none!important}
+.rr-footnoteLink:hover,.rr-footnoteLink:focus-visible{opacity:1!important;color:var(--dsw-alias-brand-primary)!important;text-decoration:underline!important}
+.rr-mdLayout article img{display:block;max-width:90%;margin:2em auto}.rr-mdLayout article ::selection,.rr-readingBody ::selection,.rr-dialogZh::selection,.rr-dialogFr::selection{background:rgba(180,160,120,.25)}
+.rr-mdBlock{padding-right:30px}
+.rr-readingBlockActions{position:absolute;right:0;top:50%;transform:translateY(-50%);margin:0}
+.rr-compareArrow{border:0!important;background:transparent!important;min-height:24px!important;width:24px;padding:0!important;font:21px/1 system-ui!important;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))!important;opacity:.38}
+.rr-compareArrow:hover,.rr-compareArrow:focus-visible{opacity:1}
+.rr-paragraph{position:relative;display:block;padding-right:30px}
+.rr-paragraph>.rr-compareArrow{position:absolute;right:0;top:50%;transform:translateY(-50%)}
+.rr-viewToggle{display:inline-flex;align-items:center;padding:2px;border:1px solid var(--dsw-alias-border-l2,#d4d4d8);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f4f4f5);gap:2px}
+.rr-viewToggle .rr-button{min-height:24px;padding:0 9px;font-size:12px;border-radius:6px;border:0}
+.rr-liveEditor{outline:1px solid var(--dsw-alias-border-l2);outline-offset:3px;border-radius:3px;min-height:1.7em}
+.rr-inlineEditActions{display:flex;gap:6px;margin:6px 0 8px;font:12px/1.4 Inter,system-ui,sans-serif;text-align:left}
+.rr-correctionMenu{position:fixed;z-index:1500;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 5px 18px #0002;padding:4px;border-radius:7px;min-width:110px}
+.rr-correctionMenu .rr-button{gap:9px;font:13px/1.5 Inter,system-ui,sans-serif;min-height:29px}
+.rr-mdBlock[data-note-definition=true]{font-size:13.5px!important;line-height:1.56!important;color:color-mix(in srgb,var(--rr-reading-ink,#403f3c) 88%,var(--dsw-alias-label-secondary))!important;padding-top:4px!important;padding-bottom:4px!important}
+.rr-mdBlock[data-note-definition=true] p{text-indent:0!important;font-size:13.5px!important;line-height:1.56!important}
+.rr-mdBlock[data-note-definition=true] .rr-liveEditor{font-size:13.5px!important;line-height:1.56!important}
+.rr-footnoteAccordion{margin:10px 0 14px!important;border:1px solid var(--dsw-alias-border-l1,#e4e4e7);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fafafa);overflow:hidden;transition:background .2s,border-color .2s}
+.rr-footnoteAccordion[open]{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1,#fafafa) 92%,var(--dsw-alias-brand-primary,#2563eb) 8%);border-color:color-mix(in srgb,var(--dsw-alias-border-l1,#e4e4e7) 70%,var(--dsw-alias-brand-primary,#2563eb) 30%)}
+.rr-footnoteSummary{cursor:pointer;list-style:none;padding:5px 10px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary,#71717a);user-select:none;text-indent:0!important}
+.rr-footnoteSummary::-webkit-details-marker{display:none}
+.rr-footnoteSummary::before{content:'▸';display:inline-block;transition:transform .18s;font-size:11px}
+.rr-footnoteAccordion[open]>.rr-footnoteSummary::before{transform:rotate(90deg)}
+.rr-footnotePill{display:inline-flex;align-items:center;gap:6px}
+.rr-footnoteBodyList{padding:8px 12px 10px;border-top:1px dashed var(--dsw-alias-border-l1,#e4e4e7);font-size:13.5px!important;line-height:1.62!important;color:color-mix(in srgb,var(--rr-reading-ink,#403f3c) 88%,var(--dsw-alias-label-secondary,#71717a))!important}
+.rr-footnoteItem{margin:6px 0!important;text-indent:0!important}
+.rr-notePreviewText{font-size:13.5px!important;line-height:1.56!important;text-indent:0!important;color:#403f3c!important}
+.rr-footnotePreview{font-size:13.5px!important;line-height:1.56!important}
+.rr-note{font-size:13px!important;line-height:1.56!important}
+.rr-shell[data-view=reader] .rr-scroll,.rr-shell:has(.rr-mdReader) .rr-scroll,.rr-workbench:has(.rr-mdReader),.rr-mdReader{background:#ffffff!important}
+.rr-mdReader{padding:0 20px 60px!important;background:#ffffff!important}
+.rr-readingToolbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,0.95)!important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:8px 16px!important;border-bottom:1px solid var(--dsw-alias-border-l1,#e5e5e5)!important}
+.rr-mdLayout{display:flex;align-items:flex-start;justify-content:center;gap:24px;padding:20px 10px 60px;background:#ffffff!important}
+.rr-mdLayout .rr-tocPanel{background:#ffffff!important;border:1px solid var(--dsw-alias-border-l1,#e5e5e5)!important;box-shadow:0 2px 12px rgba(0,0,0,0.04)}
+.rr-mdLayout article,.rr-readingPaper{background:#f7f4ed!important;border:1px solid #dfdacd!important;box-shadow:0 4px 24px -2px rgba(80,70,50,0.08),0 1px 4px 0 rgba(80,70,50,0.04)!important}
+.rr-dialogColumn,.rr-liveEditor,.rr-footnotePreview{background:#ffffff!important}
+@container paper-reader (max-width:700px){.rr-shell{--rr-reading-size:17px}.rr-mdLayout article{padding:28px 20px 40px!important}}
+
 /* =========================================================================
    WeRead-Style Desktop Reader Themes, Fonts, Bookshelf Covers & Popovers
    ========================================================================= */
@@ -2724,7 +2725,6 @@ window.__ModuleLoader__.load({
       const base = String(file).replace(/\.pdf$/i, '')
       return `阅读 · ${base.length > 48 ? base.slice(0, 47) + '…' : base}`
     }
-
     const WEREAD_THEMES = [
       { id: 'white', label: '纯白', bg: '#f5f6f8', paperBg: '#ffffff', fg: '#1f2329', muted: '#717682', swatch: '#ffffff', border: '#e4e6eb', dark: false },
       { id: 'paper', label: '羊皮纸', bg: '#efeade', paperBg: '#f7f4ed', fg: '#2c2620', muted: '#7a7062', swatch: '#f3ead8', border: '#dfdacd', dark: false },
@@ -3031,6 +3031,1717 @@ window.__ModuleLoader__.load({
       }
       if(currentPage.length>0)pages.push(currentPage)
       return pages.length?pages:[[]]
+    }
+    function ReaderTocSidebar({
+      readingScript,
+      tocWidth,
+      setTocWidth,
+      setTocOpen,
+      tocTab,
+      setTocTab,
+      activeOutline,
+      tocGroups,
+      savedMarks,
+      reading,
+      glossaryQuery,
+      setGlossaryQuery,
+      jumpBlock,
+    }) {
+      return h('aside', { className: 'rr-tocPanel', 'aria-label': '独立目录', style: { width: tocWidth + 'px' }, ...zhScriptAttrs(readingScript) },
+        h('div', { className: 'rr-tocHeader' },
+          h('div', { className: 'rr-wrTocTabs' },
+            h('button', { type: 'button', className: `rr-wrTocTab ${tocTab === 'outline' ? 'active' : ''}`, onClick: () => setTocTab('outline') }, `目录 (${(activeOutline.outline ?? []).length})`),
+            h('button', { type: 'button', className: `rr-wrTocTab ${tocTab === 'marks' ? 'active' : ''}`, onClick: () => setTocTab('marks') }, `划线 (${savedMarks.length})`),
+            h('button', { type: 'button', className: `rr-wrTocTab ${tocTab === 'glossary' ? 'active' : ''}`, onClick: () => setTocTab('glossary') }, `术语 (${(reading.glossary ?? []).length})`)
+          ),
+          button('收起', () => setTocOpen(false), 'rr-buttonQuiet', { style: { minHeight: 24, padding: '0 6px', fontSize: 11 } })
+        ),
+        h('input', { type: 'range', min: 180, max: 420, step: 10, value: tocWidth, 'aria-label': '目录宽度', onChange: e => setTocWidth(Number(e.target.value)) }),
+        tocTab === 'outline'
+          ? h('nav', { 'aria-label': '章节目录' },
+              tocGroups.length
+                ? tocGroups.map(({ item, children }) =>
+                    h('div', { key: item.id, className: 'rr-tocChapter' },
+                      button(item.label, () => jumpBlock(item.id), 'rr-buttonQuiet'),
+                      children.length
+                        ? h('details', null,
+                            h('summary', null, '小标题 · ' + children.length),
+                            children.map(child =>
+                              button(child.label, () => jumpBlock(child.id), 'rr-buttonQuiet', {
+                                key: child.id,
+                                style: { paddingLeft: (child.level - 1) * 8 + 'px' }
+                              })
+                            )
+                          )
+                        : null
+                    )
+                  )
+                : h('p', { className: 'rr-pipelineNote' }, '本文档暂无目录结构')
+            )
+          : tocTab === 'marks'
+          ? h('div', { className: 'rr-wrTocMarksList' },
+              savedMarks.length
+                ? savedMarks.map(m =>
+                    h('div', { key: m.id, className: 'rr-wrTocMarkCard', onClick: () => jumpBlock(m.blockId, m.view) },
+                      h('blockquote', null, m.quote || m.exact),
+                      m.comment ? h('p', null, '💭 ' + m.comment) : null
+                    )
+                  )
+                : h('p', { className: 'rr-pipelineNote', style: { textAlign: 'center', padding: '16px 0' } }, '本书暂无划线或书签')
+            )
+          : h('div', { className: 'rr-wrTocGlossaryList' },
+              h('input', {
+                type: 'search',
+                placeholder: '搜索术语...',
+                value: glossaryQuery,
+                onChange: e => setGlossaryQuery(e.target.value),
+                style: { marginBottom: 8, fontSize: 12, padding: '5px 8px' }
+              }),
+              (reading.glossary ?? [])
+                .filter(g => !glossaryQuery.trim() || [g.source, g.target, g.note].filter(Boolean).join(' ').toLowerCase().includes(glossaryQuery.trim().toLowerCase()))
+                .slice(0, 150)
+                .map((g, i) =>
+                  h('div', { key: i, className: 'rr-wrTocGlossaryItem' },
+                    h('div', { style: { fontWeight: 600, fontSize: 12.5 } }, g.source, ' → ', h('span', { style: { color: 'var(--dsw-alias-brand-primary,#2563eb)' } }, g.target)),
+                    g.note ? h('div', { style: { fontSize: 11, opacity: 0.75, marginTop: 2 } }, g.note) : null
+                  )
+                )
+            )
+      )
+    }
+
+    function WeReadPopoverPanel({
+      activeReaderPanel,
+      setActiveReaderPanel,
+      wrSettings,
+      updateWrSettings,
+      paperWidth,
+      setPaperWidth,
+      storePaperWidth,
+      comparisonAvailable,
+    }) {
+      if (!activeReaderPanel) return null
+      return h('div', { className: 'rr-wrPopoverPanel', role: 'region', 'aria-label': activeReaderPanel === 'theme' ? '背景与亮度设置' : '字体与排版设置' },
+        activeReaderPanel === 'theme'
+          ? h('div', { className: 'rr-wrPopoverBody' },
+              h('div', { className: 'rr-wrPopoverRow' },
+                h('span', { className: 'rr-wrPopoverLabel' }, '背景主题'),
+                h('div', { className: 'rr-wrSwatchList' },
+                  WEREAD_THEMES.map(t =>
+                    h('button', {
+                      key: t.id,
+                      type: 'button',
+                      className: `rr-wrSwatchBtn ${wrSettings.theme === t.id ? 'active' : ''}`,
+                      onClick: () => updateWrSettings({ theme: t.id })
+                    },
+                      h('span', {
+                        className: 'rr-wrSwatchCircle',
+                        style: { background: t.swatch, color: t.fg, borderColor: wrSettings.theme === t.id ? '#2563eb' : t.border }
+                      }, wrSettings.theme === t.id ? '✓' : (t.id === 'eink' ? '墨' : '')),
+                      h('span', { className: 'rr-wrSwatchName' }, t.label)
+                    )
+                  )
+                )
+              ),
+              h('div', { className: 'rr-wrPopoverRow' },
+                h('span', { className: 'rr-wrPopoverLabel' }, '护眼亮度'),
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 360 } },
+                  h('span', null, '🔅'),
+                  h('input', {
+                    type: 'range',
+                    min: 40,
+                    max: 100,
+                    step: 1,
+                    value: wrSettings.brightness ?? 100,
+                    onChange: e => updateWrSettings({ brightness: Number(e.target.value) }),
+                    style: { margin: 0, flex: 1 }
+                  }),
+                  h('span', null, '🔆'),
+                  h('span', { style: { fontSize: 12, minWidth: 38 } }, `${wrSettings.brightness ?? 100}%`)
+                ),
+                h('span', { className: 'rr-wrPopoverLabel', style: { marginLeft: 16 } }, '版心宽度'),
+                h('div', { className: 'rr-viewToggle' },
+                  [[680, '窄栏'], [780, '标准'], [940, '宽栏'], [1140, '超宽']].map(([w, lbl]) =>
+                    button(lbl, () => { setPaperWidth(w); storePaperWidth(w) }, Math.abs(paperWidth - w) < 30 ? 'rr-buttonPrimary' : 'rr-buttonQuiet')
+                  )
+                ),
+                button('收起', () => setActiveReaderPanel(null), 'rr-buttonQuiet', { style: { marginLeft: 'auto' } })
+              )
+            )
+          : h('div', { className: 'rr-wrPopoverBody' },
+              h('div', { className: 'rr-wrPopoverRow' },
+                h('span', { className: 'rr-wrPopoverLabel' }, '字号与字重'),
+                h('div', { className: 'rr-wrStepperWrap' },
+                  button('A−', () => updateWrSettings({ fontSize: Math.max(13, Math.round(((wrSettings.fontSize || 17.5) - 0.5) * 2) / 2) }), 'rr-buttonQuiet'),
+                  h('input', {
+                    type: 'range',
+                    min: 13,
+                    max: 28,
+                    step: 0.5,
+                    value: wrSettings.fontSize || 17.5,
+                    onChange: e => updateWrSettings({ fontSize: Number(e.target.value) }),
+                    style: { margin: 0, width: 140 }
+                  }),
+                  h('span', { style: { fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center' } }, `${wrSettings.fontSize || 17.5}px`),
+                  button('A+', () => updateWrSettings({ fontSize: Math.min(28, Math.round(((wrSettings.fontSize || 17.5) + 0.5) * 2) / 2) }), 'rr-buttonQuiet')
+                ),
+                h('div', { className: 'rr-viewToggle', style: { marginLeft: 8 } },
+                  [[400, '标准'], [470, '适中'], [520, '中粗'], [600, '加粗']].map(([w, lbl]) =>
+                    button(lbl, () => updateWrSettings({ fontWeight: w }), (wrSettings.fontWeight || 470) === w ? 'rr-buttonPrimary' : 'rr-buttonQuiet')
+                  )
+                ),
+                button('收起', () => setActiveReaderPanel(null), 'rr-buttonQuiet', { style: { marginLeft: 'auto' } })
+              ),
+              h('div', { className: 'rr-wrPopoverRow' },
+                h('span', { className: 'rr-wrPopoverLabel' }, '精选字体'),
+                h('div', { className: 'rr-wrFontGrid' },
+                  WEREAD_FONTS.map(f =>
+                    h('button', {
+                      key: f.id,
+                      type: 'button',
+                      className: `rr-wrFontCard ${wrSettings.fontFamily === f.id ? 'active' : ''}`,
+                      onClick: () => updateWrSettings({ fontFamily: f.id })
+                    },
+                      h('span', { className: 'rr-wrFontCardTitle', style: { fontFamily: f.stack } }, f.label),
+                      h('span', { className: 'rr-wrFontCardSub' }, f.sub)
+                    )
+                  )
+                )
+              ),
+              h('div', { className: 'rr-wrPopoverRow', style: { flexWrap: 'wrap' } },
+                h('span', { className: 'rr-wrPopoverLabel' }, '间距与对齐'),
+                h('div', { className: 'rr-viewToggle' },
+                  WEREAD_SPACING_PRESETS.map(p =>
+                    button(p.label, () => updateWrSettings({ lineHeight: p.lineHeight, paraSpacing: p.paraSpacing }), Math.abs((wrSettings.lineHeight || 1.82) - p.lineHeight) < 0.04 ? 'rr-buttonPrimary' : 'rr-buttonQuiet')
+                  )
+                ),
+                h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, margin: 0 } },
+                  `行距 ${wrSettings.lineHeight || 1.82}`,
+                  h('input', {
+                    type: 'range',
+                    min: 1.4,
+                    max: 2.3,
+                    step: 0.04,
+                    value: wrSettings.lineHeight || 1.82,
+                    onChange: e => updateWrSettings({ lineHeight: Number(e.target.value) }),
+                    style: { width: 90, margin: 0 }
+                  })
+                ),
+                h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, margin: 0 } },
+                  `段距 ${wrSettings.paraSpacing ?? 0.45}em`,
+                  h('input', {
+                    type: 'range',
+                    min: 0.15,
+                    max: 1.35,
+                    step: 0.05,
+                    value: wrSettings.paraSpacing ?? 0.45,
+                    onChange: e => updateWrSettings({ paraSpacing: Number(e.target.value) }),
+                    style: { width: 90, margin: 0 }
+                  })
+                ),
+                h('div', { className: 'rr-viewToggle' },
+                  button('首行缩进', () => updateWrSettings({ textIndent: wrSettings.textIndent === false }), wrSettings.textIndent !== false ? 'rr-buttonPrimary' : 'rr-buttonQuiet'),
+                  button((wrSettings.textAlign || 'justify') === 'justify' ? '两端对齐' : '左对齐', () => updateWrSettings({ textAlign: (wrSettings.textAlign || 'justify') === 'justify' ? 'left' : 'justify' }), (wrSettings.textAlign || 'justify') === 'justify' ? 'rr-buttonPrimary' : 'rr-buttonQuiet')
+                ),
+                comparisonAvailable
+                  ? h('div', { className: 'rr-viewToggle' },
+                      button('双语并排', () => updateWrSettings({ bilingualLayout: 'parallel' }), (wrSettings.bilingualLayout || 'parallel') === 'parallel' ? 'rr-buttonPrimary' : 'rr-buttonQuiet'),
+                      button('双语叠排', () => updateWrSettings({ bilingualLayout: 'stacked' }), wrSettings.bilingualLayout === 'stacked' ? 'rr-buttonPrimary' : 'rr-buttonQuiet')
+                    )
+                  : null
+              )
+            )
+      )
+    }
+    function renderPipelineTaskDrawers(ctx) {
+      const {
+        task,
+        selected,
+        detailTab,
+        setDetailTab,
+        setPdfModal,
+        openSystemPdf,
+        run,
+        profileValue,
+        editProfile,
+        editProfileFields,
+        firstSide,
+        setFirstSide,
+        lastSide,
+        setLastSide,
+        setMessage,
+        profile,
+        setProfile,
+        profileEdits,
+        act,
+        api,
+        busy,
+        chapterLoading,
+        chapters,
+        updateChapter,
+        removeChapter,
+        addChapter,
+        loadChapters,
+        confirmChapterStructure,
+        launch,
+        environment,
+        chooseTask,
+        setTask,
+        stages,
+        stageState,
+        glossaryReady,
+        publicationAccepted,
+        setPublicationAccepted,
+        workerChoice,
+        setWorkerChoice,
+        fallback1,
+        setFallback1,
+        fallback2,
+        setFallback2,
+        transcriptionModels,
+        fallbackOptions,
+        refresh,
+        modelKey,
+        setModelKey,
+        orchestratorEffort,
+        setOrchestratorEffort,
+        models,
+        linguaSettings,
+        setLinguaSettings,
+        sourceMapPdfId,
+        setSourceMapPdfId,
+        catalog,
+        translationRef,
+        resumeWithAntigravity,
+        translationDone,
+        reviewDone,
+        deliveryDone,
+        reviewWorkerChoice,
+        setReviewWorkerChoice,
+        reviewOrchestratorChoice,
+        setReviewOrchestratorChoice,
+        reviewEffortChoice,
+        setReviewEffortChoice,
+      } = ctx
+
+      return h(
+        React.Fragment,
+        null,
+        detailTab !== 'flow'
+          ? h(
+              'div',
+              { className: 'rr-drawerHeading' },
+              h('h3', null, ({ structure: '文档范围', chapters: '章节结构', models: '模型与并发设置', records: '处理记录' })[detailTab]),
+              button('关闭', () => setDetailTab('flow'), 'rr-buttonQuiet')
+            )
+          : null,
+        h(
+          'section',
+          { hidden: detailTab !== 'structure', className: 'rr-taskDrawer' },
+          h('h3', null, '文档范围与体例'),
+          task.legacy?.artifacts?.sourcePdf || task.input.type === 'pdf'
+            ? h(
+                React.Fragment,
+                null,
+                button(
+                  h(React.Fragment, null, icon('pdf', 14), '查看原 PDF'),
+                  () => setPdfModal({ url: '/api/paper-reader/pipeline/tasks/' + selected + '/source', title: task.name, taskId: selected }),
+                  'rr-buttonQuiet'
+                ),
+                button(h(React.Fragment, null, icon('external', 13), '系统打开'), () => openSystemPdf(selected), 'rr-buttonQuiet')
+              )
+            : null,
+          task.inspection ? h('p', { className: 'rr-pipelineNote' }, `${task.inspection.verdict} · ${task.inspection.pages || task.inspection.blocks} ${task.input.type === 'pdf' ? '页' : '块'}`) : null,
+          h(ProfileAnalysis, { task, onAnalyze: () => run('inspect', { reanalyze: true, singleStep: true }) }),
+          h(
+            'details',
+            { key: task.profileAnalysis?.completedAt ?? 'initial', open: !task.profileAnalysis || task.profileAnalysis.unresolved?.length > 0 },
+            h('summary', null, '调整识别结果'),
+            h(
+              'div',
+              { className: 'rr-pipelineFields' },
+              !task.stages.normalize?.state || task.stages.normalize?.state !== 'done'
+                ? h(
+                    'label',
+                    null,
+                    '文档体裁',
+                    h(
+                      'select',
+                      { value: profileValue.document_type ?? task.kind, onChange: e => editProfile('document_type', e.target.value) },
+                      h('option', { value: 'book' }, '整本书'),
+                      h('option', { value: 'collection' }, '文章合集'),
+                      h('option', { value: 'paper' }, '论文'),
+                      h('option', { value: 'chapter' }, '章节节选')
+                    )
+                  )
+                : null,
+              h(
+                'label',
+                null,
+                '原文语言',
+                h(
+                  'select',
+                  { value: profileValue.language ?? '', onChange: e => editProfile('language', e.target.value) },
+                  [
+                    ['', '请选择'],
+                    ['fr', '法语'],
+                    ['en', '英语'],
+                    ['de', '德语'],
+                    ['zh', '中文'],
+                    ['ja', '日语'],
+                    ['es', '西班牙语'],
+                    ['it', '意大利语'],
+                    ...(!['', 'fr', 'en', 'de', 'zh', 'ja', 'es', 'it'].includes(profileValue.language ?? '') ? [[profileValue.language, profileValue.language + '（自动识别）']] : []),
+                  ].map(([value, label]) => h('option', { key: value, value }, label))
+                )
+              ),
+              task.input.type === 'pdf'
+                ? h(
+                    'label',
+                    null,
+                    '转写方式',
+                    h(
+                      'select',
+                      { value: profileValue.transcription_method ?? 'auto', onChange: e => editProfile('transcription_method', e.target.value) },
+                      h('option', { value: 'auto' }, '自动分流'),
+                      h('option', { value: 'vision' }, '视觉模型转写')
+                    )
+                  )
+                : null,
+              task.input.type === 'pdf'
+                ? h(
+                    'label',
+                    null,
+                    '注释体例',
+                    h(
+                      'select',
+                      {
+                        value: profileValue.book_type ?? '',
+                        onChange: e => {
+                          const type = e.target.value
+                          editProfileFields({
+                            book_type: type,
+                            note_location: type === 'no_notes' ? 'none' : type === 'footnote_only' ? 'per_page_bottom' : '',
+                            note_numbering: type === 'no_notes' ? 'continuous' : profileValue.note_numbering,
+                          })
+                        },
+                      },
+                      [
+                        ['', '请选择'],
+                        ['footnote_only', '页底脚注'],
+                        ['endnote_only', '尾注'],
+                        ['mixed', '脚注与尾注'],
+                        ['no_notes', '无注释'],
+                      ].map(([value, label]) => h('option', { key: value, value }, label))
+                    )
+                  )
+                : null,
+              task.input.type === 'pdf'
+                ? h(
+                    'label',
+                    null,
+                    '注释归属',
+                    h(
+                      'select',
+                      { value: profileValue.note_location ?? '', onChange: e => editProfile('note_location', e.target.value) },
+                      [
+                        ['', '请选择'],
+                        ['per_page_bottom', '所在页底'],
+                        ['chapter_end_notes', '章节末尾'],
+                        ['book_end_notes', '整书末尾'],
+                        ['mixed', '多种位置'],
+                        ['none', '无注释'],
+                      ].map(([value, label]) => h('option', { key: value, value }, label))
+                    )
+                  )
+                : null,
+              task.input.type === 'pdf'
+                ? h(
+                    'label',
+                    null,
+                    '编号方式',
+                    h(
+                      'select',
+                      { value: profileValue.note_numbering ?? '', onChange: e => editProfile('note_numbering', e.target.value) },
+                      h('option', { value: '' }, '待识别'),
+                      h('option', { value: 'continuous' }, '全文连续'),
+                      h('option', { value: 'per_chapter' }, '每章重置'),
+                      h('option', { value: 'per_page' }, '每页重置')
+                    )
+                  )
+                : null,
+              task.input.type === 'pdf'
+                ? h(
+                    'label',
+                    null,
+                    '页面布局',
+                    h(
+                      'select',
+                      { value: profileValue.layout ?? '', onChange: e => editProfile('layout', e.target.value) },
+                      h('option', { value: '' }, '待识别'),
+                      h('option', { value: 'single' }, '单页单栏'),
+                      h('option', { value: 'spread' }, '左右双页扫描'),
+                      h('option', { value: 'columns' }, '多栏排版')
+                    )
+                  )
+                : null,
+              task.input.type === 'pdf'
+                ? h('label', null, '处理起始 PDF 页', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.start_page ?? 1, onChange: e => editProfile('start_page', Number(e.target.value)) }))
+                : null,
+              task.input.type === 'pdf'
+                ? h('label', null, '处理结束 PDF 页', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.end_page ?? task.inspection?.pages ?? 1, onChange: e => editProfile('end_page', Number(e.target.value)) }))
+                : null,
+              task.input.type === 'pdf' && ['endnote_only', 'mixed'].includes(profileValue.book_type)
+                ? h('label', null, '尾注起始 PDF 页（可选）', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.note_start_page ?? '', placeholder: '可选', onChange: e => { const v = e.target.value; editProfile('note_start_page', v === '' ? undefined : Number(v)) } }))
+                : null,
+              task.input.type === 'pdf' && ['endnote_only', 'mixed'].includes(profileValue.book_type)
+                ? h('label', null, '尾注结束 PDF 页（可选）', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.note_end_page ?? '', placeholder: '可选', onChange: e => { const v = e.target.value; editProfile('note_end_page', v === '' ? undefined : Number(v)) } }))
+                : null
+            ),
+            profileValue.layout === 'spread'
+              ? h(
+                  'div',
+                  null,
+                  h(
+                    'div',
+                    { className: 'rr-pipelineFields' },
+                    [
+                      ['首幅扫描页', firstSide, setFirstSide],
+                      ['末幅扫描页', lastSide, setLastSide],
+                    ].map(([label, value, update]) =>
+                      h(
+                        'label',
+                        { key: label },
+                        label,
+                        h(
+                          'select',
+                          { value, onChange: e => update(e.target.value) },
+                          h('option', { value: 'both' }, '左右页都保留'),
+                          h('option', { value: 'left' }, '仅保留左页'),
+                          h('option', { value: 'right' }, '仅保留右页')
+                        )
+                      )
+                    )
+                  ),
+                  button(
+                    '生成左右页范围',
+                    () => {
+                      const start = profileValue.start_page
+                      const end = profileValue.end_page
+                      if (!Number.isInteger(start) || !Number.isInteger(end) || start > end) {
+                        setMessage('先填写有效起止页')
+                        return
+                      }
+                      const regions = []
+                      for (let page = start; page <= end; page++) {
+                        const choice = page === start ? firstSide : page === end ? lastSide : 'both'
+                        if (choice !== 'right') regions.push({ page, rect: [0, 0, 0.5, 1] })
+                        if (choice !== 'left') regions.push({ page, rect: [0.5, 0, 1, 1] })
+                      }
+                      editProfile('regions', regions)
+                    },
+                    'rr-buttonQuiet'
+                  )
+                )
+              : null,
+            h(
+              'details',
+              null,
+              h('summary', null, '高级区域映射与完整配置'),
+              h('textarea', {
+                'aria-label': '文档结构配置',
+                value: profile,
+                onChange: e => {
+                  setProfile(e.target.value)
+                  try {
+                    profileEdits.current = { ...JSON.parse(e.target.value), confirmed: false }
+                  } catch {}
+                },
+                rows: 12,
+              })
+            )
+          ),
+          h(
+            'label',
+            { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            h('input', { type: 'checkbox', style: { width: 'auto' }, checked: profileValue.confirmed === true, onChange: e => editProfile('confirmed', e.target.checked) }),
+            task.input.type === 'pdf' ? '已核对正文范围、布局和注释体例' : '已核对原文语言'
+          ),
+          button(
+            '保存结构配置',
+            () =>
+              act(async () => {
+                let value
+                try {
+                  value = JSON.parse(profile)
+                } catch {
+                  throw new Error('结构配置JSON格式无效')
+                }
+                await api('/tasks/' + selected + '/profile', 'POST', value)
+                setDetailTab('flow')
+                setMessage('结构配置已保存')
+              }),
+            'rr-buttonPrimary',
+            { disabled: busy || !task.inspection || task.state === 'running' || profileValue.confirmed !== true }
+          )
+        ),
+        h(
+          'section',
+          { hidden: detailTab !== 'chapters', className: 'rr-taskDrawer' },
+          h('h3', null, '整书章节结构'),
+          chapterLoading
+            ? h('p', null, '正在提取章节候选...')
+            : h(
+                'div',
+                null,
+                chapters.length
+                  ? h(
+                      'div',
+                      { style: { maxHeight: '340px', overflowY: 'auto', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '8px', padding: '6px', margin: '10px 0' } },
+                      chapters.map((ch, idx) =>
+                        h(
+                          'div',
+                          { key: idx, style: { display: 'flex', gap: '6px', alignItems: 'center', padding: '6px 0', borderBottom: idx < chapters.length - 1 ? '1px solid var(--dsw-alias-border-l1)' : 'none' } },
+                          h('span', { style: { minWidth: '22px', fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' } }, '#' + ch.num),
+                          h(
+                            'select',
+                            { style: { width: '85px', fontSize: '11px', padding: '4px' }, value: ch.role_hint ?? 'chapter', onChange: e => updateChapter(idx, 'role_hint', e.target.value) },
+                            h('option', { value: 'front_matter' }, '前言'),
+                            h('option', { value: 'chapter' }, '正文'),
+                            h('option', { value: 'notes' }, '注释'),
+                            h('option', { value: 'back_matter' }, '附录')
+                          ),
+                          h('input', { style: { flex: 1, minWidth: '100px', fontSize: '12px', padding: '4px' }, value: ch.title, placeholder: '章节标题', onChange: e => updateChapter(idx, 'title', e.target.value) }),
+                          h('input', { type: 'number', min: 1, max: task?.inspection?.pages, style: { width: '45px', fontSize: '11px', padding: '4px' }, value: ch.start_page ?? '', placeholder: '起', onChange: e => updateChapter(idx, 'start_page', Number(e.target.value)) }),
+                          h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: '11px' } }, '–'),
+                          h('input', { type: 'number', min: 1, max: task?.inspection?.pages, style: { width: '45px', fontSize: '11px', padding: '4px' }, value: ch.end_page ?? '', placeholder: '止', onChange: e => updateChapter(idx, 'end_page', Number(e.target.value)) }),
+                          button('×', () => removeChapter(idx), 'rr-buttonIcon rr-buttonQuiet', { title: '删除此章', style: { width: '24px', minHeight: '24px', padding: 0 } })
+                        )
+                      )
+                    )
+                  : h('p', { className: 'rr-pipelineNote' }, '当前无章节候选。'),
+                h('div', { className: 'rr-rowActions', style: { margin: '8px 0' } }, button('+ 添加章节', addChapter, 'rr-buttonQuiet'), button('重新提取', () => loadChapters(selected), 'rr-buttonQuiet', { disabled: chapterLoading })),
+                h(
+                  'div',
+                  { className: 'rr-rowActions', style: { marginTop: '16px' } },
+                  button('确认章节结构并生效', confirmChapterStructure, 'rr-buttonPrimary', { disabled: busy || !chapters.length }),
+                  button('转交 DSH 结构观察', () => launch('prepare'), 'rr-buttonQuiet', { disabled: busy || !environment?.guardEnabled })
+                )
+              )
+        ),
+        h(
+          'section',
+          { hidden: detailTab !== 'records', className: 'rr-taskDrawer rr-recordDrawer' },
+          task.legacy
+            ? h(
+                'section',
+                null,
+                h('h3', null, '原项目进度'),
+                task.legacy.artifacts.original
+                  ? button(
+                      '接续现有原文',
+                      () =>
+                        act(async () => {
+                          const value = await api('/tasks/' + selected + '/adopt', 'POST', {})
+                          chooseTask(value.id)
+                          setTask(value)
+                        }),
+                      'rr-buttonQuiet'
+                    )
+                  : null,
+                h('p', { className: 'rr-pipelineNote' }, task.legacy.caption),
+                h(
+                  'table',
+                  null,
+                  h(
+                    'tbody',
+                    null,
+                    [
+                      ['已转写页', String(task.legacy.progress.presentPages ?? 0) + ' / ' + (task.legacy.progress.expectedPages || '未登记')],
+                      ['缺失正文页', (task.legacy.progress.missingPages ?? []).slice(0, 30).join('、') || '无缺页'],
+                      ['旧流程状态', task.legacy.progress.oldProgress ? (task.legacy.progress.oldProgress.status ?? '未记录') + ' / ' + (task.legacy.progress.oldProgress.current_stage ?? '未记录') : '未使用旧流程总表'],
+                      ['占位翻译', (task.legacy.progress.oldProgress?.stage_history ?? []).some(s => s.stage === 'placeholder_translate') ? '有旧测试产物' : '未发现'],
+                      ['历史调用', String(task.legacy.progress.auditRecords ?? 0)],
+                      ['历史模型', (task.legacy.progress.models ?? []).join('、') || '未记录'],
+                      ['剩余问题', task.legacy.progress.remainingIssues ? '有待核查记录' : '无问题台账'],
+                      ['译文检查', task.legacy.progress.translationReport ? (task.legacy.progress.translationReport.errors ? '旧报告有阻断项' : task.legacy.progress.translationReport.warnings ? '旧报告有警告' : '旧报告通过') : '未找到旧报告'],
+                      ['续跑', task.legacy.resumeBlocked ? '待核验旧底本与预算' : '接续使用已装配 Markdown'],
+                    ].map(([label, value]) => h('tr', { key: label }, h('th', null, label), h('td', null, value)))
+                  )
+                )
+              )
+            : null,
+          task.message ? h('p', { className: 'rr-pipelineNote' }, task.message) : null,
+          h(
+            'details',
+            null,
+            h('summary', null, '排障与阶段操作'),
+            h(
+              'div',
+              { className: 'rr-taskStages' },
+              stages.map(s =>
+                h(
+                  'div',
+                  { key: s.id },
+                  h('strong', null, s.name),
+                  h('span', null, ({ done: '已完成', running: '运行中', blocked: '阻断', stopped: '已停止', outdated: '待更新术语流程' })[stageState(task, s.id)] ?? '待执行'),
+                  h(
+                    'div',
+                    { className: 'rr-rowActions' },
+                    button(
+                      task.stages[s.id]?.state === 'done'
+                        ? ['inspect', 'verify', 'glossary', 'translationCheck', 'review', 'publish', 'lgProject'].includes(s.id)
+                          ? s.id === 'lgProject'
+                            ? '重新打开'
+                            : s.id === 'review'
+                            ? '重新审校'
+                            : s.id === 'publish'
+                            ? '预览发布'
+                            : '重新检查'
+                          : '已完成'
+                        : s.id === 'translate' && task.stages.translate?.state === 'blocked'
+                        ? '重试翻译'
+                        : s.id === 'review'
+                        ? '启动审校'
+                        : '执行',
+                      () => run(s.id),
+                      'rr-buttonQuiet',
+                      {
+                        disabled:
+                          busy ||
+                          !!task.legacy ||
+                          task.state === 'running' ||
+                          (task.stages[s.id]?.state === 'done' && !['inspect', 'verify', 'glossary', 'translationCheck', 'review', 'publish', 'lgProject'].includes(s.id)),
+                      }
+                    ),
+                    s.id === 'prepare' ? button('转交 DSH 结构观察', () => launch('prepare'), 'rr-buttonQuiet', { disabled: busy || !!task.legacy }) : null
+                  )
+                )
+              )
+            )
+          ),
+          task.glossaryReport
+            ? h(
+                'p',
+                { className: 'rr-pipelineNote' },
+                `${glossaryReady(task) ? '术语分析' : '旧术语记录'}：${task.glossaryReport.analysisUnits ?? 0} 单元 · 清洗覆盖 ${task.glossaryReport.reviewedEntries ?? 0} · 清洗后 ${task.glossaryReport.candidates ?? 0} · 分组 ${task.glossaryReport.semanticGroups ?? 0} · 待审校 ${task.glossaryReport.reviewIssues ?? 0} · 采用 ${task.glossaryReport.effectiveTerms ?? 0}`
+              )
+            : null,
+          h('h3', null, '处理记录'),
+          h(
+            'table',
+            { className: 'rr-taskTable' },
+            h(
+              'tbody',
+              null,
+              task.log.map((l, i) => h('tr', { key: i }, h('td', null, l.stage), h('td', null, l.command), h('td', null, l.exitCode === undefined ? '执行中' : `退出码 ${l.exitCode}`)))
+            )
+          ),
+          task.translationReport && !task.translationReport.passed ? h('p', { className: 'rr-pipelineNote' }, task.translationReport.errors.join('；')) : null,
+          task.review
+            ? h(
+                'div',
+                null,
+                button(
+                  '查看审校报告',
+                  () =>
+                    act(async () => {
+                      const report = await api('/tasks/' + selected + '/review')
+                      setMessage(report.text)
+                    }),
+                  'rr-buttonQuiet'
+                )
+              )
+            : null,
+          task.publication
+            ? h(
+                'div',
+                null,
+                task.publication.message ? h('p', { className: 'rr-pipelineNote' }, task.publication.message) : null,
+                h('pre', null, task.publication.files.map(f => `${f.conflict ? '同名冲突 · ' : ''}${f.name} · ${f.bytes}字节`).join('\n')),
+                h('p', { className: 'rr-pipelineNote' }, task.publication.destination),
+                h(
+                  'label',
+                  { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+                  h('input', { type: 'checkbox', style: { width: 'auto' }, checked: publicationAccepted, onChange: e => setPublicationAccepted(e.target.checked) }),
+                  '已核对，确认发布此清单'
+                ),
+                button(
+                  task.publication.published ? '已发布' : '发布到阅读库',
+                  () => act(() => api('/tasks/' + selected + '/publish', 'POST', { accepted: publicationAccepted })),
+                  'rr-buttonPrimary',
+                  { disabled: busy || !publicationAccepted || task.publication.published || task.publication.files.some(f => f.conflict) }
+                )
+              )
+            : null
+        ),
+        h(
+          'section',
+          { hidden: detailTab !== 'models', className: 'rr-modelGrid rr-taskDrawer' },
+          h(
+            'div',
+            { className: 'rr-modelCard rr-transcriptionCard' },
+            h('h3', null, '转写 worker'),
+            h('p', { className: 'rr-currentModel' }, '当前：' + task.worker.model),
+            h('p', { className: 'rr-pipelineNote' }, '主模型失败后依次尝试兜底模型，全部失败才 OCR 抄写。'),
+            h(
+              'label',
+              null,
+              '选择转写模型',
+              h(
+                'select',
+                {
+                  'aria-label': '选择转写模型',
+                  value: workerChoice,
+                  onChange: e => {
+                    const value = e.target.value
+                    setWorkerChoice(value)
+                    if (value === fallback1) setFallback1('')
+                    if (value === fallback2) setFallback2('')
+                  },
+                  disabled: busy || task.state === 'running',
+                },
+                h('option', { value: '' }, '请选择模型'),
+                transcriptionModels.map(m => h('option', { key: m.id, value: m.id, disabled: m.disabled }, m.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '兜底模型 1',
+              h(
+                'select',
+                { 'aria-label': '兜底模型 1', value: fallback1, onChange: e => setFallback1(e.target.value), disabled: busy || !!task.legacy || task.state === 'running' },
+                h('option', { value: '' }, '不使用'),
+                fallbackOptions(fallback1, fallback2).map(m => h('option', { key: m.id, value: m.id, disabled: m.disabled }, m.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '兜底模型 2',
+              h(
+                'select',
+                { 'aria-label': '兜底模型 2', value: fallback2, onChange: e => setFallback2(e.target.value), disabled: busy || !!task.legacy || task.state === 'running' },
+                h('option', { value: '' }, '不使用'),
+                fallbackOptions(fallback2, fallback1).map(m => h('option', { key: m.id, value: m.id, disabled: m.disabled }, m.name))
+              )
+            ),
+            ['book', 'collection'].includes(task.kind)
+              ? h(
+                  'label',
+                  null,
+                  '整书转写并发度',
+                  h(
+                    'select',
+                    {
+                      'aria-label': '转写并发度',
+                      value: task.transcriptionConcurrency ?? 2,
+                      onChange: e =>
+                        act(async () => {
+                          await api('/tasks/' + selected + '/concurrency', 'POST', { concurrency: Number(e.target.value) })
+                          refresh()
+                        }),
+                      disabled: busy || task.state === 'running',
+                    },
+                    h('option', { value: 1 }, '1 章串行'),
+                    h('option', { value: 2 }, '2 章并行（推荐）'),
+                    h('option', { value: 3 }, '3 章并行')
+                  )
+                )
+              : null,
+            ['paper', 'chapter'].includes(task.kind)
+              ? h(
+                  'label',
+                  null,
+                  '单篇转写并发度',
+                  h(
+                    'select',
+                    {
+                      'aria-label': '单篇转写并发度',
+                      value: task.pageConcurrency ?? 4,
+                      onChange: e =>
+                        act(async () => {
+                          await api('/tasks/' + selected + '/concurrency', 'POST', { pageConcurrency: Number(e.target.value) })
+                          refresh()
+                        }),
+                      disabled: busy || task.state === 'running',
+                    },
+                    h('option', { value: 1 }, '1 页串行'),
+                    h('option', { value: 2 }, '2 页并行'),
+                    h('option', { value: 4 }, '4 页并行（推荐）'),
+                    h('option', { value: 6 }, '6 页并行')
+                  )
+                )
+              : null,
+            h(
+              'div',
+              { className: 'rr-rowActions' },
+              button(
+                '保存转写模型',
+                () =>
+                  act(async () => {
+                    await api('/tasks/' + selected + '/worker', 'POST', { workerId: workerChoice })
+                    setMessage('转写模型已保存，继续时确认配置；已有成果与已用预算保留')
+                  }),
+                'rr-buttonPrimary',
+                { disabled: busy || !!task.legacy || task.state === 'running' || !workerChoice }
+              ),
+              button(
+                '保存兜底模型',
+                () =>
+                  act(async () => {
+                    await api('/tasks/' + selected + '/worker', 'POST', { fallbackIds: [fallback1, fallback2].filter(Boolean) })
+                    setMessage('兜底模型已保存，主模型与已用预算不变')
+                  }),
+                'rr-buttonQuiet',
+                { disabled: busy || !!task.legacy || task.state === 'running' }
+              )
+            )
+          ),
+          h(
+            'div',
+            { className: 'rr-modelCard' },
+            h('h3', null, '编排者 · DSH'),
+            h(
+              'label',
+              null,
+              '会话模型',
+              h(
+                'select',
+                {
+                  'aria-label': '编排者模型',
+                  disabled: busy || task.state === 'running',
+                  value: modelKey,
+                  onChange: e => {
+                    setModelKey(e.target.value)
+                    setOrchestratorEffort('')
+                  },
+                },
+                h('option', { value: '' }, '沿用 DSH 当前选择'),
+                models.map(m => h('option', { key: m.key, value: m.key }, m.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '编排者思考强度',
+              h(
+                'select',
+                {
+                  'aria-label': '编排者思考强度',
+                  value: orchestratorEffort,
+                  onChange: e => setOrchestratorEffort(e.target.value),
+                  disabled: busy || task?.state === 'running' || !(models.find(m => m.key === modelKey)?.reasoning?.efforts?.length),
+                },
+                [{ id: '', name: '沿用会话当前档位' }, ...(models.find(m => m.key === modelKey)?.reasoning?.efforts ?? [])].map(e => h('option', { key: e.id, value: e.id }, e.name ?? e.id))
+              )
+            ),
+            button('打开编排检查', () => launch('inspect'), 'rr-buttonQuiet', { disabled: busy || !environment?.guardEnabled })
+          ),
+          h(
+            'div',
+            { className: 'rr-modelCard' },
+            h('h3', null, '翻译 worker · LinguaGacha'),
+            task.translationModel ? h('p', { className: 'rr-pipelineNote' }, `${task.translationModel.name} · 并发 ${task.translationModel.threshold?.concurrency_limit ?? 4} · 凭证由 DSH 管理`) : null,
+            h(
+              'label',
+              null,
+              '切换翻译模型通道',
+              h(
+                'select',
+                {
+                  'aria-label': '切换翻译模型通道',
+                  defaultValue: '',
+                  onChange: e => {
+                    const val = e.target.value
+                    if (val)
+                      act(async () => {
+                        const res = await api('/translation-model', 'POST', { profile: val })
+                        setLinguaSettings(await api('/translation-service'))
+                        setMessage(res.message)
+                        refresh()
+                      })
+                  },
+                },
+                h('option', { value: '' }, '保持当前：' + (linguaSettings?.model?.name || '沿用默认')),
+                models.map(m => h('option', { key: m.key, value: m.key }, m.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '术语与翻译并发度',
+              h(
+                'select',
+                {
+                  'aria-label': '术语与翻译并发度',
+                  value: linguaSettings?.model?.threshold?.concurrency_limit ?? '',
+                  disabled: busy || !linguaSettings || task.state === 'running',
+                  onChange: e =>
+                    act(async () => {
+                      const val = Number(e.target.value)
+                      const res = await api('/translation-concurrency', 'POST', { concurrency: val })
+                      setLinguaSettings(await api('/translation-service'))
+                      setMessage(res.message)
+                      refresh()
+                    }),
+                },
+                h('option', { value: 1 }, '1 块串行'),
+                h('option', { value: 2 }, '2 块并行'),
+                h('option', { value: 4 }, '4 块并行（默认）'),
+                h('option', { value: 6 }, '6 块并行'),
+                h('option', { value: 8 }, '8 块并行')
+              )
+            ),
+            button(
+              '检查 CLI 配置',
+              () =>
+                act(async () => {
+                  const service = await api('/translation-service')
+                  setLinguaSettings(service)
+                  setMessage('LinguaGacha ' + service.version + ' · ' + service.model.name + '（并发度 ' + service.model.threshold.concurrency_limit + '） · 凭证由 DSH 管理，连接以实际请求为准')
+                }),
+              'rr-buttonQuiet'
+            ),
+            h(
+              'label',
+              null,
+              '导入映射对应的原 PDF',
+              h(
+                'select',
+                { 'aria-label': '导入映射对应的原 PDF', value: sourceMapPdfId, onChange: e => setSourceMapPdfId(e.target.value) },
+                h('option', { value: '' }, '沿用映射中的 PDF 位置'),
+                (catalog.sources ?? []).filter(s => s.type === 'pdf').map(s => h('option', { key: s.id, value: s.id }, s.displayName ?? s.name))
+              )
+            ),
+            ['original', 'translation'].map(view =>
+              h(
+                'label',
+                { key: view, className: 'rr-button rr-buttonQuiet' },
+                view === 'original' ? '导入原文来源映射' : '导入译文来源映射',
+                h('input', {
+                  hidden: true,
+                  type: 'file',
+                  accept: '.json',
+                  disabled: busy || !!task.legacy || task.state === 'running',
+                  onChange: e => {
+                    const file = e.target.files?.[0]
+                    if (file)
+                      act(async () => {
+                        await api('/tasks/' + selected + '/source-map?view=' + view + (sourceMapPdfId ? '&pdfSourceId=' + encodeURIComponent(sourceMapPdfId) : ''), 'POST', JSON.parse(await file.text()))
+                        setMessage('来源映射已核验，请重新执行译文校验。')
+                      })
+                    e.target.value = ''
+                  },
+                })
+              )
+            ),
+            button('导入对应译文', () => translationRef.current?.click(), 'rr-buttonQuiet'),
+            h('input', {
+              hidden: true,
+              type: 'file',
+              accept: '.md,.markdown',
+              ref: translationRef,
+              onChange: e => {
+                const file = e.target.files?.[0]
+                if (file) act(() => api('/tasks/' + selected + '/translation', 'POST', file))
+                e.target.value = ''
+              },
+            })
+          ),
+          h(
+            'div',
+            { className: 'rr-modelCard' },
+            h('h3', null, '审校配置 · DSH / CLI'),
+            h('p', { className: 'rr-pipelineNote' }, '更换审校模型或上下文过长时，先停止当前审校，确认新模型后将以全新会话接续，已通过校验的分包全部保留。'),
+            button('更换模型并新会话续审', resumeWithAntigravity, 'rr-buttonQuiet', { disabled: busy || task.state === 'running' || !translationDone || reviewDone || deliveryDone || !!task.legacy }),
+            h('p', { className: 'rr-currentModel' }, '当前分包 Worker：' + (task?.reviewConfig?.workerModel === 'inherit' ? '继承审校编排模型' : task?.reviewConfig?.workerModel ?? '未选择')),
+            h(
+              'label',
+              null,
+              '选择分包审校 Worker',
+              h(
+                'select',
+                {
+                  'aria-label': '选择分包审校 Worker',
+                  value: reviewWorkerChoice,
+                  onChange: e => setReviewWorkerChoice(e.target.value),
+                  disabled: busy || (task?.state === 'running' && task?.stage === 'review'),
+                },
+                [{ id: 'inherit', name: '继承审校编排模型' }, ...models.map(m => ({ id: m.key, name: m.name }))].map(w => h('option', { key: w.id, value: w.id }, w.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '审校编排者模型',
+              h(
+                'select',
+                {
+                  'aria-label': '审校编排者模型',
+                  value: reviewOrchestratorChoice,
+                  onChange: e => {
+                    setReviewOrchestratorChoice(e.target.value)
+                    setReviewEffortChoice('')
+                  },
+                  disabled: busy || (task?.state === 'running' && task?.stage === 'review'),
+                },
+                h('option', { value: '' }, '请选择审校模型'),
+                models.map(m => h('option', { key: m.key, value: m.key }, m.name))
+              )
+            ),
+            h(
+              'label',
+              null,
+              '编排者思考档位',
+              h(
+                'select',
+                {
+                  'aria-label': '编排者思考档位',
+                  value: reviewEffortChoice,
+                  onChange: e => setReviewEffortChoice(e.target.value),
+                  disabled: busy || (task?.state === 'running' && task?.stage === 'review'),
+                },
+                h('option', { value: '' }, '默认（沿用 DSH 默认）'),
+                (models.find(m => m.key === reviewOrchestratorChoice)?.reasoning?.efforts ?? []).map(m => h('option', { key: m.id, value: m.id }, m.name))
+              )
+            ),
+            button(
+              '仅保存审校模型设置',
+              () =>
+                act(async () => {
+                  await api('/tasks/' + selected + '/review-config', 'POST', {
+                    orchestratorModel: reviewOrchestratorChoice,
+                    orchestratorEffort: reviewEffortChoice,
+                    workerModel: reviewWorkerChoice,
+                  })
+                  setMessage('审校模型与分包 Worker 设置已保存')
+                }),
+              'rr-buttonPrimary',
+              { disabled: busy || (task?.state === 'running' && task?.stage === 'review') }
+            )
+          )
+        )
+      )
+    }
+    function renderPipelineWorkspace(ctx) {
+      const {
+        filteredTasks,
+        itemMeta,
+        folders,
+        statusLabel,
+        taskCaption,
+        selected,
+        draggedTaskId,
+        setDraggedTaskId,
+        setDragOverFolder,
+        chooseTask,
+        handleRemoveAssign,
+        taskCounts,
+        beginNew,
+        taskQuery,
+        setTaskQuery,
+        setTaskOffset,
+        pipelineSubFilter,
+        setPipelineSubFilter,
+        task,
+        setSelectedFolder,
+        setShowHidden,
+        taskOffset,
+        taskTotal,
+        setServices,
+        setDetailTab,
+        setRenameValue,
+        setRenameForm,
+        setAssignModal,
+        toggleHideTask,
+        handleDeleteTask,
+        phaseGroups,
+        stages,
+        currentGroup,
+        revInfo,
+        viewExecution,
+        busy,
+        rotateOrchestratorSession,
+        nextAction,
+        setReviewMonitor,
+        stuckModel,
+        setStuckModel,
+        retryModels,
+        retryStuckPages,
+        advance,
+        translationDone,
+        reviewDone,
+        deliveryDone,
+        setMessage,
+        setTranslationProfile,
+        setPhaseRequest,
+        launch,
+        resetTranscription,
+        run,
+        readable,
+        read,
+        setPdfModal,
+        openSystemPdf,
+      } = ctx
+
+      const activeTasks = filteredTasks.filter(t => !isReadableTask(t))
+      const otherTasks = filteredTasks.filter(isReadableTask)
+      const renderTaskItem = t => {
+        const meta = itemMeta[t.id] ?? {}
+        const assigned = meta.folderId
+          ? String(meta.folderId)
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean)
+          : []
+        const isRunning = t.state === 'running'
+        const isBlocked = ['blocked', 'paused', 'interrupted'].includes(t.state)
+        const isDone = isReadableTask(t)
+        const statusBadge = isRunning ? '运行中' : isBlocked ? statusLabel[t.state] || '阻断' : isDone ? '可阅读' : taskCaption(t) || '待启动'
+        const tagClass = isRunning ? 'rr-tagRunning' : isBlocked ? 'rr-tagBlocked' : isDone ? 'rr-tagReady' : 'rr-tagWaiting'
+        const isSelected = selected === t.id
+
+        return h(
+          'div',
+          {
+            key: t.id,
+            className: `rr-pipelineTaskCard ${isSelected ? 'rr-pipelineTaskCardActive' : ''} ${isBlocked ? 'rr-pipelineTaskCardBlocked' : ''} ${draggedTaskId === t.id ? 'rr-taskDragging' : ''}`,
+            onClick: () => chooseTask(t.id),
+            draggable: true,
+            onDragStart: e => {
+              setDraggedTaskId(t.id)
+              e.dataTransfer.setData('text/plain', t.id)
+              e.dataTransfer.effectAllowed = 'move'
+            },
+            onDragEnd: () => {
+              setDraggedTaskId(null)
+              setDragOverFolder(null)
+            },
+          },
+          h(
+            'div',
+            { className: 'rr-taskCardTopLine' },
+            h('span', { className: 'rr-taskCardTitle' }, t.name),
+            h('span', { className: `rr-taskCardStatusTag ${tagClass}` }, statusBadge)
+          ),
+          assigned.length || meta.hidden
+            ? h(
+                'div',
+                { style: { display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' } },
+                assigned.map(fId => {
+                  const f = folders.find(x => x.id === fId)
+                  if (!f) return null
+                  return h(
+                    'span',
+                    { key: fId, className: 'rr-folderPillTag' },
+                    h('span', null, f.name),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        title: '移出此文件夹',
+                        onClick: e => {
+                          e.stopPropagation()
+                          handleRemoveAssign(t.id, fId)
+                        },
+                      },
+                      '×'
+                    )
+                  )
+                }),
+                meta.hidden ? h('span', { className: 'rr-hiddenTag' }, '已隐藏') : null
+              )
+            : null,
+          h(
+            'div',
+            { className: 'rr-taskCardSubtitle' },
+            h('span', { style: { color: isDone ? '#047857' : '#2563eb', fontWeight: 500 } }, ({ book: '整书', paper: '论文', chapter: '章节', collection: '合集' })[t.kind]),
+            h('span', null, '·'),
+            h('span', null, t.input?.type === 'markdown' ? 'Markdown 底本' : 'PDF 底本'),
+            t.inspection?.pages ? h('span', null, ` · ${t.inspection.pages} 页`) : null
+          )
+        )
+      }
+
+      return h(
+        'div',
+        { className: 'rr-taskWorkspace' },
+        h(
+          'aside',
+          { className: 'rr-taskList', 'aria-label': '处理流水线' },
+          h(
+            'div',
+            { className: 'rr-taskListHeadModern' },
+            h(
+              'div',
+              { className: 'rr-taskListHeadLeft' },
+              h('span', { className: 'rr-taskListTitle' }, '处理流水线'),
+              h('span', { className: 'rr-taskCountPill' }, taskCounts.all)
+            ),
+            button('+ 新增', beginNew, 'rr-pipelineAddBtn')
+          ),
+          h(
+            'div',
+            { className: 'rr-taskListSearchWrap' },
+            icon('search', 14),
+            h('input', {
+              type: 'search',
+              className: 'rr-pipelineSearchInput',
+              placeholder: '搜索任务...',
+              value: taskQuery,
+              onChange: e => {
+                setTaskQuery(e.target.value)
+                setTaskOffset(0)
+              },
+            })
+          ),
+          h(
+            'div',
+            { className: 'rr-pipelineSubFilterRow' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: `rr-subFilterBtn ${pipelineSubFilter === 'all' ? 'rr-subFilterBtnActive' : ''}`,
+                onClick: () => setPipelineSubFilter('all'),
+              },
+              h('span', null, '全部'),
+              h('span', { className: 'rr-subFilterBadge' }, taskCounts.all)
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: `rr-subFilterBtn ${pipelineSubFilter === 'active' ? 'rr-subFilterBtnActive' : ''}`,
+                onClick: () => setPipelineSubFilter('active'),
+              },
+              h('span', null, '待操作'),
+              h('span', { className: 'rr-subFilterBadge' }, taskCounts.active)
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: `rr-subFilterBtn ${pipelineSubFilter === 'done' ? 'rr-subFilterBtnActive' : ''}`,
+                onClick: () => setPipelineSubFilter('done'),
+              },
+              h('span', null, '可阅读'),
+              h('span', { className: 'rr-subFilterBadge' }, taskCounts.done)
+            )
+          ),
+          h(
+            'div',
+            { className: 'rr-taskItemsScrollArea' },
+            task && !filteredTasks.some(t => t.id === task.id)
+              ? h(
+                  'div',
+                  { className: 'rr-pinnedTask' },
+                  h('p', { className: 'rr-pipelineNote' }, '当前打开的任务不在本批筛选结果中'),
+                  renderTaskItem(task),
+                  button(
+                    '在全部任务中定位',
+                    () => {
+                      setPipelineSubFilter('all')
+                      setSelectedFolder('all')
+                      setShowHidden(!!itemMeta[task.id]?.hidden)
+                      setTaskOffset(0)
+                      setTaskQuery(task.name)
+                    },
+                    'rr-buttonQuiet'
+                  )
+                )
+              : null,
+            filteredTasks.length
+              ? h(
+                  React.Fragment,
+                  null,
+                  pipelineSubFilter !== 'done' && activeTasks.length
+                    ? h(
+                        React.Fragment,
+                        null,
+                        h(
+                          'div',
+                          { className: 'rr-pipelineGroupHeading' },
+                          h('span', null, '待操作 · 进行中'),
+                          h('span', { className: 'rr-pulsingDot' })
+                        ),
+                        activeTasks.map(renderTaskItem)
+                      )
+                    : null,
+                  pipelineSubFilter !== 'active' && otherTasks.length
+                    ? h(
+                        React.Fragment,
+                        null,
+                        h(
+                          'div',
+                          { className: 'rr-pipelineGroupHeading', style: { marginTop: 8 } },
+                          h('span', null, '可阅读成品'),
+                          h('span', { style: { fontSize: 10, fontWeight: 400, color: '#a1a1aa' } }, `${otherTasks.length} 篇`)
+                        ),
+                        otherTasks.map(renderTaskItem)
+                      )
+                    : null
+                )
+              : h('p', { className: 'rr-pipelineNote', style: { padding: 14, textAlign: 'center' } }, '未找到匹配任务。')
+          ),
+          h(
+            'div',
+            { className: 'rr-rowActions', style: { padding: '8px 10px', borderTop: '1px solid #f4f4f5' } },
+            button('上一批', () => setTaskOffset(Math.max(0, taskOffset - 40)), 'rr-buttonQuiet', { disabled: taskOffset === 0 }),
+            button('下一批', () => setTaskOffset(taskOffset + 40), 'rr-buttonQuiet', { disabled: taskOffset + 40 >= taskTotal }),
+            button(
+              '服务设置',
+              () => {
+                setServices(true)
+                setDetailTab('flow')
+              },
+              'rr-buttonQuiet',
+              { style: { marginLeft: 'auto' } }
+            )
+          )
+        ),
+        task
+          ? h(
+              'section',
+              { className: 'rr-taskDetail' },
+              h(
+                'div',
+                { className: 'rr-taskDetailInner' },
+                h(
+                  'div',
+                  { className: 'rr-taskDetailHeader' },
+                  h(
+                    'div',
+                    null,
+                    h('span', { className: 'rr-taskDetailTypeTag' }, ({ book: '整本书', paper: '论文', chapter: '章节节选', collection: '文章合集' })[task.kind]),
+                    h('h1', { className: 'rr-taskDetailH1' }, task.name)
+                  ),
+                  h(
+                    'div',
+                    { className: 'rr-taskDetailActionButtons' },
+                    button(
+                      '改名',
+                      () => {
+                        setRenameValue(task.name)
+                        setRenameForm(true)
+                      },
+                      'rr-detailActionBtn',
+                      { disabled: task.state === 'running' }
+                    ),
+                    button(
+                      h(React.Fragment, null, icon('folder', 13), '归类'),
+                      () => setAssignModal({ targetId: task.id, targetName: task.name, currentFolderId: itemMeta[task.id]?.folderId }),
+                      'rr-detailActionBtn'
+                    ),
+                    button('处理记录', () => setDetailTab('records'), 'rr-detailActionBtn'),
+                    button(
+                      h(React.Fragment, null, icon(itemMeta[task.id]?.hidden ? 'eyeOff' : 'eye', 13), itemMeta[task.id]?.hidden ? '取消隐藏' : '隐藏'),
+                      () => toggleHideTask(task.id),
+                      'rr-detailActionBtn'
+                    ),
+                    button(
+                      h(React.Fragment, null, icon('trash', 13), '删除'),
+                      () => handleDeleteTask(task.id, task.name),
+                      'rr-detailActionBtn',
+                      { disabled: task.state === 'running', style: { borderColor: '#fecaca', color: '#dc2626' } }
+                    )
+                  )
+                ),
+                h(
+                  'div',
+                  { className: 'rr-flowStepper' },
+                  phaseGroups
+                    .filter(g => stages.some(s => g.ids.includes(s.id)))
+                    .map((g, idx, arr) =>
+                      h(
+                        React.Fragment,
+                        { key: g.id },
+                        h('span', { className: currentGroup === g.id ? 'rr-flowStepperItemActive' : '' }, g.name),
+                        idx < arr.length - 1 ? h('span', { className: 'rr-flowStepperSep' }, '›') : null
+                      )
+                    )
+                ),
+                !task.legacy
+                  ? h(
+                      'details',
+                      {
+                        open: !['review', 'publish'].includes(task.stage),
+                        className: 'rr-executionSessions',
+                        style: { margin: '12px 0', padding: '12px 0', borderTop: '1px solid var(--dsw-alias-border-l1)', borderBottom: '1px solid var(--dsw-alias-border-l1)' },
+                      },
+                      h('summary', null, ['review', 'publish'].includes(task.stage) && revInfo.isAgyReview ? '前置阶段执行会话（转写 / 翻译）' : '关联执行会话（编排 / 转写 / 翻译）'),
+                      h(
+                        'div',
+                        { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,180px),1fr))', gap: 10, marginTop: 10 } },
+                        ...Object.entries({ orchestrator: '编排会话', worker: '转写 Worker 会话', linguagacha: 'LinguaGacha 翻译会话' }).map(([role, label]) => {
+                          const sid = shortSessionId(task.executionSessions?.sessions?.[role])
+                          return h(
+                            'div',
+                            { key: role, style: { padding: 12, border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 } },
+                            h(
+                              'div',
+                              { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 } },
+                              h('strong', null, label),
+                              h('code', { style: { fontSize: 11, color: '#71717a', background: '#f4f4f5', padding: '1px 5px', borderRadius: 4 } }, sid || '待创建')
+                            ),
+                            h('span', { className: 'rr-pipelineNote', style: { margin: 0, overflowWrap: 'anywhere' } }, executionSummary(task, role)),
+                            h(
+                              'div',
+                              { style: { marginTop: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                              button(
+                                role === 'orchestrator' ? '打开编排会话 →' : role === 'worker' ? '查看转写日志 →' : '查看翻译日志 →',
+                                () => viewExecution(role),
+                                'rr-detailActionBtn',
+                                {
+                                  'aria-label': role === 'orchestrator' ? '打开编排者会话' : `查看 ${role === 'worker' ? '转写 Worker' : 'LinguaGacha 翻译'} 会话`,
+                                  disabled: busy && !task.executionSessions?.sessions?.[role],
+                                  style: { whiteSpace: 'normal', textAlign: 'left' },
+                                }
+                              ),
+                              role === 'orchestrator'
+                                ? button('重置为空白会话', () => rotateOrchestratorSession(false), 'rr-detailActionBtn', {
+                                    disabled: busy || task.state === 'running',
+                                    title: '仅归档当前编排会话并开启一个空白新会话（不自动发送任务指令；已完成的转写、翻译和审校产物全部保留）',
+                                  })
+                                : null
+                            )
+                          )
+                        })
+                      ),
+                      task.executionSessions?.error ? h('p', { role: 'alert', className: 'rr-taskWarning' }, task.executionSessions.error) : null,
+                      task.executionSessions?.recent?.length
+                        ? h(
+                            'div',
+                            { 'aria-live': 'polite', style: { marginTop: 12 } },
+                            h('strong', { style: { fontSize: 12 } }, '最新执行记录'),
+                            ...task.executionSessions.recent
+                              .slice(-3)
+                              .reverse()
+                              .map(e =>
+                                h(
+                                  'div',
+                                  { key: e.id, style: { padding: '8px 0', borderTop: '1px solid var(--dsw-alias-border-l1)' } },
+                                  h(
+                                    'span',
+                                    { className: 'rr-pipelineNote' },
+                                    new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false }) +
+                                      ' · ' +
+                                      e.text
+                                        .split('\n')
+                                        .slice(0, e.text.startsWith('任务 ') ? 3 : 1)
+                                        .join(' · ')
+                                  ),
+                                  button('打开对应会话', () => viewExecution(e.role), 'rr-detailActionBtn', { style: { marginLeft: 8 } })
+                                )
+                              )
+                          )
+                        : h('p', { className: 'rr-pipelineNote' }, '尚无模型调用成功记录；会话绑定本身不代表处理已启动。')
+                    )
+                  : null,
+                h(
+                  'section',
+                  { className: 'rr-nextStepCardModern' },
+                  h(
+                    'div',
+                    { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+                    h('span', { className: 'rr-nextStepBadge' }, 'NEXT STEP'),
+                    h('h3', { className: 'rr-nextStepTitle' }, nextAction.title)
+                  ),
+                  nextAction.note ? h('p', { className: 'rr-pipelineNote', style: { margin: '6px 0 8px' } }, nextAction.note) : null,
+                  ['review', 'publish'].includes(task.stage) && !task.legacy
+                    ? h(AntigravityFeedback, { task, onMonitor: () => setReviewMonitor(true), onOpenSession: !revInfo.isAgyReview ? () => viewExecution('orchestrator') : null })
+                    : task.transcriptionProgress && task.stages.transcribe
+                    ? h(
+                        'div',
+                        { className: 'rr-transcriptionProgress', 'aria-live': 'polite' },
+                        h(
+                          'div',
+                          { className: 'rr-transcriptionProgressLabel' },
+                          h('span', null, task.transcriptionProgress.stageComplete ? '转写完成' : '转写进度'),
+                          h('span', null, `${task.transcriptionProgress.completed} / ${task.transcriptionProgress.total} 页`)
+                        ),
+                        h('progress', { 'aria-label': '转写页数', max: task.transcriptionProgress.total, value: task.transcriptionProgress.completed }),
+                        h(
+                          'p',
+                          { className: 'rr-pipelineNote' },
+                          [
+                            task.transcriptionProgress.verifiedInputPages !== null && task.transcriptionProgress.verifiedInputPages !== undefined
+                              ? `已核验 ${task.transcriptionProgress.verifiedInputPages} 页`
+                              : null,
+                            task.transcriptionProgress.active.map(p => `第 ${p.page} 页`).join('、'),
+                            task.transcriptionProgress.failed ? `${task.transcriptionProgress.failed} 页未完成` : null,
+                            task.transcriptionProgress.review ? `${task.transcriptionProgress.review} 页待核查` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')
+                        )
+                      )
+                    : null,
+                  ['blocked', 'interrupted', 'paused'].includes(task.state) && task.message && !/^已确认.+阶段；/.test(task.message) && nextAction.kind !== 'structure'
+                    ? h('p', { className: 'rr-taskWarning' }, task.message)
+                    : null,
+                  task.stuckPages?.length && !task.legacy && task.state !== 'running' && !['review', 'publish'].includes(task.stage)
+                    ? h(
+                        'div',
+                        { style: { margin: '8px 0' } },
+                        h('p', { className: 'rr-pipelineNote' }, '这些页继续自动转写不会再调用模型。章节已通过、但正文仍是 OCR 兜底的页也列在这里。选择一个 DSH 模型后，只重试这些页。'),
+                        h(
+                          'ul',
+                          { className: 'rr-pipelineNote' },
+                          task.stuckPages.map(page => h('li', { key: page.chapterId + ':' + page.page }, `第 ${page.page} 页 · 章 ${page.chapterId} · ${page.reason}`))
+                        ),
+                        h(
+                          'label',
+                          null,
+                          '重试模型',
+                          h(
+                            'select',
+                            { 'aria-label': '重试无法处理的页面', value: stuckModel, onChange: e => setStuckModel(e.target.value), disabled: busy },
+                            h('option', { value: '' }, '请选择模型'),
+                            retryModels.map(m => h('option', { key: m.id, value: m.id }, m.name))
+                          )
+                        ),
+                        h('div', { className: 'rr-rowActions' }, button('用所选模型重试这些页', retryStuckPages, 'rr-buttonPrimary', { disabled: busy || !stuckModel }))
+                      )
+                    : null,
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 } },
+                    button(h(React.Fragment, null, icon('play', 14), h('span', null, nextAction.label)), advance, 'rr-nextStepBtn', { disabled: busy }),
+                    !task.legacy &&
+                      task.state !== 'running' &&
+                      translationDone &&
+                      !reviewDone &&
+                      !deliveryDone &&
+                      revInfo.approvedForDelivery &&
+                      (revInfo.hasReviewOrchestrator || Boolean(revInfo.agyConversationId))
+                      ? button(revInfo.isAgyReview ? '新建 CLI 会话续审' : '新建会话续审', () => rotateOrchestratorSession(true), 'rr-detailActionBtn', {
+                          disabled: busy,
+                          title: revInfo.isAgyReview
+                            ? '不沿用旧 CLI 会话，开启全新 Antigravity CLI 会话继续剩余待审分包（已通过分包保留）'
+                            : '归档当前编排会话，开启 0 上下文的全新 DSH 编排会话继续剩余待审分包（已通过分包全部保留）',
+                        })
+                      : null,
+                    (() => {
+                      const targetPhase = phaseGroups.find(g => g.ids.includes(nextAction.stage))?.id ?? currentGroup
+                      const canSwitchModel =
+                        !task.legacy &&
+                        task.state !== 'running' &&
+                        !deliveryDone &&
+                        !reviewDone &&
+                        ((nextAction.kind === 'run' && task.phaseApproval?.phase === targetPhase) ||
+                          (targetPhase === 'delivery' && task.deliveryState?.canResume && task.phaseApproval?.phase === 'delivery'))
+                      if (!canSwitchModel) return null
+                      const switchLabel = ({ transcription: '更换转写模型', translation: '更换翻译模型', delivery: '更换审校模型' })[targetPhase] ?? '更换本阶段模型'
+                      return button(
+                        switchLabel,
+                        () => {
+                          setMessage('')
+                          setTranslationProfile('')
+                          setPhaseRequest({
+                            taskId: task.id,
+                            phase: targetPhase,
+                            stage: targetPhase === 'delivery' ? 'review' : nextAction.stage,
+                            options: { newConversation: true, ...(targetPhase === 'delivery' ? { runAgy: true } : {}) },
+                          })
+                        },
+                        'rr-detailActionBtn',
+                        {
+                          disabled: busy,
+                          title: targetPhase === 'delivery' ? '重新选择审校编排模型、分包模型或思考档位，并开启全新会话接续待审分包' : '重新选择本阶段模型配置',
+                        }
+                      )
+                    })(),
+                    task.state === 'blocked' && task.stage === 'transcribe'
+                      ? button('打开会话诊断修复', () => launch('diagnose'), 'rr-detailActionBtn', {
+                          disabled: busy,
+                          title: '拉起编排会话查看章节验收错误并对照原页定点修复，不重跑整章转写',
+                        })
+                      : null,
+                    !task.legacy &&
+                      task.state !== 'running' &&
+                      !translationDone &&
+                      !['review', 'publish'].includes(task.stage) &&
+                      (task.stages.transcribe || task.stages.verify || task.stages.assemble || task.transcriptionProgress?.completed > 0)
+                      ? button('清空转写并重跑', resetTranscription, 'rr-detailActionBtn', {
+                          disabled: busy,
+                          title: '清除已转写的章节产物与交付快照，保留底本与页面图，从头重新转写',
+                        })
+                      : null,
+                    nextAction.kind === 'launch' ? button(nextAction.stage === 'review' ? '启动审校' : '执行结构门禁', () => run(nextAction.stage), 'rr-detailActionBtn', { disabled: busy }) : null,
+                    readable && nextAction.kind !== 'read'
+                      ? button(task.legacy ? '阅读已有成果' : task.translationReport?.passed ? '阅读译文' : '阅读原文', () => read(selected), 'rr-detailActionBtn')
+                      : null,
+                    task.legacy?.artifacts?.sourcePdf || task.input.type === 'pdf'
+                      ? h(
+                          React.Fragment,
+                          null,
+                          button(
+                            h(React.Fragment, null, icon('pdf', 14), '查看原 PDF'),
+                            () => setPdfModal({ url: '/api/paper-reader/pipeline/tasks/' + selected + '/source', title: task.name, taskId: selected }),
+                            'rr-detailActionBtn'
+                          ),
+                          button(h(React.Fragment, null, icon('external', 13), '系统打开'), () => openSystemPdf(selected), 'rr-detailActionBtn')
+                        )
+                      : null
+                  )
+                ),
+                h(
+                  'div',
+                  { className: 'rr-docFactsGridModern' },
+                  h(
+                    'div',
+                    { className: 'rr-factCell' },
+                    h('small', null, '原文'),
+                    h('span', null, ({ fr: '法语', en: '英语', de: '德语', zh: '中文', ja: '日语', es: '西班牙语', it: '意大利语' })[task.profile?.language] ?? '待确认')
+                  ),
+                  h(
+                    'div',
+                    { className: 'rr-factCell' },
+                    h('small', null, '底本'),
+                    h('span', null, task.input.type === 'markdown' ? 'Markdown' : task.inspection?.verdict === 'BORN-DIGITAL' ? '原生文字 PDF' : 'PDF')
+                  ),
+                  h(
+                    'div',
+                    { className: 'rr-factCell' },
+                    h('small', null, '范围'),
+                    h('span', null, task.input.type === 'markdown' ? (task.inspection?.blocks ?? '—') + ' 块' : task.profile?.confirmed ? `${task.profile.start_page}–${task.profile.end_page} 页` : '待确认')
+                  )
+                ),
+                h(
+                  'div',
+                  { className: 'rr-workerBarModern' },
+                  h(
+                    'div',
+                    null,
+                    h('small', null, '转写 worker'),
+                    h(
+                      'p',
+                      null,
+                      task.worker.model,
+                      task.input.type !== 'markdown'
+                        ? h('span', { className: 'rr-concurrencyTag' }, ['paper', 'chapter'].includes(task.kind) ? `${task.pageConcurrency ?? 4} 页并发` : `${task.transcriptionConcurrency ?? 2} 章并发`)
+                        : null,
+                      (task.worker.fallbacks ?? []).length ? h('span', { className: 'rr-concurrencyTag rr-fallbackTag' }, '兜底 ' + task.worker.fallbacks.map(f => f.model).join(' → ')) : null
+                    )
+                  ),
+                  button('模型与并发', () => setDetailTab('models'), 'rr-detailActionBtn')
+                ),
+                h(
+                  'div',
+                  { className: 'rr-detailFooter', style: { display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid #e4e4e7', marginTop: 6 } },
+                  h('span', { style: { fontSize: '11px', color: '#71717a', marginRight: '4px' } }, '高级阶段配置：'),
+                  button('翻译与审校', () => setDetailTab('models'), 'rr-detailActionBtn'),
+                  task.profile?.confirmed ? button('文档范围', () => setDetailTab('structure'), 'rr-detailActionBtn') : null,
+                  task.profile?.confirmed && ['book', 'collection'].includes(task.kind) ? button('章节结构', () => setDetailTab('chapters'), 'rr-detailActionBtn') : null
+                )
+              ),
+              renderPipelineTaskDrawers(ctx)
+            )
+          : h('section', { className: 'rr-taskEmpty' }, h('h2', null, '请选择或创建任务'), button('新增任务', beginNew, 'rr-buttonPrimary'))
+      )
     }
     const profileLabels={document_type:'文档类型',language:'原文语言',book_type:'注释体例',note_location:'注释位置',note_numbering:'编号方式',layout:'页面布局',start_page:'处理起始页',end_page:'处理结束页',note_start_page:'尾注起始页',note_end_page:'尾注结束页',regions:'逐页裁切与阅读顺序',title:'标题'}
     const profileValues={book:'整本书',paper:'论文',chapter:'章节节选',collection:'文章合集',en:'英语',fr:'法语',de:'德语',zh:'中文',ja:'日语',es:'西班牙语',it:'意大利语',footnote_only:'页底脚注',endnote_only:'尾注',mixed:'混合体例',no_notes:'无注释',per_page:'每页重置',per_chapter:'每章重置',continuous:'全文连续',per_page_bottom:'所在页底',chapter_end_notes:'章节末尾',book_end_notes:'整书末尾',none:'无注释',single:'单页单栏',spread:'左右双页',columns:'多栏排版'}
@@ -3763,31 +5474,7 @@ window.__ModuleLoader__.load({
           (activeOutline.outline??[]).length?button('下一章',()=>stepChapter(1),'rr-buttonQuiet'):null
         )):null
       const renderReaderBoard=(layoutStyle)=>h('div',{className:'rr-mdLayout',style:layoutStyle},
-        tocOpen?h('aside',{className:'rr-tocPanel','aria-label':'独立目录',style:{width:tocWidth+'px'},...zhScriptAttrs(readingScript)},
-          h('div',{className:'rr-tocHeader'},
-            h('div',{className:'rr-wrTocTabs'},
-              h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='outline'?'active':''}`,onClick:()=>setTocTab('outline')},`目录 (${(activeOutline.outline??[]).length})`),
-              h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='marks'?'active':''}`,onClick:()=>setTocTab('marks')},`划线 (${savedMarks.length})`),
-              h('button',{type:'button',className:`rr-wrTocTab ${tocTab==='glossary'?'active':''}`,onClick:()=>setTocTab('glossary')},`术语 (${(reading.glossary??[]).length})`)
-            ),
-            button('收起',()=>setTocOpen(false),'rr-buttonQuiet',{style:{minHeight:24,padding:'0 6px',fontSize:11}})
-          ),
-          h('input',{type:'range',min:180,max:420,step:10,value:tocWidth,'aria-label':'目录宽度',onChange:e=>setTocWidth(Number(e.target.value))}),
-          tocTab==='outline'?h('nav',{'aria-label':'章节目录'},tocGroups.length?tocGroups.map(({item,children})=>h('div',{key:item.id,className:'rr-tocChapter'},button(item.label,()=>jumpBlock(item.id),'rr-buttonQuiet'),children.length?h('details',null,h('summary',null,'小标题 · '+children.length),children.map(child=>button(child.label,()=>jumpBlock(child.id),'rr-buttonQuiet',{key:child.id,style:{paddingLeft:(child.level-1)*8+'px'}}))):null)):h('p',{className:'rr-pipelineNote'},'本文档暂无目录结构'))
-          :tocTab==='marks'?h('div',{className:'rr-wrTocMarksList'},
-            savedMarks.length?savedMarks.map(m=>h('div',{key:m.id,className:'rr-wrTocMarkCard',onClick:()=>jumpBlock(m.blockId,m.view)},
-              h('blockquote',null,m.quote||m.exact),
-              m.comment?h('p',null,'💭 '+m.comment):null
-            )):h('p',{className:'rr-pipelineNote',style:{textAlign:'center',padding:'16px 0'}},'本书暂无划线或书签')
-          )
-          :h('div',{className:'rr-wrTocGlossaryList'},
-            h('input',{type:'search',placeholder:'搜索术语...',value:glossaryQuery,onChange:e=>setGlossaryQuery(e.target.value),style:{marginBottom:8,fontSize:12,padding:'5px 8px'}}),
-            (reading.glossary??[]).filter(g=>!glossaryQuery.trim()||[g.source,g.target,g.note].filter(Boolean).join(' ').toLowerCase().includes(glossaryQuery.trim().toLowerCase())).slice(0,150).map((g,i)=>h('div',{key:i,className:'rr-wrTocGlossaryItem'},
-              h('div',{style:{fontWeight:600,fontSize:12.5}},g.source,' → ',h('span',{style:{color:'var(--dsw-alias-brand-primary,#2563eb)'}},g.target)),
-              g.note?h('div',{style:{fontSize:11,opacity:0.75,marginTop:2}},g.note):null
-            ))
-          )
-        ):null,
+        tocOpen?h(ReaderTocSidebar,{readingScript,tocWidth,setTocWidth,setTocOpen,tocTab,setTocTab,activeOutline,tocGroups,savedMarks,reading,glossaryQuery,setGlossaryQuery,jumpBlock}):null,
         h('article',null,paperResizeHandles(),
           reading.metadata?h('header',{className:'rr-documentMetadata'},h('h1',null,reading.title),h('p',{className:'rr-originalTitle'},reading.metadata.title?.source),h('p',{className:'rr-metadata'},[reading.metadata.author?.zh??reading.metadata.author?.source,reading.metadata.publication?.journal?.zh??reading.metadata.publication?.journal?.source??reading.metadata.publication?.book?.zh,reading.metadata.publication?.year,reading.metadata.publication?.pages].filter(Boolean).join(' · '))):null,
           (readerPages[readerPage]||[]).map(b=>{
@@ -3904,482 +5591,13 @@ window.__ModuleLoader__.load({
           ),reading.zhConverted?button('关闭繁简',()=>toggleZhConvert(false),'rr-buttonQuiet',{disabled:busy,title:'关闭繁简转换并恢复仅繁体视图'}):null):h(React.Fragment,null,
           h('span',{className:'rr-pipelineNote'},currentView==='translation'?'当前为译文':'当前为原文'),reading.zhConvertEligible?button(busy?'转换中…':'繁简转换',()=>toggleZhConvert(true),'rr-buttonQuiet',{disabled:busy,title:'将繁体原文转换为简体译文，并支持原文/译文切换与逐段对照'}):null),(task?.legacy?.artifacts?.sourcePdf||task?.input?.type==='pdf'||reading.sourceMapAvailable)?button(splitPdfCompare?'关闭 PDF 对比':'对比原 PDF',togglePdfComparison,splitPdfCompare?'rr-buttonPrimary':'rr-buttonQuiet',{'aria-pressed':splitPdfCompare}):null,
           h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/download?kind='+currentView},currentView==='translation'?'下载译文':'下载原文'),reading.sourceMapViews?.[currentView]?h('a',{className:'rr-button rr-buttonQuiet',href:'/api/paper-reader/pipeline/tasks/'+selected+'/source-map?view='+currentView},'下载来源映射'):null,reading.correctionCount?h('span',{className:'rr-pipelineNote'},'勘误 '+reading.correctionCount+' 处'):null),
-          activeReaderPanel?h('div',{className:'rr-wrPopoverPanel',role:'region','aria-label':activeReaderPanel==='theme'?'背景与亮度设置':'字体与排版设置'},
-            activeReaderPanel==='theme'?h('div',{className:'rr-wrPopoverBody'},
-              h('div',{className:'rr-wrPopoverRow'},
-                h('span',{className:'rr-wrPopoverLabel'},'背景主题'),
-                h('div',{className:'rr-wrSwatchList'},
-                  WEREAD_THEMES.map(t=>h('button',{
-                    key:t.id,
-                    type:'button',
-                    className:`rr-wrSwatchBtn ${wrSettings.theme===t.id?'active':''}`,
-                    onClick:()=>updateWrSettings({theme:t.id})
-                  },
-                    h('span',{className:'rr-wrSwatchCircle',style:{background:t.swatch,color:t.fg,borderColor:wrSettings.theme===t.id?'#2563eb':t.border}},wrSettings.theme===t.id?'✓':(t.id==='eink'?'墨':'')),
-                    h('span',{className:'rr-wrSwatchName'},t.label)
-                  ))
-                )
-              ),
-              h('div',{className:'rr-wrPopoverRow'},
-                h('span',{className:'rr-wrPopoverLabel'},'护眼亮度'),
-                h('div',{style:{display:'flex',alignItems:'center',gap:10,flex:1,maxWidth:360}},
-                  h('span',null,'🔅'),
-                  h('input',{type:'range',min:40,max:100,step:1,value:wrSettings.brightness??100,onChange:e=>updateWrSettings({brightness:Number(e.target.value)}),style:{margin:0,flex:1}}),
-                  h('span',null,'🔆'),
-                  h('span',{style:{fontSize:12,minWidth:38}},`${wrSettings.brightness??100}%`)
-                ),
-                h('span',{className:'rr-wrPopoverLabel',style:{marginLeft:16}},'版心宽度'),
-                h('div',{className:'rr-viewToggle'},
-                  [[680,'窄栏'],[780,'标准'],[940,'宽栏'],[1140,'超宽']].map(([w,lbl])=>button(lbl,()=>{setPaperWidth(w);storePaperWidth(w)},Math.abs(paperWidth-w)<30?'rr-buttonPrimary':'rr-buttonQuiet'))
-                ),
-                button('收起',()=>setActiveReaderPanel(null),'rr-buttonQuiet',{style:{marginLeft:'auto'}})
-              )
-            ):h('div',{className:'rr-wrPopoverBody'},
-              h('div',{className:'rr-wrPopoverRow'},
-                h('span',{className:'rr-wrPopoverLabel'},'字号与字重'),
-                h('div',{className:'rr-wrStepperWrap'},
-                  button('A−',()=>updateWrSettings({fontSize:Math.max(13,Math.round(((wrSettings.fontSize||17.5)-0.5)*2)/2)}),'rr-buttonQuiet'),
-                  h('input',{type:'range',min:13,max:28,step:0.5,value:wrSettings.fontSize||17.5,onChange:e=>updateWrSettings({fontSize:Number(e.target.value)}),style:{margin:0,width:140}}),
-                  h('span',{style:{fontSize:12,fontWeight:600,minWidth:42,textAlign:'center'}},`${wrSettings.fontSize||17.5}px`),
-                  button('A+',()=>updateWrSettings({fontSize:Math.min(28,Math.round(((wrSettings.fontSize||17.5)+0.5)*2)/2)}),'rr-buttonQuiet')
-                ),
-                h('div',{className:'rr-viewToggle',style:{marginLeft:8}},
-                  [[400,'标准'],[470,'适中'],[520,'中粗'],[600,'加粗']].map(([w,lbl])=>button(lbl,()=>updateWrSettings({fontWeight:w}),(wrSettings.fontWeight||470)===w?'rr-buttonPrimary':'rr-buttonQuiet'))
-                ),
-                button('收起',()=>setActiveReaderPanel(null),'rr-buttonQuiet',{style:{marginLeft:'auto'}})
-              ),
-              h('div',{className:'rr-wrPopoverRow'},
-                h('span',{className:'rr-wrPopoverLabel'},'精选字体'),
-                h('div',{className:'rr-wrFontGrid'},
-                  WEREAD_FONTS.map(f=>h('button',{
-                    key:f.id,
-                    type:'button',
-                    className:`rr-wrFontCard ${wrSettings.fontFamily===f.id?'active':''}`,
-                    onClick:()=>updateWrSettings({fontFamily:f.id})
-                  },
-                    h('span',{className:'rr-wrFontCardTitle',style:{fontFamily:f.stack}},f.label),
-                    h('span',{className:'rr-wrFontCardSub'},f.sub)
-                  ))
-                )
-              ),
-              h('div',{className:'rr-wrPopoverRow',style:{flexWrap:'wrap'}},
-                h('span',{className:'rr-wrPopoverLabel'},'间距与对齐'),
-                h('div',{className:'rr-viewToggle'},
-                  WEREAD_SPACING_PRESETS.map(p=>button(p.label,()=>updateWrSettings({lineHeight:p.lineHeight,paraSpacing:p.paraSpacing}),Math.abs((wrSettings.lineHeight||1.82)-p.lineHeight)<0.04?'rr-buttonPrimary':'rr-buttonQuiet'))
-                ),
-                h('label',{style:{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,margin:0}},
-                  `行距 ${wrSettings.lineHeight||1.82}`,
-                  h('input',{type:'range',min:1.4,max:2.3,step:0.04,value:wrSettings.lineHeight||1.82,onChange:e=>updateWrSettings({lineHeight:Number(e.target.value)}),style:{width:90,margin:0}})
-                ),
-                h('label',{style:{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,margin:0}},
-                  `段距 ${wrSettings.paraSpacing??0.45}em`,
-                  h('input',{type:'range',min:0.15,max:1.35,step:0.05,value:wrSettings.paraSpacing??0.45,onChange:e=>updateWrSettings({paraSpacing:Number(e.target.value)}),style:{width:90,margin:0}})
-                ),
-                h('div',{className:'rr-viewToggle'},
-                  button('首行缩进',()=>updateWrSettings({textIndent:wrSettings.textIndent===false}),wrSettings.textIndent!==false?'rr-buttonPrimary':'rr-buttonQuiet'),
-                  button((wrSettings.textAlign||'justify')==='justify'?'两端对齐':'左对齐',()=>updateWrSettings({textAlign:(wrSettings.textAlign||'justify')==='justify'?'left':'justify'}),(wrSettings.textAlign||'justify')==='justify'?'rr-buttonPrimary':'rr-buttonQuiet')
-                ),
-                reading.comparisonAvailable?h('div',{className:'rr-viewToggle'},
-                  button('双语并排',()=>updateWrSettings({bilingualLayout:'parallel'}),(wrSettings.bilingualLayout||'parallel')==='parallel'?'rr-buttonPrimary':'rr-buttonQuiet'),
-                  button('双语叠排',()=>updateWrSettings({bilingualLayout:'stacked'}),wrSettings.bilingualLayout==='stacked'?'rr-buttonPrimary':'rr-buttonQuiet')
-                ):null
-              )
-            )
-          ):null,
+          h(WeReadPopoverPanel,{activeReaderPanel,setActiveReaderPanel,wrSettings,updateWrSettings,paperWidth,setPaperWidth,storePaperWidth,comparisonAvailable:reading.comparisonAvailable}),
           splitPdfCompare?h('div',{className:'rr-splitPdfCompare'},
           h('div',{className:'rr-splitPdfPane'},h('div',{className:'rr-pdfLocation',role:'status'},pdfPage?'原 PDF 第 '+pdfPage+' 页':reading.pdfLocationWarning??'当前段落暂无可靠页码，PDF 可手动翻页'),
           h('iframe',{key:selected+':'+pdfDisplayPage,src:'/api/paper-reader/pipeline/tasks/'+selected+'/source'+(pdfDisplayPage?'#page='+pdfDisplayPage+'&view=FitH':''),title:pdfDisplayPage?'原 PDF 对照 · 第 '+pdfDisplayPage+' 页':'原 PDF 对照'})),
           h('div',{className:'rr-splitReaderPane'},renderReaderBoard({padding:0,'--rr-paper-width':paperWidth+'px'}))):renderReaderBoard({'--rr-paper-width':paperWidth+'px'})):null,
         reading?.glossary?.length?h('details',{className:'rr-glossary'},h('summary',null,'术语表 · '+reading.glossary.length),h('table',null,h('thead',null,h('tr',null,h('th',null,'原文'),h('th',null,'译文'),h('th',null,'说明'))),h('tbody',null,reading.glossary.map((term,i)=>h('tr',{key:i},h('td',null,term.source),h('td',null,term.target),h('td',null,term.note??'')))))):null,
-        !reading&&mode==='processing'?h('div',{className:'rr-taskWorkspace'},
-          (()=>{
-            const activeTasks=filteredTasks.filter(t=>!isReadableTask(t))
-            const otherTasks=filteredTasks.filter(isReadableTask)
-            const renderTaskItem=t=>{
-              const meta=itemMeta[t.id]??{}
-              const assigned=(meta.folderId?String(meta.folderId).split(',').map(s=>s.trim()).filter(Boolean):[])
-              const isRunning=t.state==='running'
-              const isBlocked=['blocked','paused','interrupted'].includes(t.state)
-              const isDone=isReadableTask(t)
-              const statusBadge=isRunning?'运行中':isBlocked?(statusLabel[t.state]||'阻断'):isDone?'可阅读':(taskCaption(t)||'待启动')
-              const tagClass=isRunning?'rr-tagRunning':isBlocked?'rr-tagBlocked':isDone?'rr-tagReady':'rr-tagWaiting'
-              const isSelected=selected===t.id
-
-              return h('div',{
-                key:t.id,
-                className:`rr-pipelineTaskCard ${isSelected?'rr-pipelineTaskCardActive':''} ${isBlocked?'rr-pipelineTaskCardBlocked':''} ${draggedTaskId===t.id?'rr-taskDragging':''}`,
-                onClick:()=>chooseTask(t.id),
-                draggable:true,
-                onDragStart:e=>{
-                  setDraggedTaskId(t.id)
-                  e.dataTransfer.setData('text/plain',t.id)
-                  e.dataTransfer.effectAllowed='move'
-                },
-                onDragEnd:()=>{
-                  setDraggedTaskId(null)
-                  setDragOverFolder(null)
-                }
-              },
-                h('div',{className:'rr-taskCardTopLine'},
-                  h('span',{className:'rr-taskCardTitle'},t.name),
-                  h('span',{className:`rr-taskCardStatusTag ${tagClass}`},statusBadge)
-                ),
-                assigned.length||meta.hidden?(
-                  h('div',{style:{display:'flex',flexWrap:'wrap',gap:3,alignItems:'center'}},
-                    assigned.map(fId=>{
-                      const f=folders.find(x=>x.id===fId)
-                      if(!f)return null
-                      return h('span',{key:fId,className:'rr-folderPillTag'},
-                        h('span',null,f.name),
-                        h('button',{
-                          type:'button',
-                          title:'移出此文件夹',
-                          onClick:e=>{
-                            e.stopPropagation()
-                            handleRemoveAssign(t.id,fId)
-                          }
-                        },'×')
-                      )
-                    }),
-                    meta.hidden?h('span',{className:'rr-hiddenTag'},'已隐藏'):null
-                  )
-                ):null,
-                h('div',{className:'rr-taskCardSubtitle'},
-                  h('span',{style:{color:isDone?'#047857':'#2563eb',fontWeight:500}},({book:'整书',paper:'论文',chapter:'章节',collection:'合集'})[t.kind]),
-                  h('span',null,'·'),
-                  h('span',null,t.input?.type==='markdown'?'Markdown 底本':'PDF 底本'),
-                  t.inspection?.pages?h('span',null,` · ${t.inspection.pages} 页`):null
-                )
-              )
-            }
-
-            return h('aside',{className:'rr-taskList','aria-label':'处理流水线'},
-              h('div',{className:'rr-taskListHeadModern'},
-                h('div',{className:'rr-taskListHeadLeft'},
-                  h('span',{className:'rr-taskListTitle'},'处理流水线'),
-                  h('span',{className:'rr-taskCountPill'},taskCounts.all)
-                ),
-                button('+ 新增',beginNew,'rr-pipelineAddBtn')
-              ),
-              h('div',{className:'rr-taskListSearchWrap'},
-                icon('search',14),
-                h('input',{
-                  type:'search',
-                  className:'rr-pipelineSearchInput',
-                  placeholder:'搜索任务...',
-                  value:taskQuery,
-                  onChange:e=>{setTaskQuery(e.target.value);setTaskOffset(0)}
-                })
-              ),
-              h('div',{className:'rr-pipelineSubFilterRow'},
-                h('button',{
-                  type:'button',
-                  className:`rr-subFilterBtn ${pipelineSubFilter==='all'?'rr-subFilterBtnActive':''}`,
-                  onClick:()=>setPipelineSubFilter('all')
-                },
-                  h('span',null,'全部'),
-                  h('span',{className:'rr-subFilterBadge'},taskCounts.all)
-                ),
-                h('button',{
-                  type:'button',
-                  className:`rr-subFilterBtn ${pipelineSubFilter==='active'?'rr-subFilterBtnActive':''}`,
-                  onClick:()=>setPipelineSubFilter('active')
-                },
-                  h('span',null,'待操作'),
-                  h('span',{className:'rr-subFilterBadge'},taskCounts.active)
-                ),
-                h('button',{
-                  type:'button',
-                  className:`rr-subFilterBtn ${pipelineSubFilter==='done'?'rr-subFilterBtnActive':''}`,
-                  onClick:()=>setPipelineSubFilter('done')
-                },
-                  h('span',null,'可阅读'),
-                  h('span',{className:'rr-subFilterBadge'},taskCounts.done)
-                )
-              ),
-              h('div',{className:'rr-taskItemsScrollArea'},task&&!filteredTasks.some(t=>t.id===task.id)?h('div',{className:'rr-pinnedTask'},h('p',{className:'rr-pipelineNote'},'当前打开的任务不在本批筛选结果中'),renderTaskItem(task),button('在全部任务中定位',()=>{setPipelineSubFilter('all');setSelectedFolder('all');setShowHidden(!!itemMeta[task.id]?.hidden);setTaskOffset(0);setTaskQuery(task.name)},'rr-buttonQuiet')):null,
-                filteredTasks.length?(
-                  h(React.Fragment,null,
-                    (pipelineSubFilter!=='done'&&activeTasks.length)?(
-                      h(React.Fragment,null,
-                        h('div',{className:'rr-pipelineGroupHeading'},
-                          h('span',null,'待操作 · 进行中'),
-                          h('span',{className:'rr-pulsingDot'})
-                        ),
-                        activeTasks.map(renderTaskItem)
-                      )
-                    ):null,
-                    (pipelineSubFilter!=='active'&&otherTasks.length)?(
-                      h(React.Fragment,null,
-                        h('div',{className:'rr-pipelineGroupHeading',style:{marginTop:8}},
-                          h('span',null,'可阅读成品'),
-                          h('span',{style:{fontSize:10,fontWeight:400,color:'#a1a1aa'}},`${otherTasks.length} 篇`)
-                        ),
-                        otherTasks.map(renderTaskItem)
-                      )
-                    ):null
-                  )
-                ):(
-                  h('p',{className:'rr-pipelineNote',style:{padding:14,textAlign:'center'}},'未找到匹配任务。')
-                )
-              ),
-              h('div',{className:'rr-rowActions',style:{padding:'8px 10px',borderTop:'1px solid #f4f4f5'}},
-                button('上一批',()=>setTaskOffset(Math.max(0,taskOffset-40)),'rr-buttonQuiet',{disabled:taskOffset===0}),
-                button('下一批',()=>setTaskOffset(taskOffset+40),'rr-buttonQuiet',{disabled:taskOffset+40>=taskTotal}),
-                button('服务设置',()=>{setServices(true);setDetailTab('flow')},'rr-buttonQuiet',{style:{marginLeft:'auto'}})
-              )
-            )
-          })(),
-          task?h('section',{className:'rr-taskDetail'},
-            h('div',{className:'rr-taskDetailInner'},
-              h('div',{className:'rr-taskDetailHeader'},
-                h('div',null,
-                  h('span',{className:'rr-taskDetailTypeTag'},({book:'整本书',paper:'论文',chapter:'章节节选',collection:'文章合集'})[task.kind]),
-                  h('h1',{className:'rr-taskDetailH1'},task.name)
-                ),
-                h('div',{className:'rr-taskDetailActionButtons'},
-                  button('改名',()=>{setRenameValue(task.name);setRenameForm(true)},'rr-detailActionBtn',{disabled:task.state==='running'}),
-                  button(h(React.Fragment,null,icon('folder',13),'归类'),()=>setAssignModal({targetId:task.id,targetName:task.name,currentFolderId:itemMeta[task.id]?.folderId}),'rr-detailActionBtn'),
-                  button('处理记录',()=>setDetailTab('records'),'rr-detailActionBtn'),
-                  button(h(React.Fragment,null,icon(itemMeta[task.id]?.hidden?'eyeOff':'eye',13),itemMeta[task.id]?.hidden?'取消隐藏':'隐藏'),()=>toggleHideTask(task.id),'rr-detailActionBtn'),
-                  button(h(React.Fragment,null,icon('trash',13),'删除'),()=>handleDeleteTask(task.id,task.name),'rr-detailActionBtn',{disabled:task.state==='running',style:{borderColor:'#fecaca',color:'#dc2626'}})
-                )
-              ),
-              h('div',{className:'rr-flowStepper'},
-                phaseGroups.filter(g=>stages.some(s=>g.ids.includes(s.id))).map((g,idx,arr)=>
-                  h(React.Fragment,{key:g.id},
-                    h('span',{className:currentGroup===g.id?'rr-flowStepperItemActive':''},g.name),
-                    idx<arr.length-1?h('span',{className:'rr-flowStepperSep'},'›'):null
-                  )
-                )
-              ),
-              !task.legacy?h('details',{open:!['review','publish'].includes(task.stage),className:'rr-executionSessions',style:{margin:'12px 0',padding:'12px 0',borderTop:'1px solid var(--dsw-alias-border-l1)',borderBottom:'1px solid var(--dsw-alias-border-l1)'}},
-                h('summary',null,['review','publish'].includes(task.stage)&&revInfo.isAgyReview?'前置阶段执行会话（转写 / 翻译）':'关联执行会话（编排 / 转写 / 翻译）'),
-                h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,180px),1fr))',gap:10,marginTop:10}},...Object.entries({orchestrator:'编排会话',worker:'转写 Worker 会话',linguagacha:'LinguaGacha 翻译会话'}).map(([role,label])=>{const sid=shortSessionId(task.executionSessions?.sessions?.[role]);
-                  return h('div',{key:role,style:{padding:12,border:'1px solid var(--dsw-alias-border-l1)',borderRadius:8,minWidth:0,display:'flex',flexDirection:'column',gap:7}},
-                  h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6}},h('strong',null,label),
-                  h('code',{style:{fontSize:11,color:'#71717a',background:'#f4f4f5',padding:'1px 5px',borderRadius:4}},sid||'待创建')),
-                  h('span',{className:'rr-pipelineNote',style:{margin:0,overflowWrap:'anywhere'}},executionSummary(task,role)),
-                  h('div',{style:{marginTop:'auto',display:'flex',gap:6,flexWrap:'wrap'}},button(role==='orchestrator'?'打开编排会话 →':role==='worker'?'查看转写日志 →':'查看翻译日志 →',()=>viewExecution(role),'rr-detailActionBtn',{'aria-label':role==='orchestrator'?'打开编排者会话':`查看 ${role==='worker'?'转写 Worker':'LinguaGacha 翻译'} 会话`,disabled:busy&&!task.executionSessions?.sessions?.[role],style:{whiteSpace:'normal',textAlign:'left'}}),role==='orchestrator'?button('重置为空白会话',()=>rotateOrchestratorSession(false),'rr-detailActionBtn',{disabled:busy||task.state==='running',title:'仅归档当前编排会话并开启一个空白新会话（不自动发送任务指令；已完成的转写、翻译和审校产物全部保留）'}):null))})),
-                task.executionSessions?.error?h('p',{role:'alert',className:'rr-taskWarning'},task.executionSessions.error):null,
-                task.executionSessions?.recent?.length?h('div',{'aria-live':'polite',style:{marginTop:12}},h('strong',{style:{fontSize:12}},'最新执行记录'),...task.executionSessions.recent.slice(-3).reverse().map(e=>h('div',{key:e.id,style:{padding:'8px 0',borderTop:'1px solid var(--dsw-alias-border-l1)'}},
-                  h('span',{className:'rr-pipelineNote'},new Date(e.time).toLocaleTimeString('zh-CN',{hour12:false})+' · '+e.text.split('\n').slice(0,e.text.startsWith('任务 ')?3:1).join(' · ')),
-                  button('打开对应会话',()=>viewExecution(e.role),'rr-detailActionBtn',{style:{marginLeft:8}})))):h('p',{className:'rr-pipelineNote'},'尚无模型调用成功记录；会话绑定本身不代表处理已启动。')
-              ):null,
-              h('section',{className:'rr-nextStepCardModern'},
-                h('div',{style:{display:'flex',alignItems:'center',gap:10}},
-                  h('span',{className:'rr-nextStepBadge'},'NEXT STEP'),
-                  h('h3',{className:'rr-nextStepTitle'},nextAction.title)
-                ),
-                nextAction.note?h('p',{className:'rr-pipelineNote',style:{margin:'6px 0 8px'}},nextAction.note):null,
-                ['review','publish'].includes(task.stage)&&!task.legacy?h(AntigravityFeedback,{task,onMonitor:()=>setReviewMonitor(true),onOpenSession:!revInfo.isAgyReview?()=>viewExecution('orchestrator'):null}):task.transcriptionProgress&&task.stages.transcribe?(
-                  h('div',{className:'rr-transcriptionProgress','aria-live':'polite'},
-                    h('div',{className:'rr-transcriptionProgressLabel'},
-                      h('span',null,task.transcriptionProgress.stageComplete?'转写完成':'转写进度'),
-                      h('span',null,`${task.transcriptionProgress.completed} / ${task.transcriptionProgress.total} 页`)
-                    ),
-                    h('progress',{'aria-label':'转写页数',max:task.transcriptionProgress.total,value:task.transcriptionProgress.completed}),
-                    h('p',{className:'rr-pipelineNote'},[
-                      task.transcriptionProgress.verifiedInputPages!==null&&task.transcriptionProgress.verifiedInputPages!==undefined?`已核验 ${task.transcriptionProgress.verifiedInputPages} 页`:null,
-                      task.transcriptionProgress.active.map(p=>`第 ${p.page} 页`).join('、'),
-                      task.transcriptionProgress.failed?`${task.transcriptionProgress.failed} 页未完成`:null,
-                      task.transcriptionProgress.review?`${task.transcriptionProgress.review} 页待核查`:null
-                    ].filter(Boolean).join(' · '))
-                  )
-                ):null,
-                ['blocked','interrupted','paused'].includes(task.state)&&task.message&&!/^已确认.+阶段；/.test(task.message)&&nextAction.kind!=='structure'?h('p',{className:'rr-taskWarning'},task.message):null,
-                task.stuckPages?.length&&!task.legacy&&task.state!=='running'&&!['review','publish'].includes(task.stage)?h('div',{style:{margin:'8px 0'}},
-                  h('p',{className:'rr-pipelineNote'},'这些页继续自动转写不会再调用模型。章节已通过、但正文仍是 OCR 兜底的页也列在这里。选择一个 DSH 模型后，只重试这些页。'),
-                  h('ul',{className:'rr-pipelineNote'},task.stuckPages.map(page=>h('li',{key:page.chapterId+':'+page.page},`第 ${page.page} 页 · 章 ${page.chapterId} · ${page.reason}`))),
-                  h('label',null,'重试模型',h('select',{'aria-label':'重试无法处理的页面',value:stuckModel,onChange:e=>setStuckModel(e.target.value),disabled:busy},
-                  h('option',{value:''},'请选择模型'),retryModels.map(m=>h('option',{key:m.id,value:m.id},m.name)))),h('div',{className:'rr-rowActions'},
-                  button('用所选模型重试这些页',retryStuckPages,'rr-buttonPrimary',{disabled:busy||!stuckModel}))):null,
-                h('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:4}},
-                  button(h(React.Fragment,null,icon('play',14),h('span',null,nextAction.label)),advance,'rr-nextStepBtn',{disabled:busy}),
-                  !task.legacy&&task.state!=='running'&&translationDone&&!reviewDone&&!deliveryDone&&revInfo.approvedForDelivery&&(revInfo.hasReviewOrchestrator||Boolean(revInfo.agyConversationId))?button(revInfo.isAgyReview?'新建 CLI 会话续审':'新建会话续审',()=>rotateOrchestratorSession(true),'rr-detailActionBtn',{disabled:busy,title:revInfo.isAgyReview?'不沿用旧 CLI 会话，开启全新 Antigravity CLI 会话继续剩余待审分包（已通过分包保留）':'归档当前编排会话，开启 0 上下文的全新 DSH 编排会话继续剩余待审分包（已通过分包全部保留）'}):null,
-                  (()=>{const targetPhase=phaseGroups.find(g=>g.ids.includes(nextAction.stage))?.id??currentGroup;
-                    const canSwitchModel=!task.legacy&&task.state!=='running'&&!deliveryDone&&!reviewDone&&(nextAction.kind==='run'&&task.phaseApproval?.phase===targetPhase||targetPhase==='delivery'&&task.deliveryState?.canResume&&task.phaseApproval?.phase==='delivery');
-                    if(!canSwitchModel)return null;const switchLabel=({transcription:'更换转写模型',translation:'更换翻译模型',delivery:'更换审校模型'})[targetPhase]??'更换本阶段模型';
-                    return button(switchLabel,()=>{setMessage('');setTranslationProfile('');setPhaseRequest({taskId:task.id,phase:targetPhase,stage:targetPhase==='delivery'?'review':nextAction.stage,options:{newConversation:true,...(targetPhase==='delivery'?{runAgy:true}:{})}})},'rr-detailActionBtn',{disabled:busy,title:targetPhase==='delivery'?'重新选择审校编排模型、分包模型或思考档位，并开启全新会话接续待审分包':'重新选择本阶段模型配置'})})(),
-                  task.state==='blocked'&&task.stage==='transcribe'?button('打开会话诊断修复',()=>launch('diagnose'),'rr-detailActionBtn',{disabled:busy,title:'拉起编排会话查看章节验收错误并对照原页定点修复，不重跑整章转写'}):null,
-                  !task.legacy&&task.state!=='running'&&!translationDone&&!['review','publish'].includes(task.stage)&&(task.stages.transcribe||task.stages.verify||task.stages.assemble||task.transcriptionProgress?.completed>0)?button('清空转写并重跑',resetTranscription,'rr-detailActionBtn',{disabled:busy,title:'清除已转写的章节产物与交付快照，保留底本与页面图，从头重新转写'}):null,
-                  nextAction.kind==='launch'?button(nextAction.stage==='review'?'启动审校':'执行结构门禁',()=>run(nextAction.stage),'rr-detailActionBtn',{disabled:busy}):null,
-                  readable&&nextAction.kind!=='read'?button(task.legacy?'阅读已有成果':task.translationReport?.passed?'阅读译文':'阅读原文',()=>read(selected),'rr-detailActionBtn'):null,
-                  (task.legacy?.artifacts?.sourcePdf||task.input.type==='pdf')?(
-                    h(React.Fragment,null,
-                      button(h(React.Fragment,null,icon('pdf',14),'查看原 PDF'),()=>setPdfModal({url:'/api/paper-reader/pipeline/tasks/'+selected+'/source',title:task.name,taskId:selected}),'rr-detailActionBtn'),
-                      button(h(React.Fragment,null,icon('external',13),'系统打开'),()=>openSystemPdf(selected),'rr-detailActionBtn')
-                    )
-                  ):null
-                )
-              ),
-              h('div',{className:'rr-docFactsGridModern'},
-                h('div',{className:'rr-factCell'},
-                  h('small',null,'原文'),
-                  h('span',null,({fr:'法语',en:'英语',de:'德语',zh:'中文',ja:'日语',es:'西班牙语',it:'意大利语'})[task.profile?.language]??'待确认')
-                ),
-                h('div',{className:'rr-factCell'},
-                  h('small',null,'底本'),
-                  h('span',null,task.input.type==='markdown'?'Markdown':task.inspection?.verdict==='BORN-DIGITAL'?'原生文字 PDF':'PDF')
-                ),
-                h('div',{className:'rr-factCell'},
-                  h('small',null,'范围'),
-                  h('span',null,task.input.type==='markdown'?(task.inspection?.blocks??'—')+' 块':task.profile?.confirmed?`${task.profile.start_page}–${task.profile.end_page} 页`:'待确认')
-                )
-              ),
-              h('div',{className:'rr-workerBarModern'},
-                h('div',null,
-                  h('small',null,'转写 worker'),
-                  h('p',null,task.worker.model,task.input.type!=='markdown'?h('span',{className:'rr-concurrencyTag'},['paper','chapter'].includes(task.kind)?`${task.pageConcurrency??4} 页并发`:`${task.transcriptionConcurrency??2} 章并发`):null,(task.worker.fallbacks??[]).length?h('span',{className:'rr-concurrencyTag rr-fallbackTag'},'兜底 '+task.worker.fallbacks.map(f=>f.model).join(' → ')):null)
-                ),
-                button('模型与并发',()=>setDetailTab('models'),'rr-detailActionBtn')
-              ),
-              h('div',{className:'rr-detailFooter',style:{display:'flex',justifyContent:'flex-start',alignItems:'center',gap:8,flexWrap:'wrap',paddingTop:14,borderTop:'1px solid #e4e4e7',marginTop:6}},
-                h('span',{style:{fontSize:'11px',color:'#71717a',marginRight:'4px'}},'高级阶段配置：'),
-                button('翻译与审校',()=>setDetailTab('models'),'rr-detailActionBtn'),
-                task.profile?.confirmed?button('文档范围',()=>setDetailTab('structure'),'rr-detailActionBtn'):null,
-                task.profile?.confirmed&&['book','collection'].includes(task.kind)?button('章节结构',()=>setDetailTab('chapters'),'rr-detailActionBtn'):null
-              )
-            ),
-          detailTab!=='flow'?h('div',{className:'rr-drawerHeading'},h('h3',null,({structure:'文档范围',chapters:'章节结构',models:'模型与并发设置',records:'处理记录'})[detailTab]),button('关闭',()=>setDetailTab('flow'),'rr-buttonQuiet')):null,
-          h('section',{hidden:detailTab!=='structure',className:'rr-taskDrawer'},h('h3',null,'文档范围与体例'),(task.legacy?.artifacts?.sourcePdf||task.input.type==='pdf')?h(React.Fragment,null,
-            button(h(React.Fragment,null,icon('pdf',14),'查看原 PDF'),()=>setPdfModal({url:'/api/paper-reader/pipeline/tasks/'+selected+'/source',title:task.name,taskId:selected}),'rr-buttonQuiet'),
-            button(h(React.Fragment,null,icon('external',13),'系统打开'),()=>openSystemPdf(selected),'rr-buttonQuiet')):null,task.inspection?h('p',{className:'rr-pipelineNote'},`${task.inspection.verdict} · ${task.inspection.pages||task.inspection.blocks} ${task.input.type==='pdf'?'页':'块'}`):null,
-            h(ProfileAnalysis,{task,onAnalyze:()=>run('inspect',{reanalyze:true,singleStep:true})}),h('details',{key:task.profileAnalysis?.completedAt??'initial',open:!task.profileAnalysis||task.profileAnalysis.unresolved?.length>0},
-            h('summary',null,'调整识别结果'),h('div',{className:'rr-pipelineFields'},
-            !task.stages.normalize?.state||task.stages.normalize?.state!=='done'?h('label',null,'文档体裁',h('select',{value:profileValue.document_type??task.kind,onChange:e=>editProfile('document_type',e.target.value)},h('option',{value:'book'},'整本书'),h('option',{value:'collection'},'文章合集'),h('option',{value:'paper'},'论文'),h('option',{value:'chapter'},'章节节选'))):null,
-            h('label',null,'原文语言',h('select',{value:profileValue.language??'',onChange:e=>editProfile('language',e.target.value)},[['','请选择'],['fr','法语'],['en','英语'],['de','德语'],['zh','中文'],['ja','日语'],['es','西班牙语'],['it','意大利语'],...(!['','fr','en','de','zh','ja','es','it'].includes(profileValue.language??'')?[[profileValue.language,profileValue.language+'（自动识别）']]:[])].map(([value,label])=>h('option',{key:value,value},label)))),
-            task.input.type==='pdf'?h('label',null,'转写方式',h('select',{value:profileValue.transcription_method??'auto',onChange:e=>editProfile('transcription_method',e.target.value)},
-              h('option',{value:'auto'},'自动分流'),h('option',{value:'vision'},'视觉模型转写'))):null,task.input.type==='pdf'?h('label',null,'注释体例',
-              h('select',{value:profileValue.book_type??'',onChange:e=>{const type=e.target.value;editProfileFields({book_type:type,note_location:type==='no_notes'?'none':type==='footnote_only'?'per_page_bottom':'',note_numbering:type==='no_notes'?'continuous':profileValue.note_numbering})}},[['','请选择'],['footnote_only','页底脚注'],['endnote_only','尾注'],['mixed','脚注与尾注'],['no_notes','无注释']].map(([value,label])=>h('option',{key:value,value},label)))):null,
-            task.input.type==='pdf'?h('label',null,'注释归属',h('select',{value:profileValue.note_location??'',onChange:e=>editProfile('note_location',e.target.value)},[['','请选择'],['per_page_bottom','所在页底'],['chapter_end_notes','章节末尾'],['book_end_notes','整书末尾'],['mixed','多种位置'],['none','无注释']].map(([value,label])=>h('option',{key:value,value},label)))):null,
-            task.input.type==='pdf'?h('label',null,'编号方式',h('select',{value:profileValue.note_numbering??'',onChange:e=>editProfile('note_numbering',e.target.value)},h('option',{value:''},'待识别'),h('option',{value:'continuous'},'全文连续'),h('option',{value:'per_chapter'},'每章重置'),h('option',{value:'per_page'},'每页重置'))):null,
-            task.input.type==='pdf'?h('label',null,'页面布局',h('select',{value:profileValue.layout??'',onChange:e=>editProfile('layout',e.target.value)},h('option',{value:''},'待识别'),h('option',{value:'single'},'单页单栏'),h('option',{value:'spread'},'左右双页扫描'),h('option',{value:'columns'},'多栏排版'))):null,
-            task.input.type==='pdf'?h('label',null,'处理起始 PDF 页',h('input',{type:'number',min:1,max:task.inspection?.pages,value:profileValue.start_page??1,onChange:e=>editProfile('start_page',Number(e.target.value))})):null,
-            task.input.type==='pdf'?h('label',null,'处理结束 PDF 页',h('input',{type:'number',min:1,max:task.inspection?.pages,value:profileValue.end_page??task.inspection?.pages??1,onChange:e=>editProfile('end_page',Number(e.target.value))})):null,
-            task.input.type==='pdf'&&['endnote_only','mixed'].includes(profileValue.book_type)?h('label',null,'尾注起始 PDF 页（可选）',h('input',{type:'number',min:1,max:task.inspection?.pages,value:profileValue.note_start_page??'',placeholder:'可选',onChange:e=>{const v=e.target.value;editProfile('note_start_page',v===''?undefined:Number(v))}})):null,
-            task.input.type==='pdf'&&['endnote_only','mixed'].includes(profileValue.book_type)?h('label',null,'尾注结束 PDF 页（可选）',h('input',{type:'number',min:1,max:task.inspection?.pages,value:profileValue.note_end_page??'',placeholder:'可选',onChange:e=>{const v=e.target.value;editProfile('note_end_page',v===''?undefined:Number(v))}})):null),
-            profileValue.layout==='spread'?h('div',null,h('div',{className:'rr-pipelineFields'},[['首幅扫描页',firstSide,setFirstSide],['末幅扫描页',lastSide,setLastSide]].map(([label,value,update])=>h('label',{key:label},label,
-              h('select',{value,onChange:e=>update(e.target.value)},h('option',{value:'both'},'左右页都保留'),h('option',{value:'left'},'仅保留左页'),
-              h('option',{value:'right'},'仅保留右页'))))),button('生成左右页范围',()=>{const start=profileValue.start_page,end=profileValue.end_page;
-              if(!Number.isInteger(start)||!Number.isInteger(end)||start>end){setMessage('先填写有效起止页');return}const regions=[];
-              for(let page=start;page<=end;page++){const choice=page===start?firstSide:page===end?lastSide:'both';
-              if(choice!=='right')regions.push({page,rect:[0,0,0.5,1]});if(choice!=='left')regions.push({page,rect:[0.5,0,1,1]})}editProfile('regions',regions)},'rr-buttonQuiet')):null,
-            h('details',null,h('summary',null,'高级区域映射与完整配置'),h('textarea',{'aria-label':'文档结构配置',value:profile,onChange:e=>{setProfile(e.target.value);
-              try{profileEdits.current={...JSON.parse(e.target.value),confirmed:false}}catch{}},rows:12}))),h('label',{style:{display:'flex',alignItems:'center',gap:8}},
-              h('input',{type:'checkbox',style:{width:'auto'},checked:profileValue.confirmed===true,onChange:e=>editProfile('confirmed',e.target.checked)}),task.input.type==='pdf'?'已核对正文范围、布局和注释体例':'已核对原文语言'),
-              button('保存结构配置',()=>act(async()=>{let value;try{value=JSON.parse(profile)}catch{throw new Error('结构配置JSON格式无效')};
-              await api('/tasks/'+selected+'/profile','POST',value);setDetailTab('flow');setMessage('结构配置已保存')}),'rr-buttonPrimary',{disabled:busy||!task.inspection||task.state==='running'||profileValue.confirmed!==true})),
-          h('section',{hidden:detailTab!=='chapters',className:'rr-taskDrawer'},h('h3',null,'整书章节结构'),chapterLoading?h('p',null,'正在提取章节候选...'):h('div',null,chapters.length?h('div',{style:{maxHeight:'340px',overflowY:'auto',border:'1px solid var(--dsw-alias-border-l1)',borderRadius:'8px',padding:'6px',margin:'10px 0'}},chapters.map((ch,idx)=>h('div',{key:idx,style:{display:'flex',gap:'6px',alignItems:'center',padding:'6px 0',borderBottom:idx<chapters.length-1?'1px solid var(--dsw-alias-border-l1)':'none'}},
-            h('span',{style:{minWidth:'22px',fontSize:'11px',color:'var(--dsw-alias-label-secondary)'}},'#'+ch.num),
-            h('select',{style:{width:'85px',fontSize:'11px',padding:'4px'},value:ch.role_hint??'chapter',onChange:e=>updateChapter(idx,'role_hint',e.target.value)},
-            h('option',{value:'front_matter'},'前言'),h('option',{value:'chapter'},'正文'),h('option',{value:'notes'},'注释'),
-            h('option',{value:'back_matter'},'附录')),h('input',{style:{flex:1,minWidth:'100px',fontSize:'12px',padding:'4px'},value:ch.title,placeholder:'章节标题',onChange:e=>updateChapter(idx,'title',e.target.value)}),
-            h('input',{type:'number',min:1,max:task?.inspection?.pages,style:{width:'45px',fontSize:'11px',padding:'4px'},value:ch.start_page??'',placeholder:'起',onChange:e=>updateChapter(idx,'start_page',Number(e.target.value))}),
-            h('span',{style:{color:'var(--dsw-alias-label-secondary)',fontSize:'11px'}},'–'),h('input',{type:'number',min:1,max:task?.inspection?.pages,style:{width:'45px',fontSize:'11px',padding:'4px'},value:ch.end_page??'',placeholder:'止',onChange:e=>updateChapter(idx,'end_page',Number(e.target.value))}),
-            button('×',()=>removeChapter(idx),'rr-buttonIcon rr-buttonQuiet',{title:'删除此章',style:{width:'24px',minHeight:'24px',padding:0}})))):h('p',{className:'rr-pipelineNote'},'当前无章节候选。'),
-            h('div',{className:'rr-rowActions',style:{margin:'8px 0'}},button('+ 添加章节',addChapter,'rr-buttonQuiet'),
-            button('重新提取',()=>loadChapters(selected),'rr-buttonQuiet',{disabled:chapterLoading})),h('div',{className:'rr-rowActions',style:{marginTop:'16px'}},
-            button('确认章节结构并生效',confirmChapterStructure,'rr-buttonPrimary',{disabled:busy||!chapters.length}),button('转交 DSH 结构观察',()=>launch('prepare'),'rr-buttonQuiet',{disabled:busy||!environment?.guardEnabled})))),
-          h('section',{hidden:detailTab!=='records',className:'rr-taskDrawer rr-recordDrawer'},task.legacy?h('section',null,
-            h('h3',null,'原项目进度'),task.legacy.artifacts.original?button('接续现有原文',()=>act(async()=>{const value=await api('/tasks/'+selected+'/adopt','POST',{});
-            chooseTask(value.id);setTask(value)}),'rr-buttonQuiet'):null,h('p',{className:'rr-pipelineNote'},task.legacy.caption),
-            h('table',null,h('tbody',null,[['已转写页',String(task.legacy.progress.presentPages??0)+' / '+(task.legacy.progress.expectedPages||'未登记')],['缺失正文页',(task.legacy.progress.missingPages??[]).slice(0,30).join('、')||'无缺页'],['旧流程状态',task.legacy.progress.oldProgress?(task.legacy.progress.oldProgress.status??'未记录')+' / '+(task.legacy.progress.oldProgress.current_stage??'未记录'):'未使用旧流程总表'],['占位翻译',(task.legacy.progress.oldProgress?.stage_history??[]).some(s=>s.stage==='placeholder_translate')?'有旧测试产物':'未发现'],['历史调用',String(task.legacy.progress.auditRecords??0)],['历史模型',(task.legacy.progress.models??[]).join('、')||'未记录'],['剩余问题',task.legacy.progress.remainingIssues?'有待核查记录':'无问题台账'],['译文检查',task.legacy.progress.translationReport?task.legacy.progress.translationReport.errors?'旧报告有阻断项':task.legacy.progress.translationReport.warnings?'旧报告有警告':'旧报告通过':'未找到旧报告'],['续跑',task.legacy.resumeBlocked?'待核验旧底本与预算':'接续使用已装配 Markdown']].map(([label,value])=>h('tr',{key:label},
-            h('th',null,label),h('td',null,value)))))):null,task.message?h('p',{className:'rr-pipelineNote'},task.message):null,
-            h('details',null,h('summary',null,'排障与阶段操作'),h('div',{className:'rr-taskStages'},stages.map(s=>h('div',{key:s.id},
-            h('strong',null,s.name),h('span',null,({done:'已完成',running:'运行中',blocked:'阻断',stopped:'已停止',outdated:'待更新术语流程'})[stageState(task,s.id)]??'待执行'),
-            h('div',{className:'rr-rowActions'},button(task.stages[s.id]?.state==='done'?(['inspect','verify','glossary','translationCheck','review','publish','lgProject'].includes(s.id)?(s.id==='lgProject'?'重新打开':s.id==='review'?'重新审校':s.id==='publish'?'预览发布':'重新检查'):'已完成'):s.id==='translate'&&task.stages.translate?.state==='blocked'?'重试翻译':s.id==='review'?'启动审校':'执行',()=>run(s.id),'rr-buttonQuiet',{disabled:busy||!!task.legacy||task.state==='running'||task.stages[s.id]?.state==='done'&&!['inspect','verify','glossary','translationCheck','review','publish','lgProject'].includes(s.id)}),s.id==='prepare'?button('转交 DSH 结构观察',()=>launch('prepare'),'rr-buttonQuiet',{disabled:busy||!!task.legacy}):null))))),task.glossaryReport?h('p',{className:'rr-pipelineNote'},`${glossaryReady(task)?'术语分析':'旧术语记录'}：${task.glossaryReport.analysisUnits??0} 单元 · 清洗覆盖 ${task.glossaryReport.reviewedEntries??0} · 清洗后 ${task.glossaryReport.candidates??0} · 分组 ${task.glossaryReport.semanticGroups??0} · 待审校 ${task.glossaryReport.reviewIssues??0} · 采用 ${task.glossaryReport.effectiveTerms??0}`):null,
-            h('h3',null,'处理记录'),h('table',{className:'rr-taskTable'},h('tbody',null,task.log.map((l,i)=>h('tr',{key:i},
-            h('td',null,l.stage),h('td',null,l.command),h('td',null,l.exitCode===undefined?'执行中':`退出码 ${l.exitCode}`))))),task.translationReport&&!task.translationReport.passed?h('p',{className:'rr-pipelineNote'},task.translationReport.errors.join('；')):null,task.review?h('div',null,
-            button('查看审校报告',()=>act(async()=>{const report=await api('/tasks/'+selected+'/review');setMessage(report.text)}),'rr-buttonQuiet')):null,task.publication?h('div',null,task.publication.message?h('p',{className:'rr-pipelineNote'},task.publication.message):null,
-            h('pre',null,task.publication.files.map(f=>`${f.conflict?'同名冲突 · ':''}${f.name} · ${f.bytes}字节`).join('\n')),
-            h('p',{className:'rr-pipelineNote'},task.publication.destination),h('label',{style:{display:'flex',gap:8,alignItems:'center'}},
-            h('input',{type:'checkbox',style:{width:'auto'},checked:publicationAccepted,onChange:e=>setPublicationAccepted(e.target.checked)}),'已核对，确认发布此清单'),
-            button(task.publication.published?'已发布':'发布到阅读库',()=>act(()=>api('/tasks/'+selected+'/publish','POST',{accepted:publicationAccepted})),'rr-buttonPrimary',{disabled:busy||!publicationAccepted||task.publication.published||task.publication.files.some(f=>f.conflict)})):null),
-          h('section',{hidden:detailTab!=='models',className:'rr-modelGrid rr-taskDrawer'},h('div',{className:'rr-modelCard rr-transcriptionCard'},
-            h('h3',null,'转写 worker'),h('p',{className:'rr-currentModel'},'当前：'+task.worker.model),h('p',{className:'rr-pipelineNote'},'主模型失败后依次尝试兜底模型，全部失败才 OCR 抄写。'),
-            h('label',null,'选择转写模型',h('select',{'aria-label':'选择转写模型',value:workerChoice,onChange:e=>{const value=e.target.value;
-            setWorkerChoice(value);if(value===fallback1)setFallback1('');if(value===fallback2)setFallback2('')},disabled:busy||task.state==='running'},
-            h('option',{value:''},'请选择模型'),transcriptionModels.map(m=>h('option',{key:m.id,value:m.id,disabled:m.disabled},m.name)))),
-            h('label',null,'兜底模型 1',h('select',{'aria-label':'兜底模型 1',value:fallback1,onChange:e=>setFallback1(e.target.value),disabled:busy||!!task.legacy||task.state==='running'},
-            h('option',{value:''},'不使用'),fallbackOptions(fallback1,fallback2).map(m=>h('option',{key:m.id,value:m.id,disabled:m.disabled},m.name)))),
-            h('label',null,'兜底模型 2',h('select',{'aria-label':'兜底模型 2',value:fallback2,onChange:e=>setFallback2(e.target.value),disabled:busy||!!task.legacy||task.state==='running'},
-            h('option',{value:''},'不使用'),fallbackOptions(fallback2,fallback1).map(m=>h('option',{key:m.id,value:m.id,disabled:m.disabled},m.name)))),['book','collection'].includes(task.kind)?h('label',null,'整书转写并发度',
-            h('select',{'aria-label':'转写并发度',value:task.transcriptionConcurrency??2,onChange:e=>act(async()=>{await api('/tasks/'+selected+'/concurrency','POST',{concurrency:Number(e.target.value)});
-            refresh()}),disabled:busy||task.state==='running'},h('option',{value:1},'1 章串行'),h('option',{value:2},'2 章并行（推荐）'),
-            h('option',{value:3},'3 章并行'))):null,['paper','chapter'].includes(task.kind)?h('label',null,'单篇转写并发度',
-            h('select',{'aria-label':'单篇转写并发度',value:task.pageConcurrency??4,onChange:e=>act(async()=>{await api('/tasks/'+selected+'/concurrency','POST',{pageConcurrency:Number(e.target.value)});
-            refresh()}),disabled:busy||task.state==='running'},h('option',{value:1},'1 页串行'),h('option',{value:2},'2 页并行'),
-            h('option',{value:4},'4 页并行（推荐）'),h('option',{value:6},'6 页并行'))):null,h('div',{className:'rr-rowActions'},
-            button('保存转写模型',()=>act(async()=>{await api('/tasks/'+selected+'/worker','POST',{workerId:workerChoice});
-            setMessage('转写模型已保存，继续时确认配置；已有成果与已用预算保留')}),'rr-buttonPrimary',{disabled:busy||!!task.legacy||task.state==='running'||!workerChoice}),
-            button('保存兜底模型',()=>act(async()=>{await api('/tasks/'+selected+'/worker','POST',{fallbackIds:[fallback1,fallback2].filter(Boolean)});
-            setMessage('兜底模型已保存，主模型与已用预算不变')}),'rr-buttonQuiet',{disabled:busy||!!task.legacy||task.state==='running'}))),
-            h('div',{className:'rr-modelCard'},h('h3',null,'编排者 · DSH'),h('label',null,'会话模型',h('select',{'aria-label':'编排者模型',disabled:busy||task.state==='running',value:modelKey,onChange:e=>{setModelKey(e.target.value);
-            setOrchestratorEffort('')}},h('option',{value:''},'沿用 DSH 当前选择'),models.map(m=>h('option',{key:m.key,value:m.key},m.name)))),
-            h('label',null,'编排者思考强度',h('select',{'aria-label':'编排者思考强度',value:orchestratorEffort,onChange:e=>setOrchestratorEffort(e.target.value),disabled:busy||task?.state==='running'||!(models.find(m=>m.key===modelKey)?.reasoning?.efforts?.length)},[{id:'',name:'沿用会话当前档位'},...(models.find(m=>m.key===modelKey)?.reasoning?.efforts??[])].map(e=>h('option',{key:e.id,value:e.id},e.name??e.id)))),
-            button('打开编排检查',()=>launch('inspect'),'rr-buttonQuiet',{disabled:busy||!environment?.guardEnabled})),h('div',{className:'rr-modelCard'},
-            h('h3',null,'翻译 worker · LinguaGacha'),task.translationModel?h('p',{className:'rr-pipelineNote'},`${task.translationModel.name} · 并发 ${task.translationModel.threshold?.concurrency_limit??4} · 凭证由 DSH 管理`):null,
-            h('label',null,'切换翻译模型通道',h('select',{'aria-label':'切换翻译模型通道',defaultValue:'',onChange:e=>{const val=e.target.value;
-            if(val)act(async()=>{const res=await api('/translation-model','POST',{profile:val});setLinguaSettings(await api('/translation-service'));
-            setMessage(res.message);refresh()})}},h('option',{value:''},'保持当前：'+(linguaSettings?.model?.name||'沿用默认')),models.map(m=>h('option',{key:m.key,value:m.key},m.name)))),
-            h('label',null,'术语与翻译并发度',h('select',{'aria-label':'术语与翻译并发度',value:linguaSettings?.model?.threshold?.concurrency_limit??'',disabled:busy||!linguaSettings||task.state==='running',onChange:e=>act(async()=>{const val=Number(e.target.value);
-            const res=await api('/translation-concurrency','POST',{concurrency:val});setLinguaSettings(await api('/translation-service'));
-            setMessage(res.message);refresh()})},h('option',{value:1},'1 块串行'),h('option',{value:2},'2 块并行'),h('option',{value:4},'4 块并行（默认）'),
-            h('option',{value:6},'6 块并行'),h('option',{value:8},'8 块并行'))),button('检查 CLI 配置',()=>act(async()=>{const service=await api('/translation-service');
-            setLinguaSettings(service);setMessage('LinguaGacha '+service.version+' · '+service.model.name+'（并发度 '+service.model.threshold.concurrency_limit+'） · '+'凭证由 DSH 管理，连接以实际请求为准')}),'rr-buttonQuiet'),
-            h('label',null,'导入映射对应的原 PDF',h('select',{'aria-label':'导入映射对应的原 PDF',value:sourceMapPdfId,onChange:e=>setSourceMapPdfId(e.target.value)},
-            h('option',{value:''},'沿用映射中的 PDF 位置'),(catalog.sources??[]).filter(s=>s.type==='pdf').map(s=>h('option',{key:s.id,value:s.id},s.displayName??s.name)))),['original','translation'].map(view=>h('label',{key:view,className:'rr-button rr-buttonQuiet'},view==='original'?'导入原文来源映射':'导入译文来源映射',
-            h('input',{hidden:true,type:'file',accept:'.json',disabled:busy||!!task.legacy||task.state==='running',onChange:e=>{const file=e.target.files?.[0];
-            if(file)act(async()=>{await api('/tasks/'+selected+'/source-map?view='+view+(sourceMapPdfId?'&pdfSourceId='+encodeURIComponent(sourceMapPdfId):''),'POST',JSON.parse(await file.text()));
-            setMessage('来源映射已核验，请重新执行译文校验。')});e.target.value=''}}))),button('导入对应译文',()=>translationRef.current?.click(),'rr-buttonQuiet'),
-            h('input',{hidden:true,type:'file',accept:'.md,.markdown',ref:translationRef,onChange:e=>{const file=e.target.files?.[0];
-            if(file)act(()=>api('/tasks/'+selected+'/translation','POST',file));e.target.value=''}})),h('div',{className:'rr-modelCard'},
-      h('h3',null,'审校配置 · DSH / CLI'),
-      h('p',{className:'rr-pipelineNote'},'更换审校模型或上下文过长时，先停止当前审校，确认新模型后将以全新会话接续，已通过校验的分包全部保留。'),
-      button('更换模型并新会话续审',resumeWithAntigravity,'rr-buttonQuiet',{disabled:busy||task.state==='running'||!translationDone||reviewDone||deliveryDone||!!task.legacy}),
-      h('p',{className:'rr-currentModel'},'当前分包 Worker：'+(task?.reviewConfig?.workerModel==='inherit'?'继承审校编排模型':task?.reviewConfig?.workerModel??'未选择')),
-      h('label',null,'选择分包审校 Worker',
-    h('select',{
-      'aria-label':'选择分包审校 Worker',
-      value:reviewWorkerChoice,
-      onChange:e=>setReviewWorkerChoice(e.target.value),
-      disabled:busy||(task?.state==='running'&&task?.stage==='review')
-    },
-      ([{id:'inherit',name:'继承审校编排模型'},...models.map(m=>({id:m.key,name:m.name}))]).map(w=>h('option',{key:w.id,value:w.id},w.name))
-    )
-      ),
-      h('label',null,'审校编排者模型',
-    h('select',{
-      'aria-label':'审校编排者模型',
-      value:reviewOrchestratorChoice,
-      onChange:e=>{setReviewOrchestratorChoice(e.target.value);setReviewEffortChoice('')},
-      disabled:busy||(task?.state==='running'&&task?.stage==='review')
-    },
-      h('option',{value:''},'请选择审校模型'),
-      models.map(m=>h('option',{key:m.key,value:m.key},m.name))
-    )
-      ),
-      h('label',null,'编排者思考档位',
-    h('select',{
-      'aria-label':'编排者思考档位',
-      value:reviewEffortChoice,
-      onChange:e=>setReviewEffortChoice(e.target.value),
-      disabled:busy||(task?.state==='running'&&task?.stage==='review')
-    },
-      h('option',{value:''},'默认（沿用 DSH 默认）'),
-      (models.find(m=>m.key===reviewOrchestratorChoice)?.reasoning?.efforts??[]).map(m=>h('option',{key:m.id,value:m.id},m.name))
-    )
-      ),
-      button('仅保存审校模型设置',()=>act(async()=>{
-    await api('/tasks/'+selected+'/review-config','POST',{
-      orchestratorModel:reviewOrchestratorChoice,
-      orchestratorEffort:reviewEffortChoice,
-      workerModel:reviewWorkerChoice
-    })
-    setMessage('审校模型与分包 Worker 设置已保存')
-      }),'rr-buttonPrimary',{disabled:busy||(task?.state==='running'&&task?.stage==='review')})
-    ))):h('section',{className:'rr-taskEmpty'},h('h2',null,'请选择或创建任务'),button('新增任务',beginNew,'rr-buttonPrimary'))):null,
+        !reading&&mode==='processing'?renderPipelineWorkspace({filteredTasks,itemMeta,folders,statusLabel,taskCaption,selected,draggedTaskId,setDraggedTaskId,setDragOverFolder,chooseTask,handleRemoveAssign,taskCounts,beginNew,taskQuery,setTaskQuery,setTaskOffset,pipelineSubFilter,setPipelineSubFilter,task,setSelectedFolder,setShowHidden,taskOffset,taskTotal,setServices,setDetailTab,setRenameValue,setRenameForm,setAssignModal,toggleHideTask,handleDeleteTask,phaseGroups,stages,currentGroup,revInfo,viewExecution,busy,rotateOrchestratorSession,nextAction,setReviewMonitor,stuckModel,setStuckModel,retryModels,retryStuckPages,advance,translationDone,reviewDone,deliveryDone,setMessage,setTranslationProfile,setPhaseRequest,launch,resetTranscription,run,readable,read,setPdfModal,openSystemPdf,detailTab,profileValue,editProfile,editProfileFields,firstSide,setFirstSide,lastSide,setLastSide,profile,setProfile,profileEdits,act,api,chapterLoading,chapters,updateChapter,removeChapter,addChapter,loadChapters,confirmChapterStructure,environment,stageState,glossaryReady,publicationAccepted,setPublicationAccepted,workerChoice,setWorkerChoice,fallback1,setFallback1,fallback2,setFallback2,transcriptionModels,fallbackOptions,refresh,modelKey,setModelKey,orchestratorEffort,setOrchestratorEffort,models,linguaSettings,setLinguaSettings,sourceMapPdfId,setSourceMapPdfId,catalog,translationRef,resumeWithAntigravity,reviewWorkerChoice,setReviewWorkerChoice,reviewOrchestratorChoice,setReviewOrchestratorChoice,reviewEffortChoice,setReviewEffortChoice}):null,
         services&&!reading&&mode==='processing'?h('section',{className:'rr-workbenchSettings'},h('div',{className:'rr-sectionHead'},
           h('h3',null,'服务设置'),button('关闭设置',()=>setServices(false),'rr-buttonQuiet')),h('h3',null,'OCR 服务'),h('div',{className:'rr-pipelineFields'},(config?.ocr??[]).map(s=>h('div',{key:s.id},
           h('strong',null,s.name),h('p',{className:'rr-pipelineNote'},s.configured?'已配置':'未配置'),h('input',{type:'password',autoComplete:'new-password','aria-label':s.name+' API key',value:keys[s.id],placeholder:'输入密钥',onChange:e=>setKeys({...keys,[s.id]:e.target.value})}),
