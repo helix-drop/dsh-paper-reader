@@ -57,17 +57,18 @@ jobs:
             gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${runNum}`);
             gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${verName}"`);
             if (fs.existsSync("android/app/dsh-release.p12") && process.env.KEYSTORE_PASS) {
-              const signingBlock = `
-    signingConfigs {
-        release {
-            storeFile file("dsh-release.p12")
-            storePassword System.getenv("KEYSTORE_PASS")
-            keyAlias System.getenv("KEY_ALIAS") ?: "dsh-paper-reader"
-            keyPassword System.getenv("KEYSTORE_PASS")
-            v1SigningEnabled true
-            v2SigningEnabled true
-        }
-    }`;
+              const signingBlock = [
+                "    signingConfigs {",
+                "        release {",
+                "            storeFile file(\"dsh-release.p12\")",
+                "            storePassword System.getenv(\"KEYSTORE_PASS\")",
+                "            keyAlias System.getenv(\"KEY_ALIAS\") ?: \"dsh-paper-reader\"",
+                "            keyPassword System.getenv(\"KEYSTORE_PASS\")",
+                "            v1SigningEnabled true",
+                "            v2SigningEnabled true",
+                "        }",
+                "    }",
+              ].join("\n");
               gradle = gradle.replace(/buildTypes\s*\{/, `${signingBlock}\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.release\n        }`);
               gradle = gradle.replace(/release\s*\{/, `release {\n            signingConfig signingConfigs.release`);
             }
