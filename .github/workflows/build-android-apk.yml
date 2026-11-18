@@ -27,11 +27,18 @@ jobs:
 
       - name: Install Capacitor & generate Android project
         working-directory: mobile-app
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           npm install
           npx cap add android
           cp native-android/ReaderNativePlugin.java android/app/src/main/java/com/dsh/paperreader/
           cp native-android/MainActivity.java android/app/src/main/java/com/dsh/paperreader/
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/app/dsh-release.p12
+          fi
           node -e '
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
@@ -49,6 +56,21 @@ jobs:
             let gradle = fs.readFileSync(gradleFile, "utf8");
             gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${runNum}`);
             gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${verName}"`);
+            if (fs.existsSync("android/app/dsh-release.p12") && process.env.KEYSTORE_PASS) {
+              const signingBlock = `
+    signingConfigs {
+        release {
+            storeFile file("dsh-release.p12")
+            storePassword System.getenv("KEYSTORE_PASS")
+            keyAlias System.getenv("KEY_ALIAS") ?: "dsh-paper-reader"
+            keyPassword System.getenv("KEYSTORE_PASS")
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }`;
+              gradle = gradle.replace(/buildTypes\s*\{/, `${signingBlock}\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.release\n        }`);
+              gradle = gradle.replace(/release\s*\{/, `release {\n            signingConfig signingConfigs.release`);
+            }
             fs.writeFileSync(gradleFile, gradle);
 
             const appJsFile = "www/js/app.js";
@@ -58,12 +80,19 @@ jobs:
           '
           npx cap sync android
 
-      - name: Build Debug APK
+      - name: Build Signed Release APK
         working-directory: mobile-app/android
-        run: ./gradlew assembleDebug
+        env:
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          ./gradlew assembleRelease
+          mkdir -p app/build/outputs/apk/signed
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/signed/DSH-Paper-Reader-release.apk
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/signed/app-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DSH-Paper-Reader-APK
-          path: mobile-app/android/app/build/outputs/apk/debug/app-debug.apk
+          path: mobile-app/android/app/build/outputs/apk/signed/*.apk
