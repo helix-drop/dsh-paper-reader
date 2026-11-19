@@ -2,7 +2,13 @@ function getPlugin() {
   return window.Capacitor?.Plugins?.ReaderNative ?? null
 }
 
+let backHandler = null
+
 export const nativeBridge = {
+  setBackHandler(fn) {
+    backHandler = typeof fn === 'function' ? fn : null
+  },
+
   isNative() {
     return Boolean(window.Capacitor?.isNativePlatform?.() || getPlugin())
   },
@@ -61,3 +67,5 @@ window.__readerOnKeyCaptured = (keyCode, keyName) => {
     detail: { keyCode, keyName },
   }))
 }
+
+window.__readerHandleBack = () => Boolean(backHandler?.())

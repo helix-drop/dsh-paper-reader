@@ -936,6 +936,25 @@ window.addEventListener('online', () => {
   if (state.settings) void readerApi.flushOutbox(state.settings).then(() => refreshLocalState()).then(() => render())
 })
 
+let lastBackExitAt = 0
+nativeBridge.setBackHandler(() => {
+  if (state.reader) return state.reader.handleBack()
+  if (state.openingId) { state.openAbortController?.abort(); return true }
+  if (state.tab !== 'shelf') { state.tab = 'shelf'; render(); return true }
+  if (state.searchQuery || state.selectedFolder !== 'all') {
+    state.searchQuery = ''
+    state.selectedFolder = 'all'
+    state.shelfPage = 0
+    render()
+    return true
+  }
+  const now = Date.now()
+  if (now - lastBackExitAt < 1800) return false
+  lastBackExitAt = now
+  showToast('再按一次退出应用')
+  return true
+})
+
 async function bootstrap() {
   state.settings = await offlineDb.getSettings()
   applyThemeAttributes(state.settings)

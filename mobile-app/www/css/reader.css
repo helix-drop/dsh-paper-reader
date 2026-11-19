@@ -32,12 +32,15 @@
   min-height: 0;
   width: 100%;
   overflow: hidden;
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
 }
 
 .wr-readerViewport.scroll-mode {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px var(--reader-pad-x) 56px;
+  touch-action: pan-y;
 }
 
 .wr-pagesTrack {
@@ -46,12 +49,14 @@
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.wr-pagesTrack.no-anim {
+.wr-pagesTrack.no-anim,
+.wr-pagesTrack.dragging {
   transition: none !important;
 }
 
 .wr-columns {
   height: 100%;
+  box-sizing: border-box;
   column-fill: auto;
   column-gap: 0;
   font-family: var(--reader-font);
@@ -75,6 +80,15 @@
   position: relative;
   margin: 0 0 var(--reader-para-gap);
   padding: 0 var(--reader-pad-x);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.wr-block p,
+.wr-block blockquote,
+.wr-block code,
+.wr-linkText {
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 

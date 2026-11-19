@@ -326,6 +326,18 @@ export function resolveTapZoneAction({ xRatio, yRatio, tapZoneMode = 'ergonomic'
   return 'menu'
 }
 
+export function resolveSwipeDecision({ dx = 0, dy = 0, dt = 0, spreadWidth = 360 } = {}) {
+  const absX = Math.abs(Number(dx) || 0)
+  const absY = Math.abs(Number(dy) || 0)
+  const elapsed = Math.max(1, Number(dt) || 1)
+  const width = Math.max(240, Number(spreadWidth) || 360)
+  const distThreshold = Math.max(36, Math.min(72, Math.round(width * 0.14)))
+  const flickThreshold = 20
+  if (absX <= absY * 1.15) return 'stay'
+  if (absX < distThreshold && !(absX >= flickThreshold && elapsed <= 300)) return 'stay'
+  return dx < 0 ? 'next' : 'prev'
+}
+
 export const WEREAD_THEMES = [
   { id: 'white', label: '纯白', bg: '#ffffff', fg: '#1f2329', swatch: '#ffffff', border: '#e4e6eb', dark: false },
   { id: 'paper', label: '羊皮纸', bg: '#f6f1e7', fg: '#2c2620', swatch: '#f3ead8', border: '#e2d8c5', dark: false },

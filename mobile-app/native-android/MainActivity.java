@@ -6,13 +6,39 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private OnBackPressedCallback backCallback;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ReaderNativePlugin.class);
         super.onCreate(savedInstanceState);
+        backCallback = new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (getBridge() == null || getBridge().getWebView() == null) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                    return;
+                }
+                final WebView webView = getBridge().getWebView();
+                webView.evaluateJavascript(
+                    "(function(){try{return window.__readerHandleBack?!!window.__readerHandleBack():false}catch(e){return false}})()",
+                    value -> {
+                        if (!"true".equals(value)) {
+                            setEnabled(false);
+                            getOnBackPressedDispatcher().onBackPressed();
+                            setEnabled(true);
+                        }
+                    }
+                );
+            }
+        };
+        getOnBackPressedDispatcher().addCallback(this, backCallback);
     }
 
     @Override

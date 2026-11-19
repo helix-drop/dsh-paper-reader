@@ -6,6 +6,7 @@ import {
   renderBlockBodyHtml,
   resolveFontStack,
   resolveFootnote,
+  resolveSwipeDecision,
   resolveTapZoneAction,
 } from './reading-core.js'
 import { readerApi } from './api.js'
@@ -61,9 +62,12 @@ export class ReaderController {
     this.saveTimer = null
     this.selectionTimer = null
     this.clockTimer = null
+    this.resizeTimer = null
     this.destroyed = false
     this.touchStart = null
     this.lastSwipeAt = 0
+    this.lastSelectionDismissAt = 0
+    this.lastChapterJump = null
   }
 
   async mount() {
@@ -97,6 +101,7 @@ export class ReaderController {
     this.destroyed = true
     clearTimeout(this.saveTimer)
     clearTimeout(this.selectionTimer)
+    clearTimeout(this.resizeTimer)
     clearInterval(this.clockTimer)
     this.saveProgressNow(true)
     window.removeEventListener('resize', this.onResize)
@@ -163,7 +168,11 @@ export class ReaderController {
   }
 
   bindGlobalEvents() {
-    this.onResize = () => this.recomputeLayout(true)
+    this.onResize = () => {
+      if (this.activeSheet === 'noteEditor' || this.activeSheet === 'correction') return
+      clearTimeout(this.resizeTimer)
+      this.resizeTimer = setTimeout(() => { if (!this.destroyed) this.recomputeLayout(true) }, 90)
+    }
     this.onKeyDown = e => {
       const isPrev = this.settings.prevKeys.includes(e.key) || this.settings.prevKeys.includes(e.keyCode)
       const isNext = this.settings.nextKeys.includes(e.key) || this.settings.nextKeys.includes(e.keyCode) || e.key === ' '
@@ -424,6 +433,7 @@ export class ReaderController {
 
     if (this.settings.pageMode === 'scroll') {
       this.viewportEl.classList.remove('two-col-spread')
+      this.trackEl.style.width = ''
       this.columnsEl.style.width = ''
       this.columnsEl.style.height = ''
       this.columnsEl.style.columnWidth = ''
@@ -441,7 +451,10 @@ export class ReaderController {
     const spreadW = layout.spreadWidth
     const H = layout.height
 
+    this.viewportEl.scrollLeft = 0
+    this.viewportEl.scrollTop = 0
     this.viewportEl.classList.toggle('two-col-spread', layout.colsPerSpread === 2)
+    this.trackEl.style.width = `${spreadW}px`
     this.columnsEl.style.width = `${spreadW}px`
     this.columnsEl.style.height = `${H}px`
     this.columnsEl.style.columnWidth = `${layout.colWidth}px`
@@ -465,6 +478,10 @@ export class ReaderController {
 
   applyPageTransform(spreadW = this.layoutInfo?.spreadWidth || this.viewportEl?.clientWidth || 360) {
     if (!this.trackEl) return
+    if (this.viewportEl && this.settings.pageMode !== 'scroll') {
+      this.viewportEl.scrollLeft = 0
+      this.viewportEl.scrollTop = 0
+    }
     this.trackEl.style.transform = `translate3d(${-this.currentPage * spreadW}px, 0, 0)`
     this.updatePageIndicator()
   }
@@ -528,8 +545,10 @@ export class ReaderController {
   }
 
   prevPage() {
+    this.lastChapterJump = null
     if (this.settings.pageMode === 'scroll') {
-      this.viewportEl?.scrollBy({ top: -Math.round((this.viewportEl?.clientHeight || 500) * 0.85) })
+      const behavior = this.settings.theme === 'eink' || this.settings.deviceMode === 'eink' ? 'instant' : 'smooth'
+      this.viewportEl?.scrollBy({ top: -Math.round((this.viewportEl?.clientHeight || 500) * 0.85), behavior })
       return
     }
     if (this.currentPage > 0) {
@@ -542,8 +561,10 @@ export class ReaderController {
   }
 
   nextPage() {
+    this.lastChapterJump = null
     if (this.settings.pageMode === 'scroll') {
-      this.viewportEl?.scrollBy({ top: Math.round((this.viewportEl?.clientHeight || 500) * 0.85) })
+      const behavior = this.settings.theme === 'eink' || this.settings.deviceMode === 'eink' ? 'instant' : 'smooth'
+      this.viewportEl?.scrollBy({ top: Math.round((this.viewportEl?.clientHeight || 500) * 0.85), behavior })
       return
     }
     if (this.currentPage < this.totalPages - 1) {
@@ -555,7 +576,8 @@ export class ReaderController {
     }
   }
 
-  jumpToBlock(blockId, viewMode) {
+  jumpToBlock(blockId, viewMode, opts = {}) {
+    if (!opts.fromChapter) this.lastChapterJump = null
     if (viewMode && viewMode !== this.viewMode && (viewMode === 'original' || this.hasTranslation)) {
       this.viewMode = viewMode
       this.pendingBlockId = blockId
@@ -567,41 +589,40 @@ export class ReaderController {
     this.scheduleSaveProgress()
   }
 
-  prevChapter() {
+  stepChapter(delta) {
     const items = this.outlineItems()
     if (!items.length) return this.onToast('本文档无章节目录')
     const blocks = this.visibleBlocks()
     const order = new Map(blocks.map((b, i) => [b.id, i]))
-    const curIdx = order.get(this.currentTopBlockId()) ?? 0
-    let target = null
-    for (const item of items) {
-      const oIdx = order.get(item.id)
-      if (oIdx !== undefined && oIdx < curIdx) target = item
+    const top = items.filter(it => (it.level || 1) <= 1 && order.has(it.id))
+    const targets = top.length > 1 ? top : items.filter(it => order.has(it.id))
+    if (!targets.length) return this.onToast('本文档无有效章节节点')
+
+    let pos = -1
+    if (this.lastChapterJump?.viewMode === this.viewMode) {
+      pos = targets.findIndex(it => it.id === this.lastChapterJump.id)
     }
-    if (target) {
-      this.jumpToBlock(target.id)
-      this.onToast(`已跳转：${target.label}`)
-    } else {
-      this.onToast('已在第一章')
+    if (pos < 0) {
+      const curIdx = order.get(this.currentTopBlockId()) ?? 0
+      for (let i = 0; i < targets.length; i++) {
+        if ((order.get(targets[i].id) ?? 0) <= curIdx) pos = i
+      }
     }
+    const nextPos = delta < 0 ? pos - 1 : pos + 1
+    if (nextPos < 0) return this.onToast('已在第一章')
+    if (nextPos >= targets.length) return this.onToast('已是最后一章')
+    const target = targets[nextPos]
+    this.lastChapterJump = { id: target.id, viewMode: this.viewMode }
+    this.jumpToBlock(target.id, undefined, { fromChapter: true })
+    this.onToast(`已跳转：${target.label}`)
+  }
+
+  prevChapter() {
+    this.stepChapter(-1)
   }
 
   nextChapter() {
-    const items = this.outlineItems()
-    if (!items.length) return this.onToast('本文档无章节目录')
-    const blocks = this.visibleBlocks()
-    const order = new Map(blocks.map((b, i) => [b.id, i]))
-    const curIdx = order.get(this.currentTopBlockId()) ?? 0
-    const target = items.find(item => {
-      const oIdx = order.get(item.id)
-      return oIdx !== undefined && oIdx > curIdx
-    })
-    if (target) {
-      this.jumpToBlock(target.id)
-      this.onToast(`已跳转：${target.label}`)
-    } else {
-      this.onToast('已是最后一章')
-    }
+    this.stepChapter(1)
   }
 
   scheduleSaveProgress() {
@@ -656,43 +677,95 @@ export class ReaderController {
       { passive: true }
     )
 
-    vp.addEventListener(
-      'pointerdown',
-      e => {
-        if (e.button && e.button !== 0) return
-        this.touchStart = { x: e.clientX, y: e.clientY, time: Date.now(), pointerType: e.pointerType }
-      },
-      { passive: true }
-    )
-
-    vp.addEventListener(
-      'pointerup',
-      e => {
-        if (!this.touchStart) return
-        const sel = window.getSelection()
-        if (sel && !sel.isCollapsed) {
-          this.touchStart = null
-          setTimeout(() => this.inspectSelection(), 60)
+    let gesture = null
+    const isInteractive = t => Boolean(t?.closest?.('[data-fn-id],[data-drawer-block],button,a,input,textarea,select'))
+    const resetDrag = () => {
+      if (this.trackEl) {
+        this.trackEl.classList.remove('dragging')
+        if (this.settings.pageMode === 'paginated') this.applyPageTransform()
+      }
+    }
+    const startGesture = (x, y, isTouch, pointerType, target) => {
+      if (this.activeSheet || this.selectionInfo || isInteractive(target)) return
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) return
+      if (this.settings.tapZoneMode === 'keysOnly' && pointerType === 'pen') return
+      const spreadW = this.layoutInfo?.spreadWidth || Math.max(240, vp.clientWidth)
+      const noAnim = this.settings.pageTransition === 'none' || this.settings.theme === 'eink' || this.settings.deviceMode === 'eink'
+      gesture = { mode: 'pending', x, y, dx: 0, dy: 0, time: Date.now(), isTouch, spreadW, noAnim }
+    }
+    const moveGesture = (x, y, ev) => {
+      if (!gesture) return
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) { gesture = null; resetDrag(); return }
+      const dx = x - gesture.x, dy = y - gesture.y
+      gesture.dx = dx; gesture.dy = dy
+      if (gesture.mode === 'pending') {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+        if (this.settings.pageMode === 'paginated' && this.settings.tapZoneMode !== 'keysOnly' && Math.abs(dx) > Math.abs(dy) * 1.15) {
+          gesture.mode = 'swipe'
+          if (this.barsVisible) { this.barsVisible = false; this.renderChrome() }
+          if (!gesture.noAnim && this.trackEl) this.trackEl.classList.add('dragging')
+        } else {
+          gesture.mode = 'other'
           return
         }
-        const dx = e.clientX - this.touchStart.x
-        const dy = e.clientY - this.touchStart.y
-        const dt = Date.now() - this.touchStart.time
-        this.touchStart = null
-        if (
-          this.settings.pageMode === 'paginated' &&
-          this.settings.tapZoneMode !== 'keysOnly' &&
-          dt < 450 &&
-          Math.abs(dx) > 45 &&
-          Math.abs(dx) > Math.abs(dy) * 1.4
-        ) {
-          this.lastSwipeAt = Date.now()
-          if (dx < 0) this.nextPage()
-          else this.prevPage()
+      }
+      if (gesture.mode === 'swipe') {
+        if (ev?.cancelable) ev.preventDefault()
+        if (!gesture.noAnim && this.trackEl) {
+          const damp = (this.currentPage === 0 && dx > 0) || (this.currentPage >= this.totalPages - 1 && dx < 0) ? 0.28 : 1
+          this.trackEl.style.transform = `translate3d(${-this.currentPage * gesture.spreadW + dx * damp}px, 0, 0)`
         }
-      },
-      { passive: true }
-    )
+      }
+    }
+    const endGesture = (x, y, cancelled) => {
+      const g = gesture; gesture = null
+      if (!g) return
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) { resetDrag(); setTimeout(() => this.inspectSelection(), 60); return }
+      const dx = (x ?? g.x + g.dx) - g.x, dy = (y ?? g.y + g.dy) - g.y, dt = Date.now() - g.time
+      if (this.trackEl) this.trackEl.classList.remove('dragging')
+      if (cancelled || this.settings.pageMode !== 'paginated' || this.settings.tapZoneMode === 'keysOnly') {
+        if (g.mode === 'swipe') this.applyPageTransform(g.spreadW)
+        return
+      }
+      if (g.mode === 'swipe' || (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy) * 1.2)) {
+        const decision = resolveSwipeDecision({ dx, dy, dt, spreadWidth: g.spreadW })
+        this.lastSwipeAt = Date.now()
+        if (decision === 'next') this.nextPage()
+        else if (decision === 'prev') this.prevPage()
+        else this.applyPageTransform(g.spreadW)
+      }
+    }
+
+    vp.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) { gesture = null; resetDrag(); return }
+      startGesture(e.touches[0].clientX, e.touches[0].clientY, true, 'touch', e.target)
+    }, { passive: true })
+    vp.addEventListener('touchmove', e => {
+      if (gesture?.isTouch && e.touches.length === 1) moveGesture(e.touches[0].clientX, e.touches[0].clientY, e)
+    }, { passive: false })
+    vp.addEventListener('touchend', e => {
+      if (gesture?.isTouch) { const t = e.changedTouches[0]; endGesture(t?.clientX, t?.clientY, false) }
+    }, { passive: true })
+    vp.addEventListener('touchcancel', () => {
+      if (gesture?.isTouch) endGesture(null, null, true)
+    }, { passive: true })
+
+    vp.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'touch' || (e.button && e.button !== 0)) return
+      startGesture(e.clientX, e.clientY, false, e.pointerType, e.target)
+    }, { passive: true })
+    vp.addEventListener('pointermove', e => {
+      if (gesture && !gesture.isTouch && e.pointerType !== 'touch') moveGesture(e.clientX, e.clientY, e)
+    })
+    vp.addEventListener('pointerup', e => {
+      if (gesture && !gesture.isTouch && e.pointerType !== 'touch') endGesture(e.clientX, e.clientY, false)
+    }, { passive: true })
+    vp.addEventListener('pointercancel', e => {
+      if (gesture && !gesture.isTouch && e.pointerType !== 'touch') endGesture(null, null, true)
+    }, { passive: true })
 
     vp.addEventListener('click', e => {
       if (Date.now() - this.lastSwipeAt < 280) return
@@ -714,6 +787,7 @@ export class ReaderController {
         this.clearSelection()
         return
       }
+      if (Date.now() - this.lastSelectionDismissAt < 320) return
       if (this.barsVisible) {
         this.barsVisible = false
         this.renderChrome()
@@ -742,6 +816,7 @@ export class ReaderController {
     if (!sel || sel.isCollapsed || !sel.rangeCount) {
       if (this.selectionInfo) {
         this.selectionInfo = null
+        this.lastSelectionDismissAt = Date.now()
         this.renderCapsule()
       }
       return
@@ -788,6 +863,7 @@ export class ReaderController {
 
   clearSelection() {
     this.selectionInfo = null
+    this.lastSelectionDismissAt = Date.now()
     try {
       window.getSelection()?.removeAllRanges()
     } catch {}
@@ -894,6 +970,14 @@ export class ReaderController {
     this.activeSheet = null
     this.sheetData = null
     this.renderSheet()
+  }
+
+  handleBack() {
+    if (this.activeSheet) { this.closeSheet(); return true }
+    if (this.selectionInfo) { this.clearSelection(); return true }
+    if (this.barsVisible) { this.barsVisible = false; this.renderChrome(); return true }
+    void this.onExit()
+    return true
   }
 
   renderSheet() {

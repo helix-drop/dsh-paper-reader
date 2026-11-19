@@ -54,6 +54,23 @@ export function renderReaderSheet(ctrl, host) {
       p.zoom = p.zoom === 100 ? 150 : p.zoom === 150 ? 200 : 100
       ctrl.renderSheet()
     }
+    const wrap = host.querySelector('.wr-pdfCanvasWrap')
+    if (wrap) {
+      let sx = 0, sy = 0
+      wrap.addEventListener('touchstart', e => {
+        if (p.zoom === 100 && e.touches.length === 1) { sx = e.touches[0].clientX; sy = e.touches[0].clientY }
+      }, { passive: true })
+      wrap.addEventListener('touchend', e => {
+        if (p.zoom !== 100 || !sx) return
+        const t = e.changedTouches[0]
+        const dx = (t?.clientX ?? sx) - sx, dy = (t?.clientY ?? sy) - sy
+        sx = 0
+        if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+          if (dx < 0) ctrl.loadPdfPage(p.page + 1)
+          else if (p.page > 1) ctrl.loadPdfPage(p.page - 1)
+        }
+      }, { passive: true })
+    }
     return
   }
 

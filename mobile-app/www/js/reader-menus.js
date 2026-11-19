@@ -164,7 +164,7 @@ export function renderReaderChrome(ctrl, host) {
         : Math.min(100, Math.max(1, Math.round(((ctrl.currentPage + 1) / Math.max(1, ctrl.totalPages)) * 100)))
     panelHtml = `
       <div class="wr-dockPanel">
-        <div style="text-align:center;font-size:12px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+        <div data-role="scrub-label" style="text-align:center;font-size:12px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
           ${escapeHtml(ctrl.currentChapterLabel())} · ${s.pageMode === 'scroll' ? `滚动 ${pct}%` : `第 ${ctrl.currentPage + 1}/${ctrl.totalPages} 页 (${pct}%)`}
         </div>
         <div class="wr-barRow">
@@ -385,6 +385,11 @@ export function renderReaderChrome(ctrl, host) {
     scrub.oninput = () => {
       ctrl.currentPage = Math.max(0, Math.min(ctrl.totalPages - 1, Number(scrub.value) - 1))
       ctrl.applyPageTransform()
+      const lbl = host.querySelector('[data-role="scrub-label"]')
+      if (lbl) {
+        const pct = Math.min(100, Math.max(1, Math.round(((ctrl.currentPage + 1) / Math.max(1, ctrl.totalPages)) * 100)))
+        lbl.textContent = `${ctrl.currentChapterLabel()} · 第 ${ctrl.currentPage + 1}/${ctrl.totalPages} 页 (${pct}%)`
+      }
     }
     scrub.onchange = () => {
       ctrl.scheduleSaveProgress()
