@@ -5,6 +5,7 @@ import {
   WEREAD_SPACING_PRESETS,
   WEREAD_THEMES,
   escapeHtml,
+  renderTapZonePreviewHtml,
 } from './reading-core.js'
 import { readerApi } from './api.js'
 import { offlineDb } from './offline-db.js'
@@ -373,6 +374,7 @@ export function renderReaderChrome(ctrl, host) {
               <button type="button" class="wr-segBtn ${tapMode === 'keysOnly' ? 'active' : ''}" data-tap-mode="keysOnly">防误触</button>
             </div>
           </div>
+          ${renderTapZonePreviewHtml(tapMode)}
         </div>
       `
     } else {
@@ -644,6 +646,7 @@ export function renderReaderChrome(ctrl, host) {
       ctrl.renderPageTurnBar()
       ctrl.recomputeLayout(true)
       ctrl.renderChrome()
+      ctrl.flashTapZoneHint?.()
     }
   })
 }

@@ -360,31 +360,48 @@ export function resolveTapZoneAction({ xRatio, yRatio, tapZoneMode = 'ergonomic'
   const y = Math.max(0, Math.min(1, Number(yRatio) || 0))
 
   if (tapZoneMode === 'keysOnly') {
-    // Stylus / Hanwang N10 anti-mistouch mode: only center box opens menu; page turns use physical keys or explicit bottom bar
-    if (x >= 0.30 && x <= 0.70 && y >= 0.25 && y <= 0.70) return 'menu'
+    // Stylus / Hanwang N10 anti-mistouch mode: only focused center box opens menu; page turns use keys or bottom bar
+    if (x >= 0.32 && x <= 0.68 && y >= 0.28 && y <= 0.68) return 'menu'
     return 'none'
   }
 
   if (tapZoneMode === 'bottomNext') {
-    // One-handed thumb mode: center-middle opens menu, top 28% prev, everywhere else next
-    if (x >= 0.32 && x <= 0.68 && y >= 0.28 && y <= 0.56) return 'menu'
-    if (y < 0.28) return 'prev'
+    // One-handed thumb mode: center opens menu; top & upper-left turn prev; right & lower zone turn next
+    if (x >= 0.32 && x <= 0.68 && y >= 0.26 && y <= 0.58) return 'menu'
+    if (y < 0.26 || (x < 0.24 && y < 0.62)) return 'prev'
     return 'next'
   }
 
   if (tapZoneMode === 'classic') {
-    if (x < 0.32) return 'prev'
-    if (x > 0.68) return 'next'
+    if (x < 0.33) return 'prev'
+    if (x > 0.67) return 'next'
     return 'menu'
   }
 
-  // 'ergonomic' (default):
-  // Left 30% -> prev; Right 30% -> next;
-  // On tall portrait phones, lower-middle thumb zone (y > 0.70) also turns to next page for effortless one-handed reading.
-  if (x < 0.30) return 'prev'
-  if (x > 0.70) return 'next'
-  if (isPortraitPhone && y > 0.70) return 'next'
+  // 'ergonomic' (default): generous L/R 34% side turn bands, compact central menu box [0.34..0.66 x 0.25..0.68/0.74],
+  // upper-middle prev and lower-middle thumb next to avoid accidental toolbar popups.
+  if (x < 0.34) return 'prev'
+  if (x > 0.66) return 'next'
+  if (y < 0.25) return 'prev'
+  if (y > (isPortraitPhone ? 0.68 : 0.74)) return 'next'
   return 'menu'
+}
+
+export function renderTapZonePreviewHtml(tapZoneMode = 'ergonomic') {
+  const map = {
+    ergonomic: ['左/上中 34% · 上一页', '中央 · 呼出菜单', '右/下中 34% · 下一页'],
+    classic: ['左 1/3 · 上一页', '中 1/3 · 呼出菜单', '右 1/3 · 下一页'],
+    bottomNext: ['顶部/左上 · 上一页', '中上 · 呼出菜单', '右/下半屏 · 下一页'],
+    keysOnly: ['侧栏禁用防误触', '正中 · 呼出菜单', '侧栏禁用防误触'],
+  }
+  const [l, m, r] = map[tapZoneMode] || map.ergonomic
+  return `
+    <div class="wr-tapGuideBox" data-mode="${escapeHtml(tapZoneMode)}">
+      <div class="wr-tzCell wr-tzPrev">${l}</div>
+      <div class="wr-tzCell wr-tzMenu">${m}</div>
+      <div class="wr-tzCell wr-tzNext">${r}</div>
+    </div>
+  `
 }
 
 export function resolveSwipeDecision({ dx = 0, dy = 0, dt = 0, spreadWidth = 360 } = {}) {

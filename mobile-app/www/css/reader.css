@@ -821,3 +821,21 @@ body[data-eink="true"] .wr-pillSlider, body[data-theme="eink"] .wr-pillSlider,
 body[data-eink="true"] .wr-actionPill, body[data-theme="eink"] .wr-actionPill { background: #fff; border: 1.5px solid #000; color: #000; }
 body[data-eink="true"] .wr-actionPill.active-soft, body[data-theme="eink"] .wr-actionPill.active-soft { border: 2px solid #000; color: #000; font-weight: 700; }
 body[data-eink="true"] .wr-pillThumb, body[data-theme="eink"] .wr-pillThumb { border: 2px solid #000; box-shadow: none; }
+.wr-tapGuideBox { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 2px; }
+.wr-tzCell {
+  border-radius: 8px; padding: 7px 4px; font-size: 11px; font-weight: 600; text-align: center;
+  border: 1px solid var(--border); background: var(--surface-alt); color: var(--fg);
+}
+.wr-tzMenu { background: rgba(27, 110, 243, 0.12); color: var(--accent); border-color: rgba(27, 110, 243, 0.35); }
+body[data-eink="true"] .wr-tzMenu, body[data-theme="eink"] .wr-tzMenu { background: #000; color: #fff; border-color: #000; }
+.wr-tapHintOverlay {
+  position: absolute; inset: 0; z-index: 38; pointer-events: none;
+  display: grid; grid-template-columns: 34% 32% 34%;
+}
+.wr-tapHintCol {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: var(--fg);
+  background: rgba(27, 110, 243, 0.08); border-right: 1px dashed rgba(27, 110, 243, 0.35);
+}
+.wr-tapHintCol.mid { background: rgba(27, 110, 243, 0.15); color: var(--accent); }
+.wr-tapHintCol:last-child { border-right: none; }

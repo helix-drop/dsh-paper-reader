@@ -247,7 +247,7 @@ export class ReaderController {
     this.root.innerHTML = `
       <div class="wr-reader" data-role="reader">
         <div class="wr-brightnessDimmer"></div>
-        <div class="wr-readerMiniTop">
+        <div class="wr-readerMiniTop" data-role="mini-top">
           <span data-role="chapter-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%">${escapeHtml(this.reading.title || '')}</span>
           <span data-role="view-badge">${this.viewMode === 'bilingual' ? '双语' : this.viewMode === 'original' ? '原文' : '译文'}</span>
         </div>
@@ -257,7 +257,7 @@ export class ReaderController {
           </div>
         </div>
         <div data-role="page-turn-bar"></div>
-        <div class="wr-readerMiniBottom">
+        <div class="wr-readerMiniBottom" data-role="mini-bottom">
           <span data-role="page-indicator">1 / 1</span>
           <span data-role="clock">${nowClock()}</span>
         </div>
@@ -691,15 +691,12 @@ export class ReaderController {
       const dx = x - gesture.x, dy = y - gesture.y
       gesture.dx = dx; gesture.dy = dy
       if (gesture.mode === 'pending') {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-        if (this.settings.pageMode === 'paginated' && this.settings.tapZoneMode !== 'keysOnly' && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        if (Math.abs(dx) < 16 && Math.abs(dy) < 16) return
+        if (this.settings.pageMode === 'paginated' && this.settings.tapZoneMode !== 'keysOnly' && Math.abs(dx) > Math.abs(dy) * 1.25) {
           gesture.mode = 'swipe'
           if (this.barsVisible) { this.barsVisible = false; this.renderChrome() }
           if (!gesture.noAnim && this.trackEl) this.trackEl.classList.add('dragging')
-        } else {
-          gesture.mode = 'other'
-          return
-        }
+        } else { gesture.mode = 'other'; return }
       }
       if (gesture.mode === 'swipe') {
         if (ev?.cancelable) ev.preventDefault()
@@ -722,7 +719,7 @@ export class ReaderController {
       }
       if (g.mode === 'swipe' || (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy) * 1.2)) {
         const decision = resolveSwipeDecision({ dx, dy, dt, spreadWidth: g.spreadW })
-        this.lastSwipeAt = Date.now()
+        if (decision !== 'stay' || Math.abs(dx) >= 24) this.lastSwipeAt = Date.now()
         if (decision === 'next') this.nextPage()
         else if (decision === 'prev') this.prevPage()
         else this.applyPageTransform(g.spreadW)
@@ -757,6 +754,9 @@ export class ReaderController {
       if (gesture && !gesture.isTouch && e.pointerType !== 'touch') endGesture(null, null, true)
     }, { passive: true })
 
+    for (const edgeEl of [this.root.querySelector('[data-role="mini-top"]'), this.root.querySelector('[data-role="mini-bottom"]')]) {
+      if (edgeEl) edgeEl.onclick = () => { if (this.selectionInfo) this.clearSelection(); else { this.barsVisible = !this.barsVisible; this.renderChrome() } }
+    }
     vp.addEventListener('click', e => {
       if (Date.now() - this.lastSwipeAt < 280) return
       const fnBtn = e.target.closest?.('[data-fn-id]')
@@ -803,6 +803,19 @@ export class ReaderController {
         this.renderChrome()
       }
     })
+  }
+
+  flashTapZoneHint() {
+    const readerEl = this.root.querySelector('[data-role="reader"]')
+    if (!readerEl) return
+    readerEl.querySelector('.wr-tapHintOverlay')?.remove()
+    const mode = this.settings.tapZoneMode || 'ergonomic'
+    const el = document.createElement('div')
+    el.className = 'wr-tapHintOverlay'
+    const isKeys = mode === 'keysOnly'
+    el.innerHTML = `<div class="wr-tapHintCol">${isKeys ? '防误触禁用' : '‹ 上一页'}</div><div class="wr-tapHintCol mid">中央 · 菜单</div><div class="wr-tapHintCol">${isKeys ? '防误触禁用' : '下一页 ›'}</div>`
+    readerEl.appendChild(el)
+    setTimeout(() => el.remove(), 950)
   }
 
   inspectSelection() {
