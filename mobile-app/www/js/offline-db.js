@@ -105,6 +105,14 @@ export const offlineDb = {
     return withStore('kv', 'readwrite', s => reqPromise(s.put({ ...payload, syncedAt: Date.now() }, 'library')))
   },
 
+  async getSyncStatus() {
+    return (await withStore('kv', 'readonly', s => reqPromise(s.get('sync_status'))).catch(() => null))
+  },
+
+  async saveSyncStatus(status) {
+    return withStore('kv', 'readwrite', s => reqPromise(s.put(status, 'sync_status')))
+  },
+
   async getBook(taskId) {
     return withStore('books', 'readonly', s => reqPromise(s.get(taskId))).catch(() => null)
   },

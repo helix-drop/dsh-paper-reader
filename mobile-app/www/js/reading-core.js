@@ -636,3 +636,116 @@ export function renderLibrarySearchSectionHtml(searchState, shelfQuery) {
   `
 }
 
+function formatSyncTime(ts) {
+  if (!ts) return ''
+  try {
+    const d = new Date(ts)
+    const now = new Date()
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+    if (d.toDateString() === now.toDateString()) return `今天 ${hhmm}`
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  } catch {
+    return ''
+  }
+}
+
+export function renderSyncStatusCardHtml({
+  syncing = false,
+  syncProgress = null,
+  syncStatus = null,
+  cachedMd = 0,
+  totalDocs = 0,
+  cachedPdf = 0,
+  totalPdfDocs = 0,
+  outboxCount = 0,
+  serverConfigured = false,
+  hasCancel = false,
+  showActions = true,
+}) {
+  if (syncing) {
+    const p = syncProgress || {}
+    const total = Number(p.total) || 0
+    const done = Number(p.done) || 0
+    const pct = p.pct !== undefined
+      ? Math.max(0, Math.min(100, Number(p.pct)))
+      : total > 0
+        ? Math.max(4, Math.min(100, Math.round((done / total) * 100)))
+        : 12
+    const stats = [
+      total > 0 ? `${done}/${total}` : '',
+      p.skipped > 0 ? `一致跳过 ${p.skipped}` : '',
+      p.failed > 0 ? `失败 ${p.failed}` : '',
+    ].filter(Boolean).join(' · ')
+    return `
+      <div class="wr-syncCard active">
+        <div class="wr-barRow" style="gap:8px;">
+          <span class="wr-syncDot running"></span>
+          <strong style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(p.phaseLabel || '正在与云端同步...')}</strong>
+          <span style="font-size:12px;font-weight:700;color:var(--accent);">${pct}%</span>
+          ${hasCancel ? '<button type="button" class="wr-btnGhost" data-act="cancel-sync" style="padding:3px 9px;font-size:11px;">取消</button>' : ''}
+        </div>
+        <div class="wr-syncProgressTrack"><div class="wr-syncProgressFill" style="width:${pct}%"></div></div>
+        <div class="wr-barRow" style="font-size:11.5px;color:var(--fg-muted);gap:8px;">
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(p.title ? `当前：${p.title}` : (p.message || '正在处理中...'))}</span>
+          ${stats ? `<span style="flex-shrink:0;">${escapeHtml(stats)}</span>` : ''}
+        </div>
+      </div>
+    `
+  }
+
+  const timeText = formatSyncTime(syncStatus?.at)
+  if (syncStatus && syncStatus.ok === false) {
+    return `
+      <div class="wr-syncCard error">
+        <div class="wr-barRow" style="gap:8px;">
+          <span class="wr-syncDot error"></span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12.5px;font-weight:600;">${syncStatus.aborted ? '同步已取消' : '同步失败'}${timeText ? ` · ${escapeHtml(timeText)}` : ''}</div>
+            <div style="font-size:11.5px;color:var(--fg-muted);word-break:break-word;margin-top:2px;">${escapeHtml(syncStatus.error || '无法连接云服务器')}</div>
+          </div>
+          ${showActions ? '<button type="button" class="wr-btnGhost" data-act="sync-now" style="padding:4px 10px;font-size:12px;flex-shrink:0;">重试</button>' : ''}
+        </div>
+      </div>
+    `
+  }
+
+  if (syncStatus?.at) {
+    const changes = [
+      syncStatus.addedBooks ? `新增 ${syncStatus.addedBooks}` : '',
+      syncStatus.renamedBooks ? `改名 ${syncStatus.renamedBooks}` : '',
+      syncStatus.syncedBooks ? `更新正文 ${syncStatus.syncedBooks}` : '',
+      syncStatus.syncedPdfs ? `新下 PDF ${syncStatus.syncedPdfs}` : '',
+      syncStatus.removedBooks ? `清理已删 ${syncStatus.removedBooks}` : '',
+      !syncStatus.addedBooks && !syncStatus.renamedBooks && !syncStatus.syncedBooks && !syncStatus.syncedPdfs && !syncStatus.removedBooks
+        ? `全部已是最新 (${syncStatus.totalDocs ?? totalDocs} 本)`
+        : '',
+      syncStatus.failedBooks ? `正文失败 ${syncStatus.failedBooks}` : '',
+      syncStatus.failedPdfs ? `PDF失败 ${syncStatus.failedPdfs}` : '',
+    ].filter(Boolean)
+    return `
+      <div class="wr-syncCard">
+        <div class="wr-barRow" style="gap:8px;">
+          <span class="wr-syncDot ok"></span>
+          <span style="font-size:12px;font-weight:600;flex:1;">已同步 · ${escapeHtml(timeText || '刚刚')}</span>
+          <span style="font-size:11.5px;color:var(--fg-muted);">MD ${cachedMd}/${totalDocs} · PDF ${cachedPdf}/${totalPdfDocs}${outboxCount ? ` · 待传 ${outboxCount}` : ''}</span>
+        </div>
+        <div class="wr-syncBadges">
+          ${changes.map(c => `<span class="wr-syncBadge">${escapeHtml(c)}</span>`).join('')}
+        </div>
+      </div>
+    `
+  }
+
+  return `
+    <div class="wr-syncCard">
+      <div class="wr-barRow" style="gap:8px;">
+        <span class="wr-syncDot idle"></span>
+        <span style="font-size:12px;color:var(--fg-muted);flex:1;">
+          ${serverConfigured ? '尚未同步（点击右上角「↻ 同步」或下方按钮获取云端书库）' : '尚未连接云服务器（点击进入「设置」填地址与密钥）'}
+        </span>
+        ${showActions ? `<button type="button" class="wr-btnGhost" data-act="${serverConfigured ? 'sync-now' : 'goto-settings'}" style="padding:4px 10px;font-size:12px;flex-shrink:0;">${serverConfigured ? '立即同步' : '去设置'}</button>` : ''}
+      </div>
+    </div>
+  `
+}
+

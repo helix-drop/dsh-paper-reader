@@ -179,11 +179,14 @@ export const readerApi = {
     return apiJson(settings, '/sync/health')
   },
 
-  async flushOutbox(settings) {
+  async flushOutbox(settings, { onProgress, signal } = {}) {
     const items = await offlineDb.listOutbox()
     if (!items.length) return { flushed: 0, remaining: 0 }
     let flushed = 0
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      if (signal?.aborted) break
+      const item = items[i]
+      onProgress?.({ phase: 'outbox', phaseLabel: '上传离线记录', done: i, total: items.length, pct: Math.round((i / items.length) * 15) })
       try {
         if (item.type === 'progress') {
           await apiJson(settings, '/pipeline/progress', {
@@ -215,9 +218,13 @@ export const readerApi = {
   },
 
   async syncAll(settings, { onProgress, syncBooks = true, includePdfs = false, signal } = {}) {
-    onProgress?.({ phase: 'meta', message: '正在上传离线笔记与进度...' })
-    await this.flushOutbox(settings).catch(() => {})
-    onProgress?.({ phase: 'meta', message: '正在同步云端书目...' })
+    const prevLib = await offlineDb.getLibraryCache().catch(() => ({ documents: [] }))
+    const prevById = new Map((prevLib?.documents ?? []).map(d => [d.id, d]))
+
+    onProgress?.({ phase: 'outbox', phaseLabel: '上传离线笔记与进度', pct: 5, message: '检查待上传队列...' })
+    await this.flushOutbox(settings, { onProgress, signal }).catch(() => {})
+
+    onProgress?.({ phase: 'library', phaseLabel: '拉取云端书目与进度', pct: 12, message: '请求云端最新书目...' })
     const [lib, prog, bms] = await Promise.all([
       apiJson(settings, '/pipeline/library', { timeoutMs: 25000, retries: 1, signal }),
       apiJson(settings, '/pipeline/progress', { timeoutMs: 20000, signal }).catch(() => ({ items: {} })),
@@ -233,9 +240,21 @@ export const readerApi = {
 
     const docs = Array.isArray(lib.documents) ? lib.documents : []
     const validIds = new Set(docs.map(d => d.id))
+    let removedBooks = 0
     const cachedIds = await offlineDb.listCachedBookIds()
     for (const oldId of cachedIds) {
-      if (!validIds.has(oldId)) await offlineDb.deleteBook(oldId)
+      if (!validIds.has(oldId)) {
+        await offlineDb.deleteBook(oldId)
+        removedBooks++
+      }
+    }
+
+    let addedBooks = 0
+    let renamedBooks = 0
+    for (const doc of docs) {
+      const prev = prevById.get(doc.id)
+      if (!prev) addedBooks++
+      else if (prev.name && doc.name && prev.name !== doc.name) renamedBooks++
     }
 
     let syncedBooks = 0
@@ -251,24 +270,65 @@ export const readerApi = {
         const sameVersion = doc.version
           ? cached?.reading?.version === doc.version
           : (!doc.updatedAt || cached?.reading?.updatedAt === doc.updatedAt)
-        if (hasBlocks && sameVersion) upToDate.push({ doc, reading: cached.reading })
-        else toDownload.push(doc)
+        if (hasBlocks && sameVersion) {
+          if (doc.name && cached.reading.title !== doc.name) {
+            const updatedReading = { ...cached.reading, title: doc.name }
+            await offlineDb.saveBook(doc.id, updatedReading)
+            upToDate.push({ doc, reading: updatedReading })
+          } else {
+            upToDate.push({ doc, reading: cached.reading })
+          }
+        } else {
+          toDownload.push(doc)
+        }
       }
       skippedBooks = upToDate.length
 
-      // Ensure inline Markdown images exist for already-cached books (no PDFs downloaded)
+      // Ensure inline Markdown images exist for already-cached books (only emit progress when missing assets exist)
+      const assetCandidates = []
       for (const item of upToDate) {
         if (signal?.aborted) break
-        if (collectLocalImageRefs(item.reading).length) {
+        const refs = collectLocalImageRefs(item.reading)
+        if (!refs.length) continue
+        let missing = false
+        for (const ref of refs) {
+          if (!(await offlineDb.getAsset(item.doc.id, ref))) { missing = true; break }
+        }
+        if (missing) assetCandidates.push(item)
+      }
+      if (assetCandidates.length > 0) {
+        for (let i = 0; i < assetCandidates.length; i++) {
+          if (signal?.aborted) break
+          const item = assetCandidates[i]
+          onProgress?.({
+            phase: 'assets',
+            phaseLabel: '补全内嵌插图',
+            done: i,
+            total: assetCandidates.length,
+            skipped: skippedBooks,
+            failed: 0,
+            pct: Math.round(20 + (i / assetCandidates.length) * 15),
+            title: item.doc.name || '',
+          })
           await syncBookAssets(settings, item.doc.id, item.reading, { signal }).catch(() => {})
         }
       }
 
       const total = toDownload.length
       if (total > 0) {
-        onProgress?.({ phase: 'books', done: 0, total, skipped: skippedBooks, failed: 0, title: toDownload[0]?.name || '' })
+        onProgress?.({
+          phase: 'books',
+          phaseLabel: '下载 MD 正文（含原文与译文）',
+          done: 0,
+          total,
+          skipped: skippedBooks,
+          failed: 0,
+          pct: 25,
+          title: toDownload[0]?.name || '',
+        })
         let nextIdx = 0
         let finished = 0
+        const maxBookPct = includePdfs ? 65 : 98
         const worker = async () => {
           while (nextIdx < total) {
             if (signal?.aborted) return
@@ -279,7 +339,11 @@ export const readerApi = {
                 `/pipeline/tasks/${encodeURIComponent(doc.id)}/reading?lean=1`,
                 { timeoutMs: 60000, retries: 1, signal },
               )
-              const normalized = doc.version && !reading.version ? { ...reading, version: doc.version } : reading
+              const normalized = {
+                ...reading,
+                ...(doc.name ? { title: doc.name } : {}),
+                ...(doc.version && !reading.version ? { version: doc.version } : {}),
+              }
               await offlineDb.saveBook(doc.id, normalized)
               await syncBookAssets(settings, doc.id, normalized, { signal }).catch(() => {})
               syncedBooks++
@@ -290,10 +354,12 @@ export const readerApi = {
             finished++
             onProgress?.({
               phase: 'books',
+              phaseLabel: '下载 MD 正文（含原文与译文）',
               done: finished,
               total,
               skipped: skippedBooks,
               failed: failedBooks,
+              pct: Math.round(25 + (finished / total) * (maxBookPct - 25)),
               title: doc.name || '',
             })
           }
@@ -315,7 +381,16 @@ export const readerApi = {
         else pdfQueue.push(doc)
       }
       if (pdfQueue.length > 0) {
-        onProgress?.({ phase: 'pdfs', done: 0, total: pdfQueue.length, skipped: skippedPdfs, failed: 0, title: pdfQueue[0]?.name || '' })
+        onProgress?.({
+          phase: 'pdfs',
+          phaseLabel: '下载原 PDF 文件',
+          done: 0,
+          total: pdfQueue.length,
+          skipped: skippedPdfs,
+          failed: 0,
+          pct: 68,
+          title: pdfQueue[0]?.name || '',
+        })
         for (let i = 0; i < pdfQueue.length; i++) {
           if (signal?.aborted) break
           const doc = pdfQueue[i]
@@ -340,10 +415,12 @@ export const readerApi = {
           }
           onProgress?.({
             phase: 'pdfs',
+            phaseLabel: '下载原 PDF 文件',
             done: i + 1,
             total: pdfQueue.length,
             skipped: skippedPdfs,
             failed: failedPdfs,
+            pct: Math.round(68 + ((i + 1) / pdfQueue.length) * 30),
             title: doc.name || '',
           })
         }
@@ -354,6 +431,10 @@ export const readerApi = {
       library: lib,
       progress: await offlineDb.getAllProgress(),
       bookmarks: bms.bookmarks ?? [],
+      totalDocs: docs.length,
+      addedBooks,
+      renamedBooks,
+      removedBooks,
       syncedBooks,
       skippedBooks,
       failedBooks,

@@ -1,4 +1,4 @@
-import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack, renderLibrarySearchSectionHtml } from './reading-core.js'
+import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack, renderLibrarySearchSectionHtml, renderSyncStatusCardHtml } from './reading-core.js'
 import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
@@ -23,6 +23,8 @@ const state = {
   noteDocFilter: '',
   syncing: false,
   syncProgressText: '',
+  syncProgress: null,
+  syncStatus: null,
   syncAbortController: null,
   downloadingId: '',
   openingId: '',
@@ -44,22 +46,39 @@ function abortCovers() {
   }
 }
 
+function currentSyncCardHtml(showActions = true) {
+  const docs = state.library.documents ?? []
+  const pdfTotal = docs.filter(d => d.hasPdf !== false).length
+  return renderSyncStatusCardHtml({
+    syncing: state.syncing, syncProgress: state.syncProgress, syncStatus: state.syncStatus,
+    cachedMd: state.cachedIds.size, totalDocs: docs.length,
+    cachedPdf: state.cachedPdfIds.size, totalPdfDocs: pdfTotal,
+    outboxCount: state.outboxCount,
+    serverConfigured: Boolean(state.settings?.serverUrl || !nativeBridge.isNative()),
+    hasCancel: Boolean(state.syncAbortController), showActions,
+  })
+}
+
+function bindSyncCardActions(root = appEl) {
+  root?.querySelectorAll('[data-act="cancel-sync"]').forEach(b => { b.onclick = () => state.syncAbortController?.abort() })
+  root?.querySelectorAll('[data-act="sync-now"]').forEach(b => { b.onclick = () => performSync(false) })
+  root?.querySelectorAll('[data-act="goto-settings"]').forEach(b => { b.onclick = () => { state.tab = 'settings'; render() } })
+}
+
 function renderStatusBanners() {
   let syncEl = document.getElementById('wr-sync-bar')
   if (!state.syncing || !state.syncProgressText || state.reader) {
     syncEl?.remove()
   } else {
     if (!syncEl) {
-      syncEl = document.createElement('div')
-      syncEl.id = 'wr-sync-bar'
-      syncEl.className = 'wr-syncFloatBar'
-      document.body.appendChild(syncEl)
+      syncEl = document.createElement('div'); syncEl.id = 'wr-sync-bar'; syncEl.className = 'wr-syncFloatBar'; document.body.appendChild(syncEl)
     }
     syncEl.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">↻ ${escapeHtml(state.syncProgressText)}</span><button type="button" class="wr-btnGhost" data-act="cancel-sync" style="padding:4px 10px;font-size:12px;flex-shrink:0;">取消</button>`
-    syncEl.querySelector('[data-act="cancel-sync"]').onclick = () => {
-      state.syncAbortController?.abort()
-    }
+    syncEl.querySelector('[data-act="cancel-sync"]').onclick = () => state.syncAbortController?.abort()
   }
+  appEl.querySelectorAll('[data-role="sync-card-host"]').forEach(host => {
+    host.innerHTML = currentSyncCardHtml(state.tab !== 'settings'); bindSyncCardActions(host)
+  })
 
   let openEl = document.getElementById('wr-opening-banner')
   if (!state.openingId || !state.openingTitle || state.reader) {
@@ -121,83 +140,74 @@ async function updateSettings(patch) {
 }
 
 async function refreshLocalState() {
-  const [lib, progress, bookmarks, cachedIds, cachedPdfIds, outbox] = await Promise.all([
+  const [lib, progress, bookmarks, cachedIds, cachedPdfIds, outbox, syncStatus] = await Promise.all([
     offlineDb.getLibraryCache(),
     offlineDb.getAllProgress(),
     offlineDb.getBookmarks(),
     offlineDb.listCachedBookIds(),
     offlineDb.listCachedPdfIds(),
     offlineDb.listOutbox(),
+    offlineDb.getSyncStatus(),
   ])
-  state.library = lib
-  state.progress = progress
-  state.bookmarks = bookmarks
-  state.cachedIds = cachedIds
-  state.cachedPdfIds = cachedPdfIds
-  state.outboxCount = outbox.length
+  state.library = lib; state.progress = progress; state.bookmarks = bookmarks
+  state.cachedIds = cachedIds; state.cachedPdfIds = cachedPdfIds
+  state.outboxCount = outbox.length; state.syncStatus = syncStatus
 }
 
 async function performSync(silent = false, options = {}) {
   if (state.syncing) return
   abortCovers()
-  const includePdfs = options.includePdfs !== undefined
-    ? Boolean(options.includePdfs)
-    : Boolean(state.settings?.syncIncludePdfs)
+  const includePdfs = options.includePdfs !== undefined ? Boolean(options.includePdfs) : Boolean(state.settings?.syncIncludePdfs)
   const ctrl = new AbortController()
-  state.syncAbortController = ctrl
-  state.syncing = true
-  state.syncProgressText = includePdfs ? '准备下载所有 MD 与原 PDF...' : '正在同步云端书目与 MD 正文...'
+  state.syncAbortController = ctrl; state.syncing = true
+  state.syncProgress = { phase: 'start', phaseLabel: includePdfs ? '准备下载所有 MD 与原 PDF' : '正在连接云端同步书目与正文', pct: 3 }
+  state.syncProgressText = state.syncProgress.phaseLabel
   render()
   try {
     let lastCountRefresh = 0
     const res = await readerApi.syncAll(state.settings, {
-      syncBooks: true,
-      includePdfs,
-      signal: ctrl.signal,
+      syncBooks: true, includePdfs, signal: ctrl.signal,
       onProgress: p => {
-        if (p.phase === 'books') {
-          state.syncProgressText = p.total
-            ? `下载 MD 正文 ${p.done}/${p.total}${p.title ? `：${p.title}` : ''}`
-            : '正在整理书目...'
-          if (p.done - lastCountRefresh >= 5) {
-            lastCountRefresh = p.done
-            void offlineDb.listCachedBookIds().then(ids => { state.cachedIds = ids })
-          }
+        state.syncProgress = p
+        const frac = p.total > 0 ? ` ${p.done}/${p.total}` : ''
+        state.syncProgressText = `${p.phaseLabel || '同步中'}${frac}${p.title ? `：${p.title}` : ''}`
+        if (p.phase === 'books' && p.done - lastCountRefresh >= 4) {
+          lastCountRefresh = p.done
+          void offlineDb.listCachedBookIds().then(ids => { state.cachedIds = ids })
         } else if (p.phase === 'pdfs') {
-          state.syncProgressText = p.total
-            ? `下载原 PDF ${p.done}/${p.total}${p.title ? `：${p.title}` : ''}`
-            : '正在检查原 PDF...'
           void offlineDb.listCachedPdfIds().then(ids => { state.cachedPdfIds = ids })
-        } else if (p.message) {
-          state.syncProgressText = p.message
         }
         renderStatusBanners()
       },
     })
     await refreshLocalState()
+    const summary = {
+      at: Date.now(), ok: !ctrl.signal.aborted, aborted: ctrl.signal.aborted, error: '',
+      totalDocs: res.totalDocs ?? (state.library.documents?.length ?? 0),
+      addedBooks: res.addedBooks || 0, renamedBooks: res.renamedBooks || 0, removedBooks: res.removedBooks || 0,
+      syncedBooks: res.syncedBooks || 0, skippedBooks: res.skippedBooks || 0, failedBooks: res.failedBooks || 0,
+      syncedPdfs: res.syncedPdfs || 0, skippedPdfs: res.skippedPdfs || 0, failedPdfs: res.failedPdfs || 0,
+    }
+    state.syncStatus = summary; await offlineDb.saveSyncStatus(summary)
     if (ctrl.signal.aborted) {
       showToast('已取消剩余下载（已完成部分已离线保存）')
     } else if (!silent) {
-      const totalMd = (res.syncedBooks || 0) + (res.skippedBooks || 0)
-      const totalPdf = (res.syncedPdfs || 0) + (res.skippedPdfs || 0)
-      if (includePdfs) {
-        const failTotal = (res.failedBooks || 0) + (res.failedPdfs || 0)
-        showToast(failTotal > 0
-          ? `下载完成：${totalMd} 篇 MD、${totalPdf} 本 PDF（${failTotal} 项失败可重试）`
-          : `已下载全部文件：${totalMd} 篇 MD 正文与 ${totalPdf} 本原 PDF`)
-      } else if (res.failedBooks > 0) {
-        showToast(`同步完成：${totalMd} 篇 MD 正文已就绪，${res.failedBooks} 篇失败`)
-      } else {
-        showToast(`已下载全部 ${totalMd} 篇原文与译文 MD（PDF 按需查看）`)
-      }
+      const notes = [
+        res.addedBooks ? `新增 ${res.addedBooks}` : '',
+        res.renamedBooks ? `改名 ${res.renamedBooks}` : '',
+        res.syncedBooks ? `更新 ${res.syncedBooks}` : '',
+        includePdfs && res.syncedPdfs ? `PDF +${res.syncedPdfs}` : '',
+        res.failedBooks || res.failedPdfs ? `失败 ${(res.failedBooks || 0) + (res.failedPdfs || 0)}` : '',
+      ].filter(Boolean)
+      showToast(notes.length ? `同步完成（${notes.join('，')}）` : `已同步全部 ${summary.totalDocs} 篇正文（均已是最新）`)
     }
   } catch (err) {
-    if (!ctrl.signal.aborted && !silent) {
-      showToast(err.message || '同步失败，当前显示离线缓存')
-    }
+    const msg = ctrl.signal.aborted ? '已手动取消同步' : (err.message || '同步失败，当前显示离线缓存')
+    const errSummary = { ...(state.syncStatus || {}), at: Date.now(), ok: false, aborted: ctrl.signal.aborted, error: msg }
+    state.syncStatus = errSummary; await offlineDb.saveSyncStatus(errSummary).catch(() => {})
+    if (!ctrl.signal.aborted && !silent) showToast(msg)
   } finally {
-    state.syncing = false
-    state.syncProgressText = ''
+    state.syncing = false; state.syncProgress = null; state.syncProgressText = ''
     if (state.syncAbortController === ctrl) state.syncAbortController = null
     render()
   }
@@ -425,6 +435,7 @@ function renderShelfBody() {
         ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost wr-bulkBtn" data-act="cancel-sync">取消下载</button>' : ''}
       </div>
     ` : ''}
+    <div data-role="sync-card-host">${currentSyncCardHtml(true)}</div>
     <div id="wr-lib-search-host">${renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery)}</div>
     ${!visibleDocs.length ? `
       <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
@@ -564,9 +575,7 @@ function renderSettings() {
           <button type="button" class="wr-segBtn ${s.syncIncludePdfs ? 'active' : ''}" data-sync-scope="all">所有文件（含全部 PDF）</button>
         </div>
       </div>
-      <p style="margin:8px 0 0;font-size:12px;color:var(--fg-muted);">
-        待上传离线队列：${state.outboxCount} 条 · 已离线 MD：${state.cachedIds.size} / ${state.library.documents?.length ?? 0} 本 · 已离线 PDF：${state.cachedPdfIds.size} / ${(state.library.documents ?? []).filter(d => d.hasPdf !== false).length} 本
-      </p>
+      <div data-role="sync-card-host" style="margin-top:10px;">${currentSyncCardHtml(false)}</div>
     </div>
 
     <div class="wr-card">
@@ -700,9 +709,7 @@ function render() {
     appEl.querySelectorAll('[data-act="dl-all-files"]').forEach(btn => {
       btn.onclick = async () => { await beforeRun?.(); await performSync(false, { includePdfs: true }) }
     })
-    appEl.querySelectorAll('[data-act="cancel-sync"]').forEach(btn => {
-      btn.onclick = () => state.syncAbortController?.abort()
-    })
+    bindSyncCardActions(appEl)
   }
 
   if (state.tab === 'shelf') {
@@ -835,59 +842,21 @@ function render() {
     })
     appEl.querySelectorAll('[data-devmode]').forEach(btn => {
       btn.onclick = async () => {
-        const mode = btn.dataset.devmode
-        if (mode === 'eink-stylus') {
-          await updateSettings({
-            deviceMode: 'eink',
-            theme: 'eink',
-            tapZoneMode: 'keysOnly',
-            showPageTurnBar: true,
-            columnLayout: 'auto',
-            bilingualLayout: 'auto',
-          })
-          showToast('已启用汉王 N10 电磁笔+侧键专享模式')
-        } else if (mode === 'eink') {
-          await updateSettings({
-            deviceMode: 'eink',
-            theme: 'eink',
-            tapZoneMode: 'classic',
-            showPageTurnBar: false,
-            columnLayout: 'auto',
-            bilingualLayout: 'auto',
-          })
-          showToast('已启用汉王墨水屏模式')
-        } else {
-          await updateSettings({
-            deviceMode: 'phone',
-            theme: 'paper',
-            tapZoneMode: 'ergonomic',
-            showPageTurnBar: false,
-            columnLayout: 'auto',
-            bilingualLayout: 'auto',
-          })
-          showToast('已切换为安卓手机竖屏模式')
+        const presets = {
+          'eink-stylus': [{ deviceMode: 'eink', theme: 'eink', tapZoneMode: 'keysOnly', showPageTurnBar: true }, '已启用汉王 N10 电磁笔+侧键专享模式'],
+          eink: [{ deviceMode: 'eink', theme: 'eink', tapZoneMode: 'classic', showPageTurnBar: false }, '已启用汉王墨水屏模式'],
+          phone: [{ deviceMode: 'phone', theme: 'paper', tapZoneMode: 'ergonomic', showPageTurnBar: false }, '已切换为安卓手机竖屏模式'],
         }
-        render()
+        const [patch, msg] = presets[btn.dataset.devmode] || presets.phone
+        await updateSettings({ ...patch, columnLayout: 'auto', bilingualLayout: 'auto' })
+        showToast(msg); render()
       }
     })
-    appEl.querySelectorAll('[data-set-col]').forEach(btn => {
-      btn.onclick = async () => {
-        await updateSettings({ columnLayout: btn.dataset.setCol })
-        render()
-      }
-    })
-    appEl.querySelectorAll('[data-set-bi]').forEach(btn => {
-      btn.onclick = async () => {
-        await updateSettings({ bilingualLayout: btn.dataset.setBi })
-        render()
-      }
-    })
+    appEl.querySelectorAll('[data-set-col]').forEach(btn => { btn.onclick = async () => { await updateSettings({ columnLayout: btn.dataset.setCol }); render() } })
+    appEl.querySelectorAll('[data-set-bi]').forEach(btn => { btn.onclick = async () => { await updateSettings({ bilingualLayout: btn.dataset.setBi }); render() } })
     appEl.querySelectorAll('[data-set-tap]').forEach(btn => {
       btn.onclick = async () => {
-        await updateSettings({
-          tapZoneMode: btn.dataset.setTap,
-          showPageTurnBar: btn.dataset.setTap === 'keysOnly' ? true : state.settings.showPageTurnBar,
-        })
+        await updateSettings({ tapZoneMode: btn.dataset.setTap, showPageTurnBar: btn.dataset.setTap === 'keysOnly' ? true : state.settings.showPageTurnBar })
         render()
       }
     })
