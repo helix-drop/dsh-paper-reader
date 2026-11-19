@@ -1,6 +1,8 @@
 import {
   escapeHtml,
   plainText,
+  renderSearchSnippetHtml,
+  searchBookContent,
   validateCorrectionMarkers,
 } from './reading-core.js'
 import { readerApi } from './api.js'
@@ -199,6 +201,40 @@ export function renderReaderSheet(ctrl, host) {
       <input class="wr-input" data-corr="reason" placeholder="勘误说明（选填）" />
       <button type="button" class="wr-btnPrimary" data-act="save-corr">保存修订</button>
     `
+  } else if (ctrl.activeSheet === 'search') {
+    const q = String(ctrl.searchQuery ?? '')
+    inner = `
+      <div class="wr-barRow">
+        <h3 style="margin:0;font-size:16px;">全书内容搜索</h3>
+        <button type="button" class="wr-btnGhost" data-act="close">关闭</button>
+      </div>
+      <div class="wr-barRow" style="gap:6px;">
+        <input type="search" class="wr-input" data-book-search="1" value="${escapeHtml(q)}" placeholder="搜索本书原文或译文内容..." style="flex:1;" />
+        ${q ? '<button type="button" class="wr-btnGhost" data-clear-search="1" style="padding:6px 10px;font-size:12px;">清空</button>' : ''}
+      </div>
+      <div data-role="book-search-status" style="font-size:12px;color:var(--fg-muted);"></div>
+      <div data-role="book-search-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    `
+  } else if (ctrl.activeSheet === 'markDetail') {
+    const tokens = String(ctrl.sheetData?.ids || '').split(',').filter(Boolean)
+    const ids = new Set(tokens.map(tok => { const cut = tok.lastIndexOf(':'); return cut >= 0 ? tok.slice(0, cut) : tok }))
+    const matched = (ctrl.marks || []).filter(m => ids.has(m.id))
+    inner = `
+      <div class="wr-barRow">
+        <h3 style="margin:0;font-size:16px;">划线与想法</h3>
+        <button type="button" class="wr-btnGhost" data-act="close">关闭</button>
+      </div>
+      ${matched.length ? matched.map(m => `
+        <div class="wr-card" style="margin:0;">
+          <div style="font-size:11px;color:var(--fg-muted);margin-bottom:6px;">${m.view === 'original' ? '原文' : '译文'} · ${m.kind === 'bookmark' ? '笔记/书签' : '划线'}</div>
+          <blockquote class="wr-quoteBox" style="margin-bottom:${m.comment ? '8px' : '0'};">${escapeHtml(m.quote || m.exact || '')}</blockquote>
+          ${m.comment ? `<p style="margin:6px 0 0;font-size:14px;line-height:1.55;">💭 ${escapeHtml(m.comment)}</p>` : ''}
+          <div class="wr-barRow" style="justify-content:flex-end;margin-top:8px;">
+            <button type="button" class="wr-btnGhost" data-del-mark="${escapeHtml(m.id)}" data-del-kind="${escapeHtml(m.kind || 'highlight')}" style="color:#dc2626;padding:5px 12px;font-size:12px;">${m.kind === 'bookmark' ? '取消划线' : '删除高亮'}</button>
+          </div>
+        </div>
+      `).join('') : '<p style="color:var(--fg-muted);font-size:13px;">未找到该划线记录</p>'}
+    `
   }
 
   const dockSide = Boolean(ctrl.layoutInfo?.dockSideSheet)
@@ -294,5 +330,72 @@ export function renderReaderSheet(ctrl, host) {
         ctrl.onToast(err.message)
       }
     }
+  } else if (ctrl.activeSheet === 'search') {
+    const input = host.querySelector('[data-book-search="1"]')
+    const statusEl = host.querySelector('[data-role="book-search-status"]')
+    const listEl = host.querySelector('[data-role="book-search-list"]')
+    const renderHits = () => {
+      const q = String(ctrl.searchQuery || '').trim()
+      if (!q) {
+        statusEl.textContent = '输入关键词，可检索当前书籍的原文与译文段落。'
+        listEl.innerHTML = ''
+        return
+      }
+      const res = searchBookContent(ctrl.reading, q, { maxMatches: 120 })
+      statusEl.textContent = res.matches.length
+        ? `共找到 ${res.totalMatches} 处匹配（显示 ${res.matches.length} 段，点击定位并高亮）`
+        : '全书中未找到匹配内容'
+      listEl.innerHTML = res.matches
+        .map(
+          h => `
+        <button type="button" class="wr-libSearchHitBtn" data-search-block="${escapeHtml(h.blockId)}" data-search-view="${escapeHtml(h.view)}">
+          <span class="wr-searchTag">${h.view === 'original' ? '原文' : '译文'}</span>
+          ${h.chapterLabel ? `<span class="wr-searchChapter">${escapeHtml(h.chapterLabel)}</span>` : ''}
+          <span class="wr-searchSnippetText">${renderSearchSnippetHtml(h.snippet, h.matchOffset, h.matchLen)}</span>
+        </button>
+      `
+        )
+        .join('')
+      listEl.querySelectorAll('[data-search-block]').forEach(btn => {
+        btn.onclick = () => {
+          const bid = btn.dataset.searchBlock
+          const bview = btn.dataset.searchView
+          ctrl.closeSheet()
+          if (bview && bview !== ctrl.viewMode && (bview === 'original' || ctrl.hasTranslation)) {
+            ctrl.jumpToBlock(bid, bview)
+          } else {
+            ctrl.pendingBlockId = bid
+            ctrl.renderBlocks()
+            ctrl.scheduleSaveProgress()
+          }
+        }
+      })
+    }
+    renderHits()
+    if (input) {
+      input.oninput = () => {
+        ctrl.searchQuery = input.value
+        renderHits()
+      }
+      setTimeout(() => input.focus(), 40)
+    }
+    host.querySelector('[data-clear-search="1"]')?.addEventListener('click', () => {
+      ctrl.searchQuery = ''
+      ctrl.renderBlocks()
+      ctrl.renderSheet()
+    })
+  } else if (ctrl.activeSheet === 'markDetail') {
+    host.querySelectorAll('[data-del-mark]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.delMark
+        const kind = btn.dataset.delKind
+        await readerApi.postBookmarkAction(ctrl.settings, kind === 'bookmark' ? { muteHighlight: id } : { removeHighlight: id })
+        ctrl.marks = ctrl.marks.filter(m => m.id !== id)
+        await offlineDb.saveMarks(ctrl.taskId, ctrl.marks)
+        ctrl.closeSheet()
+        ctrl.renderBlocks()
+        ctrl.onToast('已取消高亮')
+      }
+    })
   }
 }

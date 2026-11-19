@@ -122,14 +122,55 @@ export function matchQuoteRanges(raw, quote) {
   return merged
 }
 
-function renderInlineFragment(raw, { noteNumbers, view, blockId }) {
+function parseMobileSearchQuery(query) {
+  const lower = String(query ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+  if (!lower) return { lower: '', tokens: [] }
+  return { lower, tokens: [...new Set(lower.split(' ').filter(Boolean))] }
+}
+
+function escapeAndHighlight(str, searchQuery) {
+  const raw = String(str ?? '')
+  const parsed = parseMobileSearchQuery(searchQuery)
+  if (!parsed.lower || !raw) return escapeHtml(raw)
+  const lower = raw.toLowerCase()
+  const terms = lower.includes(parsed.lower) ? [parsed.lower] : parsed.tokens
+  const sorted = [...terms].filter(Boolean).sort((a, b) => b.length - a.length)
+  if (!sorted.length) return escapeHtml(raw)
+  const ranges = []
+  for (const term of sorted) {
+    let pos = 0
+    while ((pos = lower.indexOf(term, pos)) >= 0) {
+      ranges.push([pos, pos + term.length])
+      pos += Math.max(1, term.length)
+    }
+  }
+  if (!ranges.length) return escapeHtml(raw)
+  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const merged = []
+  for (const r of ranges) {
+    const prev = merged.at(-1)
+    if (!prev || r[0] > prev[1]) merged.push([r[0], r[1]])
+    else prev[1] = Math.max(prev[1], r[1])
+  }
+  let out = ''
+  let cur = 0
+  for (const [s, e] of merged) {
+    if (s > cur) out += escapeHtml(raw.slice(cur, s))
+    out += `<mark class="wr-markSearch">${escapeHtml(raw.slice(s, e))}</mark>`
+    cur = e
+  }
+  if (cur < raw.length) out += escapeHtml(raw.slice(cur))
+  return out
+}
+
+function renderInlineFragment(raw, { noteNumbers, view, blockId, searchQuery = '' }) {
   // Tokenize images, footnotes, links, bold/italic/code safely
   const tokens = []
   const re = /!\[([^\]]*)\]\(([^)]+)\)|\[\^([^\]]+)\](?!:)|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*/g
   let last = 0
   let out = ''
   for (const m of raw.matchAll(re)) {
-    out += escapeHtml(raw.slice(last, m.index))
+    out += escapeAndHighlight(raw.slice(last, m.index), searchQuery)
     if (m[2] !== undefined) {
       out += `<img data-asset-ref="${escapeHtml(m[2])}" alt="${escapeHtml(m[1])}" loading="lazy" />`
     } else if (m[3] !== undefined) {
@@ -137,17 +178,17 @@ function renderInlineFragment(raw, { noteNumbers, view, blockId }) {
       const label = noteNumbers?.get(fnId) ?? fnId
       out += `<button type="button" class="wr-fnRef" data-fn-id="${escapeHtml(fnId)}" data-fn-view="${escapeHtml(view)}" data-fn-block="${escapeHtml(blockId)}">${escapeHtml(label)}</button>`
     } else if (m[4] !== undefined) {
-      out += `<span class="wr-linkText">${escapeHtml(m[4])}</span>`
+      out += `<span class="wr-linkText">${escapeAndHighlight(m[4], searchQuery)}</span>`
     } else if (m[6] !== undefined) {
       out += `<code>${escapeHtml(m[6])}</code>`
     } else if (m[7] !== undefined) {
-      out += `<strong>${escapeHtml(m[7])}</strong>`
+      out += `<strong>${escapeAndHighlight(m[7], searchQuery)}</strong>`
     } else if (m[8] !== undefined) {
-      out += `<em>${escapeHtml(m[8])}</em>`
+      out += `<em>${escapeAndHighlight(m[8], searchQuery)}</em>`
     }
     last = m.index + m[0].length
   }
-  out += escapeHtml(raw.slice(last))
+  out += escapeAndHighlight(raw.slice(last), searchQuery)
   void tokens
   return out
 }
@@ -156,8 +197,9 @@ function renderWithHighlights(raw, marks, opts) {
   if (!marks?.length) return renderInlineFragment(raw, opts)
   const spans = []
   for (const mark of marks) {
+    const token = mark.id ? `${mark.id}:${mark.kind === 'bookmark' ? 'bookmark' : 'highlight'}` : ''
     for (const [start, end] of matchQuoteRanges(raw, mark.quote)) {
-      spans.push({ start, end, kind: mark.kind })
+      spans.push({ start, end, kind: mark.kind, ids: token ? [token] : [] })
     }
   }
   if (!spans.length) return renderInlineFragment(raw, opts)
@@ -165,10 +207,13 @@ function renderWithHighlights(raw, marks, opts) {
   const merged = []
   for (const s of spans) {
     const last = merged.at(-1)
-    if (!last || s.start >= last.end) merged.push({ ...s })
+    if (!last || s.start >= last.end) merged.push({ ...s, ids: [...s.ids] })
     else {
       last.end = Math.max(last.end, s.end)
       if (s.kind === 'bookmark') last.kind = 'bookmark'
+      for (const id of s.ids) {
+        if (!last.ids.includes(id)) last.ids.push(id)
+      }
     }
   }
   let cursor = 0
@@ -176,17 +221,18 @@ function renderWithHighlights(raw, marks, opts) {
   for (const s of merged) {
     if (s.start > cursor) html += renderInlineFragment(raw.slice(cursor, s.start), opts)
     const cls = s.kind === 'bookmark' ? 'wr-markBookmark' : 'wr-markHighlight'
-    html += `<mark class="${cls}">${renderInlineFragment(raw.slice(s.start, s.end), opts)}</mark>`
+    const idAttr = s.ids?.length ? ` data-mark-ids="${escapeHtml(s.ids.join(','))}"` : ''
+    html += `<mark class="${cls}"${idAttr}>${renderInlineFragment(raw.slice(s.start, s.end), opts)}</mark>`
     cursor = s.end
   }
   if (cursor < raw.length) html += renderInlineFragment(raw.slice(cursor), opts)
   return html
 }
 
-export function renderBlockBodyHtml(rawText, block, { view, marks = [], noteNumbers, showDrawerTrigger = false }) {
+export function renderBlockBodyHtml(rawText, block, { view, marks = [], noteNumbers, showDrawerTrigger = false, searchQuery = '' }) {
   const raw = String(rawText ?? '')
   const trimmed = raw.trim()
-  const opts = { view, blockId: block.id, noteNumbers }
+  const opts = { view, blockId: block.id, noteNumbers, searchQuery }
   const trigger = showDrawerTrigger
     ? `<button type="button" class="wr-blockTrigger" data-drawer-block="${escapeHtml(block.id)}" title="对照原文与页码">原文${block.pdfPage ? ` · P${block.pdfPage}` : ''}</button>`
     : ''
@@ -434,4 +480,159 @@ export function bookCoverPalette(title = '', isEink = false) {
   return COVER_PALETTES[Math.abs(h) % COVER_PALETTES.length]
 }
 
+export function stripMarkdownForSearch(raw) {
+  return String(raw ?? '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\[\^[^\]]+\]/g, '')
+    .replace(/^\s{0,3}(?:#{1,6}\s*|>\s?)/gm, '')
+    .replace(/(\*\*|__|\*|_|`)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function searchBookContent(reading, query, { maxMatches = 200, view = 'all' } = {}) {
+  const parsed = parseMobileSearchQuery(query)
+  if (!reading || !parsed.lower) return { totalMatches: 0, truncated: false, matches: [] }
+
+  const findHit = plain => {
+    const hay = plain.toLowerCase()
+    const pos = hay.indexOf(parsed.lower)
+    if (pos >= 0) {
+      let count = 0
+      let cur = 0
+      const step = Math.max(1, parsed.lower.length)
+      while ((cur = hay.indexOf(parsed.lower, cur)) >= 0) { count++; cur += step }
+      return { firstIdx: pos, matchLen: parsed.lower.length, count }
+    }
+    if (parsed.tokens.length <= 1) return null
+    let firstIdx = -1
+    let matchLen = 0
+    let count = 0
+    for (const tok of parsed.tokens) {
+      const idx = hay.indexOf(tok)
+      if (idx < 0) return null
+      if (firstIdx < 0 || idx < firstIdx) { firstIdx = idx; matchLen = tok.length }
+      let cur = 0
+      while ((cur = hay.indexOf(tok, cur)) >= 0) { count++; cur += Math.max(1, tok.length) }
+    }
+    return { firstIdx, matchLen, count: Math.max(1, count) }
+  }
+
+  const chapterMap = (outline, blocks) => {
+    const byId = new Map((blocks || []).map((b, i) => [b.id, i]))
+    return (outline || [])
+      .map(it => ({
+        idx: byId.get(it.id),
+        label: String(it.label || '').replace(/\s*\((?:部扉页|篇扉页|扉页)\)/g, '').trim(),
+      }))
+      .filter(x => x.idx !== undefined)
+      .sort((a, b) => a.idx - b.idx)
+  }
+  const labelAt = (entries, i) => {
+    let lbl = ''
+    for (const e of entries) {
+      if (e.idx > i) break
+      if (e.label) lbl = e.label
+    }
+    return lbl
+  }
+
+  let totalMatches = 0
+  const matches = []
+  const scan = (blocks, outline, hiddenSet, targetView, getRaw, getId) => {
+    if (view !== 'all' && view !== targetView) return
+    const chapters = chapterMap(outline, blocks)
+    ;(blocks || []).forEach((b, idx) => {
+      if (!b || hiddenSet.has(b.id)) return
+      const plain = stripMarkdownForSearch(getRaw(b))
+      if (!plain) return
+      const hit = findHit(plain)
+      if (!hit) return
+      totalMatches += hit.count
+      if (matches.length < maxMatches) {
+        const s0 = Math.max(0, hit.firstIdx - 32)
+        const s1 = Math.min(plain.length, hit.firstIdx + hit.matchLen + 32)
+        const pre = s0 > 0 ? '…' : ''
+        const suf = s1 < plain.length ? '…' : ''
+        matches.push({
+          blockId: getId(b),
+          view: targetView,
+          chapterLabel: labelAt(chapters, idx),
+          snippet: pre + plain.slice(s0, s1) + suf,
+          matchOffset: pre.length + (hit.firstIdx - s0),
+          matchLen: hit.matchLen,
+          matchCount: hit.count,
+        })
+      }
+    })
+  }
+
+  const hiddenMain = new Set(reading.hiddenBlocks ?? [])
+  const hiddenOrig = new Set(reading.originalOutline?.hiddenBlocks ?? [])
+  const hasStandalone = reading.standaloneView === 'translation' && Array.isArray(reading.originalBlocks)
+  const hasTrans = hasStandalone || Boolean(reading.comparisonAvailable) || (reading.blocks || []).some(b => typeof b?.translation === 'string' && b.translation.trim())
+
+  if (hasStandalone) {
+    scan(reading.blocks, reading.outline, hiddenMain, 'translation', b => b.text, b => b.id)
+    scan(reading.originalBlocks, reading.originalOutline?.outline ?? reading.outline, hiddenOrig, 'original', b => b.text, b => b.id)
+  } else if (hasTrans) {
+    scan(reading.blocks, reading.outline, hiddenMain, 'translation', b => b.translation ?? b.text, b => b.id)
+    scan(reading.blocks, reading.originalOutline?.outline ?? reading.outline, hiddenOrig, 'original', b => b.sourceText ?? b.text, b => b.sourceBlockId ?? b.id)
+  } else {
+    scan(reading.blocks, reading.originalOutline?.outline ?? reading.outline, hiddenOrig, 'original', b => b.sourceText ?? b.text, b => b.id)
+  }
+
+  return { totalMatches, truncated: totalMatches > matches.length, matches }
+}
+
+export function renderSearchSnippetHtml(snippet, matchOffset, matchLen) {
+  const text = String(snippet ?? '')
+  if (!(matchLen > 0) || matchOffset < 0 || matchOffset >= text.length) {
+    return escapeHtml(text)
+  }
+  return (
+    escapeHtml(text.slice(0, matchOffset))
+    + `<mark class="wr-markSearch">${escapeHtml(text.slice(matchOffset, matchOffset + matchLen))}</mark>`
+    + escapeHtml(text.slice(matchOffset + matchLen))
+  )
+}
+
+export function renderLibrarySearchSectionHtml(searchState, shelfQuery) {
+  const q = String(shelfQuery ?? '').trim()
+  if (!q) return ''
+  const data = searchState?.data
+  const results = (data?.results ?? []).filter(r => r.matches?.length > 0)
+  return `
+    <div class="wr-libSearchSection">
+      <div class="wr-barRow" style="margin-bottom:6px;">
+        <strong style="font-size:13px;">全库正文检索</strong>
+        <span style="font-size:11px;color:var(--fg-muted);">
+          ${searchState?.loading ? '正在检索原文与译文…' : data ? `在 ${data.totalBooks} 本书中找到 ${data.totalMatches} 处匹配${data.offlineOnly ? '（离线已缓存）' : ''}` : ''}
+        </span>
+      </div>
+      ${
+        !searchState?.loading && data && !results.length
+          ? '<div style="font-size:12px;color:var(--fg-muted);padding:6px 0;">全库已索引正文中未找到匹配内容</div>'
+          : results.map(book => `
+            <div class="wr-libSearchBookCard">
+              <div class="wr-barRow" style="margin-bottom:4px;">
+                <span class="wr-libSearchBookName" data-open-book="${escapeHtml(book.id)}">${escapeHtml(book.name)}</span>
+                <span class="wr-badge">${book.totalMatches} 处</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                ${book.matches.map(h => `
+                  <button type="button" class="wr-libSearchHitBtn" data-search-jump="${escapeHtml(book.id)}" data-jump-block="${escapeHtml(h.blockId)}" data-jump-view="${escapeHtml(h.view)}">
+                    <span class="wr-searchTag">${h.view === 'original' ? '原文' : '译文'}</span>
+                    ${h.chapterLabel ? `<span class="wr-searchChapter">${escapeHtml(h.chapterLabel)}</span>` : ''}
+                    <span class="wr-searchSnippetText">${renderSearchSnippetHtml(h.snippet, h.matchOffset, h.matchLen)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')
+      }
+    </div>
+  `
+}
 

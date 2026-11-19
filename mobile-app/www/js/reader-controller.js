@@ -21,7 +21,7 @@ function nowClock() {
 }
 
 export class ReaderController {
-  constructor({ root, taskId, reading, settings, initialBlockId, initialView, onExit, onToast, onSettingsChange }) {
+  constructor({ root, taskId, reading, settings, initialBlockId, initialView, initialSearchQuery = '', onExit, onToast, onSettingsChange }) {
     this.root = root
     this.taskId = taskId
     this.reading = reading
@@ -29,6 +29,7 @@ export class ReaderController {
     this.onExit = onExit
     this.onToast = onToast
     this.onSettingsChange = onSettingsChange
+    this.searchQuery = initialSearchQuery || ''
 
     const hasTrans = Boolean(
       reading.comparisonAvailable || reading.blocks?.some(b => b.translation) || reading.standaloneView === 'translation'
@@ -374,6 +375,7 @@ export class ReaderController {
           marks: blockMarks,
           noteNumbers,
           showDrawerTrigger: showTrigger,
+          searchQuery: this.searchQuery,
         })
 
         if (this.viewMode === 'bilingual' && b.sourceText && b.sourceText !== mainText) {
@@ -383,6 +385,7 @@ export class ReaderController {
             marks: srcMarks,
             noteNumbers: origNoteNumbers,
             showDrawerTrigger: Boolean(b.pdfPage),
+            searchQuery: this.searchQuery,
           })
           if (useParallelBilingual) {
             return `<div class="wr-block bilingual-parallel" data-block-id="${escapeHtml(b.id)}"><div class="wr-bilingualPrimary" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}</div><div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div></div>`
@@ -781,6 +784,12 @@ export class ReaderController {
         this.openBilingualDrawer(drawerBtn.dataset.drawerBlock)
         return
       }
+      const markEl = e.target.closest?.('mark[data-mark-ids]')
+      if (markEl && (!window.getSelection() || window.getSelection().isCollapsed)) {
+        e.stopPropagation()
+        this.openMarkDetail(markEl.dataset.markIds)
+        return
+      }
       const sel = window.getSelection()
       if (sel && !sel.isCollapsed) return
       if (this.selectionInfo) {
@@ -966,6 +975,8 @@ export class ReaderController {
     this.renderSheet()
   }
 
+  openSearchSheet() { this.activeSheet = 'search'; this.renderSheet() }
+  openMarkDetail(ids) { this.activeSheet = 'markDetail'; this.sheetData = { ids }; this.renderSheet() }
   closeSheet() {
     this.activeSheet = null
     this.sheetData = null

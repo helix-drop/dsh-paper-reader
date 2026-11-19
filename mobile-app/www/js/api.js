@@ -517,4 +517,34 @@ export const readerApi = {
     await offlineDb.savePdf(taskId, blob)
     return URL.createObjectURL(blob)
   },
+
+  async searchLibrary(settings, query, { documents = [], meta = {}, includeHidden = false, signal } = {}) {
+    const q = String(query ?? '').trim()
+    if (!q) return { query: '', totalBooks: 0, totalMatches: 0, results: [] }
+    const local = await offlineDb.searchAllBooks(q, { documents, meta, includeHidden })
+    const isNative = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.())
+    if (!baseUrl(settings) && isNative) return local
+    try {
+      const qs = `q=${encodeURIComponent(q)}${includeHidden ? '&includeHidden=1' : ''}&limitBooks=25&maxMatches=5`
+      const remote = await apiJson(settings, `/pipeline/search?${qs}`, { timeoutMs: 8000, retries: 0, signal })
+      const merged = new Map()
+      for (const item of local.results ?? []) merged.set(item.id, item)
+      for (const item of remote.results ?? []) {
+        const existing = merged.get(item.id)
+        if (!existing || item.totalMatches > existing.totalMatches || !existing.matches?.length) {
+          merged.set(item.id, item)
+        }
+      }
+      const list = [...merged.values()].sort((a, b) => (b.totalMatches - a.totalMatches) || (Number(b.titleMatched) - Number(a.titleMatched)))
+      return {
+        query: q,
+        totalBooks: Math.max(local.totalBooks, remote.totalBooks ?? list.length),
+        totalMatches: list.reduce((s, x) => s + (x.totalMatches || 0), 0),
+        offlineOnly: false,
+        results: list.slice(0, 25),
+      }
+    } catch {
+      return local
+    }
+  },
 }

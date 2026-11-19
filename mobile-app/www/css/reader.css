@@ -676,3 +676,16 @@ body[data-theme="eink"] .wr-sheetBackdrop {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+.wr-markSearch {
+  background: #fde047;
+  color: #18181b;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.wr-page[data-theme="dark"] .wr-markSearch,
+.wr-page[data-theme="night"] .wr-markSearch {
+  background: rgba(250, 204, 21, 0.36);
+  color: #fef08a;
+}

@@ -1,4 +1,4 @@
-import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack } from './reading-core.js'
+import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack, renderLibrarySearchSectionHtml } from './reading-core.js'
 import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
@@ -17,6 +17,7 @@ const state = {
   cachedPdfIds: new Set(),
   outboxCount: 0,
   searchQuery: '',
+  libSearch: { loading: false, query: '', data: null, timer: null, ctrl: null },
   selectedFolder: 'all',
   noteSearch: '',
   noteDocFilter: '',
@@ -202,7 +203,7 @@ async function performSync(silent = false, options = {}) {
   }
 }
 
-async function openBook(taskId, blockId = '', view = '') {
+async function openBook(taskId, blockId = '', view = '', searchQuery = '') {
   if (!taskId || state.openingId === taskId) return
   state.openAbortController?.abort()
   abortCovers()
@@ -240,6 +241,7 @@ async function openBook(taskId, blockId = '', view = '') {
       settings: state.settings,
       initialBlockId: blockId,
       initialView: view,
+      initialSearchQuery: searchQuery,
       onToast: showToast,
       onSettingsChange: async patch => updateSettings(patch),
       onExit: async () => {
@@ -344,6 +346,15 @@ async function hydrateShelfCovers() {
 }
 
 function renderShelf() {
+  return `
+    <div class="wr-searchRow">
+      <input type="search" class="wr-input" placeholder="全库搜索书名、作者或正文（原文/译文）..." value="${escapeHtml(state.searchQuery)}" data-act="search-shelf" />
+    </div>
+    <div id="wr-shelf-results">${renderShelfBody()}</div>
+  `
+}
+
+function renderShelfBody() {
   const docs = (state.library.documents ?? []).filter(d => {
     const meta = state.library.meta?.[d.id] ?? {}
     if (meta.hidden) return false
@@ -402,9 +413,6 @@ function renderShelf() {
         </div>
       </div>
     ` : ''}
-    <div class="wr-searchRow">
-      <input type="search" class="wr-input" placeholder="搜索书名或作者..." value="${escapeHtml(state.searchQuery)}" data-act="search-shelf" />
-    </div>
     <div class="wr-pillRow">
       <button type="button" class="wr-pill ${state.selectedFolder === 'all' ? 'active' : ''}" data-folder="all">全部 (${allDocs.length})</button>
       <button type="button" class="wr-pill ${state.selectedFolder === 'uncategorized' ? 'active' : ''}" data-folder="uncategorized">未归类</button>
@@ -417,6 +425,7 @@ function renderShelf() {
         ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost wr-bulkBtn" data-act="cancel-sync">取消下载</button>' : ''}
       </div>
     ` : ''}
+    <div id="wr-lib-search-host">${renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery)}</div>
     ${!visibleDocs.length ? `
       <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
         <p style="margin:12px 0;">${state.library.documents?.length ? '没有匹配的文献' : '书架为空，请先在「设置」配置轻量云服务器并点击同步。'}</p>
@@ -697,46 +706,63 @@ function render() {
   }
 
   if (state.tab === 'shelf') {
-    bindDownloadActions()
-    const search = appEl.querySelector('[data-act="search-shelf"]')
-    if (search) search.oninput = () => { state.searchQuery = search.value; state.shelfPage = 0; render() }
-    appEl.querySelectorAll('[data-folder]').forEach(btn => {
-      btn.onclick = () => { state.selectedFolder = btn.dataset.folder; state.shelfPage = 0; render() }
-    })
-    appEl.querySelector('[data-shelf-page="prev"]')?.addEventListener('click', () => {
-      if (state.shelfPage > 0) { state.shelfPage--; render() }
-    })
-    appEl.querySelector('[data-shelf-page="next"]')?.addEventListener('click', () => {
-      if (state.shelfPage < state.shelfTotalPages - 1) { state.shelfPage++; render() }
-    })
-    appEl.querySelectorAll('[data-read-book]').forEach(btn => {
-      btn.onclick = e => {
-        e.stopPropagation()
-        openBook(btn.dataset.readBook)
+    const bindSearchHits = root => {
+      root?.querySelectorAll('[data-open-book]').forEach(el => { el.onclick = () => openBook(el.dataset.openBook) })
+      root?.querySelectorAll('[data-search-jump]').forEach(btn => {
+        btn.onclick = () => openBook(btn.dataset.searchJump, btn.dataset.jumpBlock, btn.dataset.jumpView, state.searchQuery.trim())
+      })
+    }
+    const scheduleSearch = () => {
+      clearTimeout(state.libSearch.timer); state.libSearch.ctrl?.abort()
+      const q = state.searchQuery.trim()
+      if (!q) {
+        state.libSearch = { loading: false, query: '', data: null, timer: null, ctrl: null }
+        const h = document.getElementById('wr-lib-search-host'); if (h) h.innerHTML = ''; return
       }
-    })
-    appEl.querySelectorAll('[data-dl-book]').forEach(btn => {
-      btn.onclick = async e => {
-        e.stopPropagation()
-        const id = btn.dataset.dlBook
-        state.downloadingId = id
-        render()
+      const ctrl = new AbortController()
+      state.libSearch = { ...state.libSearch, loading: true, query: q, ctrl }
+      const paint = () => {
+        const h = document.getElementById('wr-lib-search-host'); if (!h) return
+        h.innerHTML = renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery); bindSearchHits(h)
+      }
+      paint()
+      state.libSearch.timer = setTimeout(async () => {
         try {
-          const res = await readerApi.downloadBookOffline(state.settings, id)
-          state.cachedIds.add(id)
-          showToast(`已缓存离线（含 ${res.assetsCount} 张插图）`)
-        } catch (err) {
-          showToast(err.message || '离线下载失败')
-        } finally {
-          state.downloadingId = ''
-          render()
+          const data = await readerApi.searchLibrary(state.settings, q, {
+            documents: state.library.documents ?? [], meta: state.library.meta ?? {}, signal: ctrl.signal,
+          })
+          if (!ctrl.signal.aborted && state.searchQuery.trim() === q) {
+            state.libSearch = { ...state.libSearch, loading: false, query: q, data }; paint()
+          }
+        } catch {}
+      }, 140)
+    }
+    const bindShelfBody = () => {
+      bindDownloadActions()
+      const root = document.getElementById('wr-shelf-results') || appEl
+      root.querySelectorAll('[data-folder]').forEach(btn => { btn.onclick = () => { state.selectedFolder = btn.dataset.folder; state.shelfPage = 0; render() } })
+      root.querySelector('[data-shelf-page="prev"]')?.addEventListener('click', () => { if (state.shelfPage > 0) { state.shelfPage--; render() } })
+      root.querySelector('[data-shelf-page="next"]')?.addEventListener('click', () => { if (state.shelfPage < state.shelfTotalPages - 1) { state.shelfPage++; render() } })
+      root.querySelectorAll('[data-read-book]').forEach(btn => { btn.onclick = e => { e.stopPropagation(); openBook(btn.dataset.readBook) } })
+      root.querySelectorAll('[data-dl-book]').forEach(btn => {
+        btn.onclick = async e => {
+          e.stopPropagation(); const id = btn.dataset.dlBook; state.downloadingId = id; render()
+          try {
+            const res = await readerApi.downloadBookOffline(state.settings, id); state.cachedIds.add(id)
+            showToast(`已缓存离线（含 ${res.assetsCount} 张插图）`)
+          } catch (err) { showToast(err.message || '离线下载失败') } finally { state.downloadingId = ''; render() }
         }
-      }
-    })
-    appEl.querySelectorAll('[data-open-book]').forEach(card => {
-      card.onclick = () => openBook(card.dataset.openBook)
-    })
-    hydrateShelfCovers()
+      })
+      bindSearchHits(root); hydrateShelfCovers()
+    }
+    bindShelfBody()
+    const search = appEl.querySelector('[data-act="search-shelf"]')
+    if (search) search.oninput = () => {
+      state.searchQuery = search.value; state.shelfPage = 0
+      const box = document.getElementById('wr-shelf-results')
+      if (box) { box.innerHTML = renderShelfBody(); bindShelfBody(); scheduleSearch() }
+      else render()
+    }
   } else if (state.tab === 'notes') {
     const ns = appEl.querySelector('[data-act="search-notes"]')
     if (ns) ns.oninput = () => { state.noteSearch = ns.value; render() }
@@ -943,6 +969,7 @@ nativeBridge.setBackHandler(() => {
   if (state.tab !== 'shelf') { state.tab = 'shelf'; render(); return true }
   if (state.searchQuery || state.selectedFolder !== 'all') {
     state.searchQuery = ''
+    state.libSearch = { loading: false, query: '', data: null, timer: null, ctrl: null }
     state.selectedFolder = 'all'
     state.shelfPage = 0
     render()

@@ -1,3 +1,5 @@
+import { searchBookContent } from './reading-core.js'
+
 const DB_NAME = 'paper-reader-mobile-v1'
 const DB_VERSION = 1
 
@@ -202,5 +204,48 @@ export const offlineDb = {
 
   async removeOutbox(id) {
     return withStore('outbox', 'readwrite', s => reqPromise(s.delete(id)))
+  },
+
+  async searchAllBooks(query, { documents = [], meta = {}, includeHidden = false, limitBooks = 25, maxMatchesPerBook = 5 } = {}) {
+    const q = String(query ?? '').trim()
+    if (!q) return { query: '', totalBooks: 0, totalMatches: 0, offlineOnly: true, results: [] }
+    const docById = new Map((documents || []).map(d => [d.id, d]))
+    const cachedIds = await this.listCachedBookIds()
+    const results = []
+    let totalMatches = 0
+    for (const rawId of cachedIds) {
+      const id = String(rawId || '')
+      if (!id) continue
+      if (!includeHidden && meta?.[id]?.hidden) continue
+      const cached = await this.getBook(id)
+      const reading = cached?.reading
+      if (!reading) continue
+      const docMeta = docById.get(id) || {}
+      const name = docMeta.name || reading.title || id
+      const author = docMeta.author || reading.metadata?.author?.zh || reading.metadata?.author?.source || ''
+      const titleMatched = [name, author, docMeta.titleSource].filter(Boolean).join(' ').toLowerCase().includes(q.toLowerCase())
+      const res = searchBookContent(reading, q, { maxMatches: maxMatchesPerBook })
+      if (!titleMatched && res.totalMatches === 0) continue
+      totalMatches += res.totalMatches
+      results.push({
+        id,
+        documentId: docMeta.documentId ?? reading.documentId ?? null,
+        name,
+        author,
+        kind: docMeta.kind ?? reading.kind ?? 'paper',
+        titleMatched,
+        totalMatches: res.totalMatches,
+        truncated: res.truncated,
+        matches: res.matches,
+      })
+    }
+    results.sort((a, b) => (b.totalMatches - a.totalMatches) || (Number(b.titleMatched) - Number(a.titleMatched)))
+    return {
+      query: q,
+      totalBooks: results.length,
+      totalMatches,
+      offlineOnly: true,
+      results: results.slice(0, limitBooks),
+    }
   },
 }

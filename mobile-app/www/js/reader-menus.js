@@ -306,8 +306,9 @@ export function renderReaderChrome(ctrl, host) {
       <button type="button" class="wr-btnGhost" data-act="back" style="padding:6px 10px;">‹ 书架</button>
       ${viewSegs}
       <div style="display:flex;gap:6px;">
-        ${ctrl.reading.pdfLocationAvailable || ctrl.reading.pdfAvailable ? '<button type="button" class="wr-btnGhost" data-act="pdf" style="padding:6px 10px;">原页PDF</button>' : ''}
-        <button type="button" class="wr-btnGhost" data-act="drawer" style="padding:6px 10px;">本段对照</button>
+        <button type="button" class="wr-btnGhost" data-act="search-book" style="padding:6px 9px;" title="全书搜索">🔍</button>
+        ${ctrl.reading.pdfLocationAvailable || ctrl.reading.pdfAvailable ? '<button type="button" class="wr-btnGhost" data-act="pdf" style="padding:6px 10px;">PDF</button>' : ''}
+        <button type="button" class="wr-btnGhost" data-act="drawer" style="padding:6px 10px;">对照</button>
       </div>
     </div>
     <div class="wr-overlayBottom">
@@ -363,6 +364,11 @@ export function renderReaderChrome(ctrl, host) {
     ctrl.renderChrome()
     ctrl.renderSheet()
   }
+  host.querySelector('[data-act="search-book"]')?.addEventListener('click', () => {
+    ctrl.barsVisible = false
+    ctrl.renderChrome()
+    ctrl.openSearchSheet()
+  })
   const pdfBtn = host.querySelector('[data-act="pdf"]')
   if (pdfBtn) {
     pdfBtn.onclick = () => {
