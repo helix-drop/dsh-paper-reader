@@ -37,6 +37,7 @@ export class ReaderController {
     this.hasTranslation = hasTrans
     this.marks = []
     this.barsVisible = false
+    this.typoSubView = 'main'
     this.activeBottomPanel = 'progress' // 'progress' | 'theme' | 'typography'
     this.tocSubTab = 'outline' // 'outline' | 'marks'
     this.activeSheet = null // 'toc' | 'drawer' | 'footnote' | 'noteEditor' | 'correction' | 'pdf'
@@ -307,7 +308,13 @@ export class ReaderController {
 
   computeCurrentLayout() {
     const W = Math.max(240, this.viewportEl?.clientWidth || window.innerWidth || 390)
-    const H = Math.max(240, this.viewportEl?.clientHeight || window.innerHeight || 844)
+    const rawH = Math.max(240, this.viewportEl?.clientHeight || window.innerHeight || 844)
+    let padY = 0
+    if (this.viewportEl && this.settings.pageMode !== 'scroll') {
+      const cs = getComputedStyle(this.viewportEl)
+      padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+    }
+    const H = Math.max(240, Math.floor(rawH - padY))
     return computeViewportLayout({
       width: W,
       height: H,

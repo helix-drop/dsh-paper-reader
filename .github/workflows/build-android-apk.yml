@@ -81,6 +81,7 @@ jobs:
             appJs = appJs.replace(/const APP_VERSION = \x27[^\x27]*\x27/, `const APP_VERSION = \x27${verName}\x27`);
             fs.writeFileSync(appJsFile, appJs);
           '
+          node scripts/fetch-fonts.mjs
           npx cap sync android
 
       - name: Build Signed Release APK

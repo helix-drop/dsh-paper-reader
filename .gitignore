@@ -16,3 +16,4 @@ sync-server/caddy-data/
 sync-server/caddy-config/
 mobile-app/android/
 mobile-app/node_modules/
+mobile-app/www/fonts/

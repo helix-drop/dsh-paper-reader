@@ -427,16 +427,16 @@ export const WEREAD_THEMES = [
 ]
 
 export const WEREAD_FONTS = [
-  { id: 'serif', cat: 'serif', label: '思源宋体', sub: '经典书宋', stack: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif' },
-  { id: 'fzsong', cat: 'serif', label: '方正新书宋', sub: '人文雅宋', stack: '"FZNewShuSong-Z10", "FZShuSong-Z01", "FZXiaoBiaoSong-B05S", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif' },
-  { id: 'cangjin', cat: 'serif', label: '玄宋45S', sub: '微信书宋韵味', stack: '"FZSongKeBenXiuKaiS-R-GB", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif' },
-  { id: 'kaiti', cat: 'kaiti', label: '霞鹜文楷', sub: '温润手写楷', stack: '"LXGW WenKai", "Kaiti SC", "STKaiti", "FZKai-Z03", "KaiTi", "DFKai-SB", "Noto Serif SC", serif' },
-  { id: 'fangsong', cat: 'kaiti', label: '书刻仿宋', sub: '古籍清朗', stack: '"FangSong", "STFangsong", "FZFangSong-Z02", "Kaiti SC", "Noto Serif SC", serif' },
-  { id: 'sans', cat: 'sans', label: '系统黑体', sub: '现代清晰', stack: '-apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif' },
-  { id: 'hyqihei', cat: 'sans', label: '汉仪旗黑', sub: '杂志爽朗', stack: '"HYQiHei 50S", "HYQiHei", "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif' },
-  { id: 'yuan', cat: 'sans', label: '雅致圆体', sub: '柔和舒缓', stack: '"STYuanti-SC-Regular", "YouYuan", "FZY3JW--GB1-0", "PingFang SC", "HarmonyOS Sans SC", sans-serif' },
-  { id: 'literary', cat: 'western', label: '西文衬线', sub: '外文双语优享', stack: 'Georgia, "Palatino Linotype", "Book Antiqua", "Times New Roman", "Source Han Serif SC", "Noto Serif SC", serif' },
-  { id: 'mono', cat: 'western', label: '等宽字体', sub: '严谨对齐', stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "PingFang SC", monospace' },
+  { id: 'serif', cat: 'serif', label: '思源宋体', sub: '经典书宋', stack: '"Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif' },
+  { id: 'fzsong', cat: 'serif', label: '方正新书宋', sub: '人文雅宋', stack: '"FZNewShuSong-Z10", "FZShuSong-Z01", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "Source Han Serif SC", Georgia, serif' },
+  { id: 'cangjin', cat: 'serif', label: '玄宋45S', sub: '微信书宋韵味', stack: '"FZSongKeBenXiuKaiS-R-GB", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "Source Han Serif SC", Georgia, serif' },
+  { id: 'kaiti', cat: 'kaiti', label: '霞鹜文楷', sub: '温润手写楷', stack: '"LXGW WenKai Lite", "LXGW WenKai", "Kaiti SC", "STKaiti", "FZKai-Z03", "KaiTi", "DFKai-SB", "Noto Serif SC", serif' },
+  { id: 'fangsong', cat: 'kaiti', label: '书刻仿宋', sub: '古籍清朗', stack: '"FangSong", "STFangsong", "FZFangSong-Z02", "LXGW WenKai Lite", "Noto Serif SC", "Noto Serif CJK SC", serif' },
+  { id: 'sans', cat: 'sans', label: '系统黑体', sub: '现代清晰', stack: '-apple-system, BlinkMacSystemFont, "PingFang SC", "MiSans", "HarmonyOS Sans SC", "OPPOSans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif' },
+  { id: 'hyqihei', cat: 'sans', label: '汉仪旗黑', sub: '杂志爽朗', stack: '"HYQiHei 50S", "HYQiHei", "MiSans", "HarmonyOS Sans SC", "PingFang SC", "Noto Sans CJK SC", sans-serif' },
+  { id: 'yuan', cat: 'sans', label: '雅致圆体', sub: '柔和舒缓', stack: '"STYuanti-SC-Regular", "YouYuan", "FZY3JW--GB1-0", "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif' },
+  { id: 'literary', cat: 'western', label: '西文衬线', sub: '外文双语优享', stack: 'Georgia, "Palatino Linotype", "Book Antiqua", "Times New Roman", "Noto Serif SC", "Noto Serif CJK SC", serif' },
+  { id: 'mono', cat: 'western', label: '等宽字体', sub: '严谨对齐', stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "PingFang SC", "Noto Sans CJK SC", monospace' },
 ]
 
 export const WEREAD_SPACING_PRESETS = [

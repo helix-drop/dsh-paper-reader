@@ -17,13 +17,13 @@ export const DEFAULT_SETTINGS = {
   bilingualLayout: 'auto', // auto (stacked on phone <640px, side-by-side on wide >=640px) | stacked | parallel
   tapZoneMode: 'ergonomic', // ergonomic (thumb-friendly bottom-center next) | classic | bottomNext | keysOnly (stylus/Hanwang anti-mistouch)
   showPageTurnBar: false, // explicit bottom prev/next bar for stylus-only E-ink devices (e.g. Hanwang N10)
-  fontSize: 18,
+  fontSize: 19,
   fontWeight: 400, // 400 | 450 | 500 | 600
-  lineHeight: 1.78,
-  letterSpacing: 0.01,
-  paraSpacing: 0.85,
-  marginX: 20,
-  textIndent: false, // 首行缩进两字符
+  lineHeight: 1.85,
+  letterSpacing: 0.015,
+  paraSpacing: 0.68,
+  marginX: 22,
+  textIndent: true, // 首行缩进两字符
   textAlign: 'justify', // justify | left
   brightness: 100, // 35..100
   fontFamily: 'serif', // serif | fzsong | cangjin | kaiti | fangsong | sans | hyqihei | yuan | literary | mono

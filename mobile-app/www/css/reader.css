@@ -16,8 +16,8 @@
 }
 
 .wr-readerMiniTop {
-  height: calc(28px + var(--safe-top));
-  padding: var(--safe-top) var(--reader-pad-x) 0;
+  height: calc(36px + var(--safe-top));
+  padding: calc(var(--safe-top) + 4px) var(--reader-pad-x) 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -34,6 +34,10 @@
   overflow: hidden;
   touch-action: pan-y;
   overscroll-behavior-x: none;
+}
+
+.wr-readerViewport:not(.scroll-mode) {
+  padding: 12px 0 14px;
 }
 
 .wr-readerViewport.scroll-mode {
@@ -102,11 +106,12 @@
 .wr-block h2,
 .wr-block h3,
 .wr-block h4 {
-  margin: 0.7em 0 0.45em;
-  line-height: 1.35;
+  margin: 0.95em 0 0.55em;
+  line-height: 1.38;
   font-weight: 700;
   text-align: left;
   text-indent: 0;
+  color: var(--heading-fg, var(--fg));
   break-after: avoid;
 }
 
@@ -166,18 +171,30 @@
 }
 
 .wr-fnRef {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin: 0 2px;
   padding: 0 4px;
+  min-width: 1.45em;
+  height: 1.45em;
   font-family: var(--ui-font);
-  font-size: 0.72em;
-  line-height: 1.35;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--surface-alt);
-  color: var(--accent);
+  font-size: 0.66em;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  border: none;
+  background: #e09f4c;
+  color: #ffffff;
   vertical-align: super;
   cursor: pointer;
+}
+
+body[data-eink="true"] .wr-fnRef,
+body[data-theme="eink"] .wr-fnRef {
+  background: #ffffff;
+  color: #000000;
+  border: 1.5px solid #000000;
 }
 
 mark.wr-markHighlight {
@@ -208,8 +225,8 @@ body[data-theme="eink"] mark.wr-markBookmark {
 }
 
 .wr-readerMiniBottom {
-  height: calc(26px + var(--safe-bottom));
-  padding: 0 var(--reader-pad-x) var(--safe-bottom);
+  height: calc(32px + var(--safe-bottom));
+  padding: 4px var(--reader-pad-x) calc(var(--safe-bottom) + 4px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -745,3 +762,36 @@ mark.wr-ms-line {
 }
 body[data-eink="true"] mark.wr-ms-highlight, body[data-theme="eink"] mark.wr-ms-highlight { background: transparent; border-bottom: 2px solid #000; }
 body[data-eink="true"] .wr-selectionCapsule.wr-capsuleStack, body[data-theme="eink"] .wr-selectionCapsule.wr-capsuleStack { background: #fff; color: #000; border: 2px solid #000; }
+
+/* --- WeRead Sleek Compact Bottom Typo Sheet & Interactive Pill Sliders --- */
+.wr-dockPanel.wr-dockCompact { padding: 14px 16px 12px; gap: 12px; }
+.wr-subHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wr-pillSlider {
+  position: relative; height: 38px; border-radius: 999px; background: var(--surface-alt);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 13px; overflow: hidden; user-select: none;
+}
+.wr-pillEdge { font-size: 12px; font-weight: 600; color: var(--fg-muted); pointer-events: none; z-index: 1; }
+.wr-pillEdgeL { font-size: 11px; }
+.wr-pillSlider[data-pill-for="fontSize"] .wr-pillEdgeR { font-size: 15px; }
+.wr-pillInner { position: absolute; left: 32px; right: 32px; top: 0; bottom: 0; pointer-events: none; }
+.wr-pillThumb {
+  position: absolute; top: 50%; min-width: 44px; height: 30px; padding: 0 10px;
+  border-radius: 999px; background: var(--surface); color: var(--fg);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.14); border: 1px solid var(--border);
+  font-size: 12.5px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.wr-pillRange {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 3;
+}
+.wr-dualPillRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.wr-pillActionRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wr-actionPill {
+  border: 1px solid transparent; background: var(--surface-alt); color: var(--fg);
+  border-radius: 999px; height: 36px; padding: 0 10px; font-size: 12.5px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wr-actionPill.active-soft { color: var(--accent); border-color: rgba(27, 110, 243, 0.28); font-weight: 600; }
+.wr-chev { opacity: 0.55; font-size: 13px; }
+body[data-theme="eink"] .wr-pillSlider, body[data-theme="eink"] .wr-actionPill { background: #fff; border: 1.5px solid #000; }
+body[data-theme="eink"] .wr-pillThumb { border: 2px solid #000; box-shadow: none; }
