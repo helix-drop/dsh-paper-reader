@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS = {
   tapZoneMode: 'ergonomic', // ergonomic (thumb-friendly bottom-center next) | classic | bottomNext | keysOnly (stylus/Hanwang anti-mistouch)
   showPageTurnBar: false, // explicit bottom prev/next bar for stylus-only E-ink devices (e.g. Hanwang N10)
   fontSize: 19,
-  fontWeight: 400, // 400 | 450 | 500 | 600
+  fontWeight: 450, // 400 | 450 | 500 | 600
   lineHeight: 1.85,
   letterSpacing: 0.015,
   paraSpacing: 0.68,

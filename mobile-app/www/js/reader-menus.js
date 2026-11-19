@@ -303,7 +303,7 @@ export function renderReaderChrome(ctrl, host) {
             <button type="button" class="wr-btnGhost" data-typo-sub="main" style="padding:4px 10px;font-size:12px;">‹ 返回</button>
             <strong style="font-size:13px;">字体与字重</strong>
             <div class="wr-segGroup">
-              ${[[400, '标准'], [500, '适中'], [600, '加粗']].map(([w, lbl]) => `<button type="button" class="wr-segBtn ${(s.fontWeight || 400) === w ? 'active' : ''}" data-font-weight="${w}">${lbl}</button>`).join('')}
+              ${[[400, '标准'], [450, '适中'], [500, '中粗'], [600, '加粗']].map(([w, lbl]) => `<button type="button" class="wr-segBtn ${(s.fontWeight || 450) === w ? 'active' : ''}" data-font-weight="${w}">${lbl}</button>`).join('')}
             </div>
           </div>
           <div class="wr-barRow" style="gap:6px;">
@@ -385,7 +385,7 @@ export function renderReaderChrome(ctrl, host) {
             ${renderPillSliderHtml({ typo: 'lineHeight', left: '紧', center: '行距', right: '松', min: 1.35, max: 2.35, step: 0.05, val: s.lineHeight || 1.85 })}
           </div>
           <div class="wr-pillActionRow">
-            <button type="button" class="wr-actionPill" data-typo-sub="fonts" style="font-family:${escapeHtml(fontObj.stack)};"><span>${escapeHtml(fontObj.label)}</span><span class="wr-chev">›</span></button>
+            <button type="button" class="wr-actionPill" data-typo-sub="fonts" style="font-family:${escapeHtml(fontObj.stack)};"><span>${escapeHtml(fontObj.label)}${(s.fontWeight || 450) >= 500 ? ' · 粗' : ''}</span><span class="wr-chev">›</span></button>
             <button type="button" class="wr-actionPill ${s.textIndent ? 'active-soft' : ''}" data-typo-sub="layout"><span>${s.textIndent ? '首行缩进 ✓' : '无缩进 · 版式'}</span><span class="wr-chev">›</span></button>
             <button type="button" class="wr-actionPill" data-typo-sub="turn"><span>${turnLabel}</span><span class="wr-chev">›</span></button>
           </div>

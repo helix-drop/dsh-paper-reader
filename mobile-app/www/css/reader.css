@@ -69,6 +69,8 @@
   line-height: var(--reader-lh);
   letter-spacing: var(--reader-ls, 0.01em);
   text-align: var(--reader-align);
+  -webkit-text-stroke: var(--reader-stroke, 0.26px) currentColor;
+  paint-order: stroke fill;
 }
 
 .wr-scrollFlow {
@@ -80,18 +82,26 @@
   line-height: var(--reader-lh);
   letter-spacing: var(--reader-ls, 0.01em);
   text-align: var(--reader-align);
+  -webkit-text-stroke: var(--reader-stroke, 0.26px) currentColor;
+  paint-order: stroke fill;
 }
 
 .wr-block {
   position: relative;
   margin: 0 0 var(--reader-para-gap);
   padding: 0 var(--reader-pad-x);
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: strict;
 }
 
 .wr-block p,
-.wr-block blockquote,
+.wr-block blockquote {
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
+}
+
 .wr-block code,
 .wr-linkText {
   overflow-wrap: anywhere;
@@ -109,11 +119,13 @@
   margin: 0.95em 0 0.55em;
   line-height: 1.38;
   font-weight: 700;
+  -webkit-text-stroke: 0;
   text-align: left;
   text-indent: 0;
   color: var(--heading-fg, var(--fg));
   break-after: avoid;
 }
+.wr-block :is(strong, b) { -webkit-text-stroke: 0; }
 
 .wr-block h1 { font-size: 1.4em; }
 .wr-block h2 { font-size: 1.24em; }
@@ -158,14 +170,16 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 6px;
-  padding: 1px 6px;
+  margin-left: 5px;
+  padding: 0 5px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--fg-muted);
+  opacity: 0.72;
   font-family: var(--ui-font);
-  font-size: 11px;
+  font-size: 10px;
+  -webkit-text-stroke: 0;
   vertical-align: middle;
   cursor: pointer;
 }
@@ -181,6 +195,7 @@
   font-family: var(--ui-font);
   font-size: 0.62em;
   font-weight: 700;
+  -webkit-text-stroke: 0;
   line-height: 1;
   border-radius: 999px;
   border: none;

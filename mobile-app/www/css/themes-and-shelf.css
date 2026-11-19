@@ -17,7 +17,8 @@
   --reader-font: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
   --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif;
   --reader-size: 19px;
-  --reader-weight: 400;
+  --reader-weight: 500;
+  --reader-stroke: 0.26px;
   --reader-lh: 1.85;
   --reader-ls: 0.015em;
   --reader-para-gap: 0.68em;

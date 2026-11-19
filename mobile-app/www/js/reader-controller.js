@@ -225,9 +225,13 @@ export class ReaderController {
   applyTypographyVars() {
     const s = this.settings
     const r = document.documentElement.style
-    r.setProperty('--reader-size', `${s.fontSize || 18}px`)
-    r.setProperty('--reader-weight', String(s.fontWeight || 400))
-    r.setProperty('--reader-lh', String(s.lineHeight || 1.78))
+    const w = Number(s.fontWeight || 450)
+    const strokePx = w >= 600 ? '0.62px' : w >= 500 ? '0.42px' : w >= 450 ? '0.26px' : '0.12px'
+    const cssWeight = w >= 600 ? 600 : w >= 450 ? 500 : 400
+    r.setProperty('--reader-size', `${s.fontSize || 19}px`)
+    r.setProperty('--reader-weight', String(cssWeight))
+    r.setProperty('--reader-stroke', strokePx)
+    r.setProperty('--reader-lh', String(s.lineHeight || 1.85))
     r.setProperty('--reader-ls', `${s.letterSpacing ?? 0.01}em`)
     r.setProperty('--reader-para-gap', `${s.paraSpacing ?? 0.85}em`)
     r.setProperty('--reader-indent', s.textIndent ? '2em' : '0em')
