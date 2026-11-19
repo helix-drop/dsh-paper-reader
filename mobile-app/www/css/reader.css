@@ -175,18 +175,20 @@
   align-items: center;
   justify-content: center;
   margin: 0 2px;
-  padding: 0 4px;
-  min-width: 1.45em;
-  height: 1.45em;
+  padding: 0 4.5px;
+  min-width: 1.42em;
+  height: 1.38em;
   font-family: var(--ui-font);
-  font-size: 0.66em;
+  font-size: 0.62em;
   font-weight: 700;
   line-height: 1;
   border-radius: 999px;
   border: none;
-  background: #e09f4c;
+  background: #e29d48;
   color: #ffffff;
-  vertical-align: super;
+  vertical-align: baseline;
+  position: relative;
+  top: -0.34em;
   cursor: pointer;
 }
 

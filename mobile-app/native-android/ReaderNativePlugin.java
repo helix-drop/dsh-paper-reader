@@ -1,6 +1,8 @@
 package com.dsh.paperreader;
 
 import android.app.Activity;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.view.View;
 import android.view.Window;
 import androidx.core.view.WindowCompat;
@@ -20,6 +22,8 @@ public class ReaderNativePlugin extends Plugin {
     static volatile boolean selectionMenuDisabled = false;
     static volatile boolean keyInterceptionEnabled = false;
     static volatile boolean keyCaptureMode = false;
+    static volatile int lastSafeTopDp = 0;
+    static volatile int lastSafeBottomDp = 0;
     static final Set<Integer> prevKeyCodes = new HashSet<>();
     static final Set<Integer> nextKeyCodes = new HashSet<>();
 
@@ -44,6 +48,48 @@ public class ReaderNativePlugin extends Plugin {
                 } else {
                     controller.show(WindowInsetsCompat.Type.systemBars());
                 }
+            }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void getSafeInsets(PluginCall call) {
+        com.getcapacitor.JSObject ret = new com.getcapacitor.JSObject();
+        ret.put("top", lastSafeTopDp);
+        ret.put("bottom", lastSafeBottomDp);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void setAppearance(PluginCall call) {
+        final String bgColor = call.getString("bgColor", "#f6f1e7");
+        final boolean dark = Boolean.TRUE.equals(call.getBoolean("dark", false));
+        final Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            int color;
+            try {
+                color = Color.parseColor(bgColor);
+            } catch (Exception e) {
+                color = Color.parseColor("#f6f1e7");
+            }
+            Window window = activity.getWindow();
+            View decor = window.getDecorView();
+            window.setBackgroundDrawable(new ColorDrawable(color));
+            decor.setBackgroundColor(color);
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().setBackgroundColor(color);
+            }
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decor);
+            if (controller != null) {
+                controller.setAppearanceLightStatusBars(!dark);
+                controller.setAppearanceLightNavigationBars(!dark);
             }
             call.resolve();
         });

@@ -101,6 +101,7 @@ export class ReaderController {
     clearInterval(this.clockTimer)
     this.saveProgressNow(true)
     window.removeEventListener('resize', this.onResize)
+    window.removeEventListener('reader:safe-insets', this.onResize)
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('reader:physical-key', this.onPhysicalKey)
     document.removeEventListener('selectionchange', this.onSelectionChange)
@@ -211,6 +212,7 @@ export class ReaderController {
       this.selectionTimer = setTimeout(() => this.inspectSelection(), 200)
     }
     window.addEventListener('resize', this.onResize)
+    window.addEventListener('reader:safe-insets', this.onResize)
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('reader:physical-key', this.onPhysicalKey)
     document.addEventListener('selectionchange', this.onSelectionChange)

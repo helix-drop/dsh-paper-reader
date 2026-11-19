@@ -20,6 +20,13 @@ export const nativeBridge = {
     }
   },
 
+  async setAppearance({ bgColor = '#f6f1e7', dark = false } = {}) {
+    const plugin = getPlugin()
+    if (plugin?.setAppearance) {
+      try { await plugin.setAppearance({ bgColor, dark: Boolean(dark) }) } catch {}
+    }
+  },
+
   async setSelectionMenuDisabled(disabled) {
     const plugin = getPlugin()
     if (plugin?.setSelectionMenuDisabled) {
@@ -69,3 +76,17 @@ window.__readerOnKeyCaptured = (keyCode, keyName) => {
 }
 
 window.__readerHandleBack = () => Boolean(backHandler?.())
+
+window.__readerSetSafeInsets = (topDp = 0, bottomDp = 0) => {
+  const s = document.documentElement?.style
+  if (!s) return
+  s.setProperty('--native-safe-top', `${Math.max(0, Number(topDp) || 0)}px`)
+  s.setProperty('--native-safe-bottom', `${Math.max(0, Number(bottomDp) || 0)}px`)
+  window.dispatchEvent(new CustomEvent('reader:safe-insets'))
+}
+
+if (window.__nativeSafeInsets) {
+  window.__readerSetSafeInsets(window.__nativeSafeInsets.top, window.__nativeSafeInsets.bottom)
+} else if (getPlugin()?.getSafeInsets) {
+  getPlugin().getSafeInsets().then(r => { if (r) window.__readerSetSafeInsets(r.top, r.bottom) }).catch(() => {})
+}

@@ -12,8 +12,8 @@
   --highlight-line: #d97706;
   --note-line: #1b6ef3;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--native-safe-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--native-safe-bottom, 0px));
   --reader-font: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
   --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif;
   --reader-size: 19px;

@@ -126,11 +126,11 @@ function applyThemeAttributes(settings) {
   const themeId = settings.theme || 'paper'
   document.body.setAttribute('data-theme', themeId)
   document.body.setAttribute('data-eink', settings.deviceMode === 'eink' || themeId === 'eink' ? 'true' : 'false')
+  const found = WEREAD_THEMES.find(t => t.id === themeId)
+  const bg = found ? found.bg : '#f6f1e7'
   const metaTheme = document.querySelector('meta[name="theme-color"]')
-  if (metaTheme) {
-    const found = WEREAD_THEMES.find(t => t.id === themeId)
-    metaTheme.setAttribute('content', found ? found.bg : '#f6f1e7')
-  }
+  if (metaTheme) metaTheme.setAttribute('content', bg)
+  void nativeBridge.setAppearance({ bgColor: bg, dark: Boolean(found?.dark) })
 }
 
 async function updateSettings(patch) {

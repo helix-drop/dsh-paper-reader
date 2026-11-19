@@ -1,12 +1,22 @@
 package com.dsh.paperreader;
 
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.ActionMode;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -16,6 +26,28 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ReaderNativePlugin.class);
         super.onCreate(savedInstanceState);
+        Window window = getWindow();
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        window.setBackgroundDrawable(new ColorDrawable(Color.parseColor("#f6f1e7")));
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(lp);
+        }
+        View content = findViewById(android.R.id.content);
+        ViewCompat.setOnApplyWindowInsetsListener(content != null ? content : window.getDecorView(), (v, insets) -> {
+            Insets sb = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets nav = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars());
+            float d = Math.max(1f, getResources().getDisplayMetrics().density);
+            int topDp = Math.round(sb.top / d);
+            int botDp = Math.round(nav.bottom / d);
+            ReaderNativePlugin.lastSafeTopDp = topDp;
+            ReaderNativePlugin.lastSafeBottomDp = botDp;
+            evalJs("window.__nativeSafeInsets={top:" + topDp + ",bottom:" + botDp + "};window.__readerSetSafeInsets&&window.__readerSetSafeInsets(" + topDp + "," + botDp + ")");
+            return ViewCompat.onApplyWindowInsets(v, insets);
+        });
         backCallback = new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {

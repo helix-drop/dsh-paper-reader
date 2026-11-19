@@ -386,7 +386,7 @@ export function renderReaderChrome(ctrl, host) {
           </div>
           <div class="wr-pillActionRow">
             <button type="button" class="wr-actionPill" data-typo-sub="fonts" style="font-family:${escapeHtml(fontObj.stack)};"><span>${escapeHtml(fontObj.label)}</span><span class="wr-chev">›</span></button>
-            <button type="button" class="wr-actionPill ${s.textIndent ? 'active-soft' : ''}" data-typo-sub="layout"><span>${s.textIndent ? '首行缩进' : '排版疏密'}</span><span class="wr-chev">›</span></button>
+            <button type="button" class="wr-actionPill ${s.textIndent ? 'active-soft' : ''}" data-typo-sub="layout"><span>${s.textIndent ? '首行缩进 ✓' : '无缩进 · 版式'}</span><span class="wr-chev">›</span></button>
             <button type="button" class="wr-actionPill" data-typo-sub="turn"><span>${turnLabel}</span><span class="wr-chev">›</span></button>
           </div>
         </div>
