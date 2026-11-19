@@ -20,12 +20,16 @@ export const DEFAULT_SETTINGS = {
   fontSize: 18,
   fontWeight: 400, // 400 | 450 | 500 | 600
   lineHeight: 1.78,
+  letterSpacing: 0.01,
   paraSpacing: 0.85,
   marginX: 20,
   textIndent: false, // 首行缩进两字符
   textAlign: 'justify', // justify | left
   brightness: 100, // 35..100
-  fontFamily: 'serif', // serif | fzsong | kaiti | fangsong | sans | yuan | literary | mono
+  fontFamily: 'serif', // serif | fzsong | cangjin | kaiti | fangsong | sans | hyqihei | yuan | literary | mono
+  highlightStyle: 'highlight',
+  highlightColor: 'gold',
+  showFlyleaf: true,
   syncIncludePdfs: false, // false: 同步仅拉取 MD 正文与插图（PDF 按需）; true: 同时下载全量 PDF
   prevKeys: ['VolumeUp', 'PageUp', 'ArrowLeft', 'ArrowUp', 24, 92, 19, 21],
   nextKeys: ['VolumeDown', 'PageDown', 'ArrowRight', 'ArrowDown', 25, 93, 20, 22],

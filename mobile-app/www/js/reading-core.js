@@ -198,8 +198,10 @@ function renderWithHighlights(raw, marks, opts) {
   const spans = []
   for (const mark of marks) {
     const token = mark.id ? `${mark.id}:${mark.kind === 'bookmark' ? 'bookmark' : 'highlight'}` : ''
+    const style = mark.style || 'highlight'
+    const color = mark.color || 'gold'
     for (const [start, end] of matchQuoteRanges(raw, mark.quote)) {
-      spans.push({ start, end, kind: mark.kind, ids: token ? [token] : [] })
+      spans.push({ start, end, kind: mark.kind, style, color, ids: token ? [token] : [] })
     }
   }
   if (!spans.length) return renderInlineFragment(raw, opts)
@@ -211,6 +213,8 @@ function renderWithHighlights(raw, marks, opts) {
     else {
       last.end = Math.max(last.end, s.end)
       if (s.kind === 'bookmark') last.kind = 'bookmark'
+      if (s.style && s.style !== 'highlight') last.style = s.style
+      if (s.color && s.color !== 'gold') last.color = s.color
       for (const id of s.ids) {
         if (!last.ids.includes(id)) last.ids.push(id)
       }
@@ -220,13 +224,24 @@ function renderWithHighlights(raw, marks, opts) {
   let html = ''
   for (const s of merged) {
     if (s.start > cursor) html += renderInlineFragment(raw.slice(cursor, s.start), opts)
-    const cls = s.kind === 'bookmark' ? 'wr-markBookmark' : 'wr-markHighlight'
+    const baseCls = s.kind === 'bookmark' ? 'wr-markBookmark' : 'wr-markHighlight'
+    const extraCls = [
+      s.style && s.style !== 'highlight' ? `wr-ms-${escapeHtml(s.style)}` : '',
+      s.color && s.color !== 'gold' ? `wr-mc-${escapeHtml(s.color)}` : '',
+    ].filter(Boolean).join(' ')
+    const cls = extraCls ? `${baseCls} ${extraCls}` : baseCls
     const idAttr = s.ids?.length ? ` data-mark-ids="${escapeHtml(s.ids.join(','))}"` : ''
     html += `<mark class="${cls}"${idAttr}>${renderInlineFragment(raw.slice(s.start, s.end), opts)}</mark>`
     cursor = s.end
   }
   if (cursor < raw.length) html += renderInlineFragment(raw.slice(cursor), opts)
   return html
+}
+
+export function renderBlockCommentsBubbleHtml(blockComments) {
+  if (!blockComments?.length) return ''
+  const ids = blockComments.map(m => `${m.id}:${m.kind || 'bookmark'}`).join(',')
+  return `<button type="button" class="wr-noteBubble" data-note-bubble="${escapeHtml(ids)}" title="查看或编辑想法笔记">💭 ${blockComments.length}</button>`
 }
 
 export function renderBlockBodyHtml(rawText, block, { view, marks = [], noteNumbers, showDrawerTrigger = false, searchQuery = '' }) {
@@ -384,74 +399,51 @@ export function resolveSwipeDecision({ dx = 0, dy = 0, dt = 0, spreadWidth = 360
   return dx < 0 ? 'next' : 'prev'
 }
 
+export const HIGHLIGHT_STYLES = [
+  { id: 'highlight', label: '马克笔' },
+  { id: 'wave', label: '波浪线' },
+  { id: 'line', label: '直线' },
+]
+
+export const HIGHLIGHT_COLORS = [
+  { id: 'gold', label: '暖金', hex: '#d4a742' },
+  { id: 'blue', label: '海蓝', hex: '#3b82f6' },
+  { id: 'green', label: '竹青', hex: '#10b981' },
+  { id: 'pink', label: '绛红', hex: '#ec4899' },
+  { id: 'purple', label: '堇紫', hex: '#8b5cf6' },
+]
+
 export const WEREAD_THEMES = [
-  { id: 'white', label: '纯白', bg: '#ffffff', fg: '#1f2329', swatch: '#ffffff', border: '#e4e6eb', dark: false },
+  { id: 'white', label: '纯白', bg: '#ffffff', fg: '#212832', swatch: '#ffffff', border: '#e4e6eb', dark: false },
   { id: 'paper', label: '羊皮纸', bg: '#f6f1e7', fg: '#2c2620', swatch: '#f3ead8', border: '#e2d8c5', dark: false },
   { id: 'kraft', label: '牛皮纸', bg: '#eadcc9', fg: '#382c1e', swatch: '#e2cfb4', border: '#cfb999', dark: false },
   { id: 'green', label: '护眼绿', bg: '#d8ebd9', fg: '#1e3022', swatch: '#cce5ce', border: '#b6d5b8', dark: false },
   { id: 'cyan', label: '海天蓝', bg: '#dceaf2', fg: '#1d2d38', swatch: '#cce0ec', border: '#b5cfdf', dark: false },
   { id: 'rose', label: '胭脂粉', bg: '#f5e4e6', fg: '#362225', swatch: '#efd5d8', border: '#dec0c4', dark: false },
   { id: 'gray', label: '极简灰', bg: '#eaecf0', fg: '#1f2329', swatch: '#dfe2e8', border: '#cfd4dc', dark: false },
-  { id: 'dark', label: '暗夜灰', bg: '#19191c', fg: '#b8b8c2', swatch: '#242429', border: '#34343d', dark: true },
-  { id: 'night', label: '纯黑', bg: '#000000', fg: '#9a9aa6', swatch: '#0a0a0c', border: '#27272f', dark: true },
+  { id: 'dark', label: '暗夜灰', bg: '#0e0e10', fg: '#b4b4b6', swatch: '#1c1c1e', border: '#323236', dark: true },
+  { id: 'night', label: '纯黑', bg: '#000000', fg: '#9c9ca0', swatch: '#0a0a0c', border: '#27272a', dark: true },
   { id: 'eink', label: '水墨屏', bg: '#ffffff', fg: '#000000', swatch: '#ffffff', border: '#000000', dark: false, eink: true },
 ]
 
 export const WEREAD_FONTS = [
-  {
-    id: 'serif',
-    label: '思源宋体',
-    sub: '经典书宋',
-    stack: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif',
-  },
-  {
-    id: 'fzsong',
-    label: '方正新书宋',
-    sub: '人文雅宋',
-    stack: '"FZNewShuSong-Z10", "FZShuSong-Z01", "FZXiaoBiaoSong-B05S", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif',
-  },
-  {
-    id: 'kaiti',
-    label: '霞鹜文楷',
-    sub: '温润手写楷',
-    stack: '"LXGW WenKai", "Kaiti SC", "STKaiti", "FZKai-Z03", "KaiTi", "DFKai-SB", "Noto Serif SC", serif',
-  },
-  {
-    id: 'fangsong',
-    label: '书刻仿宋',
-    sub: '古籍清朗',
-    stack: '"FangSong", "STFangsong", "FZFangSong-Z02", "Kaiti SC", "Noto Serif SC", serif',
-  },
-  {
-    id: 'sans',
-    label: '系统黑体',
-    sub: '现代清晰',
-    stack: '-apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif',
-  },
-  {
-    id: 'yuan',
-    label: '雅致圆体',
-    sub: '柔和舒缓',
-    stack: '"STYuanti-SC-Regular", "YouYuan", "FZY3JW--GB1-0", "PingFang SC", "HarmonyOS Sans SC", sans-serif',
-  },
-  {
-    id: 'literary',
-    label: '西文衬线',
-    sub: '外文双语优享',
-    stack: 'Georgia, "Palatino Linotype", "Book Antiqua", "Times New Roman", "Source Han Serif SC", "Noto Serif SC", serif',
-  },
-  {
-    id: 'mono',
-    label: '等宽字体',
-    sub: '严谨对齐',
-    stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "PingFang SC", monospace',
-  },
+  { id: 'serif', cat: 'serif', label: '思源宋体', sub: '经典书宋', stack: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif' },
+  { id: 'fzsong', cat: 'serif', label: '方正新书宋', sub: '人文雅宋', stack: '"FZNewShuSong-Z10", "FZShuSong-Z01", "FZXiaoBiaoSong-B05S", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif' },
+  { id: 'cangjin', cat: 'serif', label: '玄宋45S', sub: '微信书宋韵味', stack: '"FZSongKeBenXiuKaiS-R-GB", "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif' },
+  { id: 'kaiti', cat: 'kaiti', label: '霞鹜文楷', sub: '温润手写楷', stack: '"LXGW WenKai", "Kaiti SC", "STKaiti", "FZKai-Z03", "KaiTi", "DFKai-SB", "Noto Serif SC", serif' },
+  { id: 'fangsong', cat: 'kaiti', label: '书刻仿宋', sub: '古籍清朗', stack: '"FangSong", "STFangsong", "FZFangSong-Z02", "Kaiti SC", "Noto Serif SC", serif' },
+  { id: 'sans', cat: 'sans', label: '系统黑体', sub: '现代清晰', stack: '-apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif' },
+  { id: 'hyqihei', cat: 'sans', label: '汉仪旗黑', sub: '杂志爽朗', stack: '"HYQiHei 50S", "HYQiHei", "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif' },
+  { id: 'yuan', cat: 'sans', label: '雅致圆体', sub: '柔和舒缓', stack: '"STYuanti-SC-Regular", "YouYuan", "FZY3JW--GB1-0", "PingFang SC", "HarmonyOS Sans SC", sans-serif' },
+  { id: 'literary', cat: 'western', label: '西文衬线', sub: '外文双语优享', stack: 'Georgia, "Palatino Linotype", "Book Antiqua", "Times New Roman", "Source Han Serif SC", "Noto Serif SC", serif' },
+  { id: 'mono', cat: 'western', label: '等宽字体', sub: '严谨对齐', stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "PingFang SC", monospace' },
 ]
 
 export const WEREAD_SPACING_PRESETS = [
-  { id: 'compact', label: '紧凑', lineHeight: 1.55, paraSpacing: 0.55, marginX: 16 },
-  { id: 'normal', label: '适中', lineHeight: 1.78, paraSpacing: 0.85, marginX: 20 },
-  { id: 'loose', label: '宽松', lineHeight: 2.05, paraSpacing: 1.15, marginX: 28 },
+  { id: 'compact', label: '紧凑', lineHeight: 1.55, paraSpacing: 0.45, marginX: 16, letterSpacing: 0 },
+  { id: 'normal', label: '适中', lineHeight: 1.78, paraSpacing: 0.75, marginX: 20, letterSpacing: 0.01 },
+  { id: 'weread', label: '微信默认', lineHeight: 1.9, paraSpacing: 0.6, marginX: 20, letterSpacing: 0.015 },
+  { id: 'loose', label: '宽松', lineHeight: 2.08, paraSpacing: 1.15, marginX: 28, letterSpacing: 0.025 },
 ]
 
 export function resolveFontStack(fontId) {
@@ -598,19 +590,34 @@ export function renderSearchSnippetHtml(snippet, matchOffset, matchLen) {
   )
 }
 
-export function renderLibrarySearchSectionHtml(searchState, shelfQuery) {
+export function renderLibrarySearchSectionHtml(searchState, shelfQuery, titleMatches = []) {
   const q = String(shelfQuery ?? '').trim()
   if (!q) return ''
   const data = searchState?.data
   const results = (data?.results ?? []).filter(r => r.matches?.length > 0)
   return `
     <div class="wr-libSearchSection">
-      <div class="wr-barRow" style="margin-bottom:6px;">
-        <strong style="font-size:13px;">全库正文检索</strong>
-        <span style="font-size:11px;color:var(--fg-muted);">
-          ${searchState?.loading ? '正在检索原文与译文…' : data ? `在 ${data.totalBooks} 本书中找到 ${data.totalMatches} 处匹配${data.offlineOnly ? '（离线已缓存）' : ''}` : ''}
+      <div class="wr-barRow" style="margin-bottom:8px;gap:8px;">
+        <button type="button" class="wr-btnGhost" data-act="clear-shelf-search" style="padding:4px 10px;font-size:12px;">← 返回书架</button>
+        <span style="font-size:11.5px;color:var(--fg-muted);flex:1;text-align:right;">
+          ${searchState?.loading ? '正在检索全库原文与译文…' : `书名 ${titleMatches.length} 部 · 正文 ${data?.totalMatches || 0} 处`}
         </span>
       </div>
+      ${titleMatches.length ? `
+        <div style="font-size:12px;font-weight:700;color:var(--fg-muted);margin:2px 0 6px;">书名 / 作者命中 (${titleMatches.length})</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+          ${titleMatches.slice(0, 20).map(d => `
+            <div class="wr-libSearchBookCard" data-open-book="${escapeHtml(d.id)}" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <div style="min-width:0;">
+                <div class="wr-libSearchBookName">${escapeHtml(d.name)}</div>
+                ${d.author ? `<div style="font-size:11px;color:var(--fg-muted);">${escapeHtml(d.author)}</div>` : ''}
+              </div>
+              <span class="wr-badge">打开</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      <div style="font-size:12px;font-weight:700;color:var(--fg-muted);margin:2px 0 6px;">全库正文检索 (${data?.totalMatches || 0})${data?.offlineOnly ? ' · 离线缓存' : ''}</div>
       ${
         !searchState?.loading && data && !results.length
           ? '<div style="font-size:12px;color:var(--fg-muted);padding:6px 0;">全库已索引正文中未找到匹配内容</div>'

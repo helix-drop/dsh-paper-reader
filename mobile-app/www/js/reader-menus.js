@@ -1,4 +1,6 @@
 import {
+  HIGHLIGHT_COLORS,
+  HIGHLIGHT_STYLES,
   WEREAD_FONTS,
   WEREAD_SPACING_PRESETS,
   WEREAD_THEMES,
@@ -19,48 +21,85 @@ export function renderSelectionCapsule(ctrl, host) {
       m.exact === ctrl.selectionInfo.exact &&
       (m.blockId === ctrl.selectionInfo.startBlockId || m.blockId === ctrl.selectionInfo.endBlockId)
   )
-  const hasHighlight = existing.some(m => m.kind === 'highlight')
+  const hasHighlight = existing.length > 0
+  const activeColor = existing[0]?.color || ctrl.settings.highlightColor || 'gold'
 
   host.innerHTML = `
-    <div class="wr-selectionCapsule" style="left:${ctrl.selectionInfo.left}px;top:${ctrl.selectionInfo.top}px;">
-      <button type="button" class="wr-capsuleBtn" data-cap="highlight">${hasHighlight ? '取消划线' : '划线'}</button>
-      <button type="button" class="wr-capsuleBtn" data-cap="note">写想法</button>
-      <button type="button" class="wr-capsuleBtn" data-cap="original">看原文</button>
-      <button type="button" class="wr-capsuleBtn" data-cap="correct">纠错</button>
-      <button type="button" class="wr-capsuleBtn" data-cap="copy">复制</button>
+    <div class="wr-selectionCapsule wr-capsuleStack" style="left:${ctrl.selectionInfo.left}px;top:${ctrl.selectionInfo.top}px;">
+      <div class="wr-capRow">
+        ${hasHighlight ? '<button type="button" class="wr-capsuleBtn" data-cap="remove">取消划线</button>' : ''}
+        ${HIGHLIGHT_STYLES.map(st => `<button type="button" class="wr-capsuleBtn" data-cap-style="${st.id}">${st.label}</button>`).join('')}
+        <button type="button" class="wr-capsuleBtn" data-cap="note">写想法</button>
+        <button type="button" class="wr-capsuleBtn" data-cap="original">看原文</button>
+        <button type="button" class="wr-capsuleBtn" data-cap="correct">纠错</button>
+        <button type="button" class="wr-capsuleBtn" data-cap="copy">复制</button>
+      </div>
+      <div class="wr-capColors">
+        ${HIGHLIGHT_COLORS.map(c => `<button type="button" class="wr-capDot ${activeColor === c.id ? 'active' : ''}" data-cap-color="${c.id}" style="background:${c.hex};" title="${c.label}"></button>`).join('')}
+      </div>
     </div>
   `
 
-  host.querySelector('[data-cap="highlight"]').onclick = async () => {
+  const applyHighlight = async (style, color) => {
     const sel = ctrl.selectionInfo
     if (!sel) return
-    if (hasHighlight) {
-      const hIds = [...new Set(existing.filter(m => m.kind === 'highlight').map(m => m.id))]
-      for (const id of hIds) {
-        await readerApi.postBookmarkAction(ctrl.settings, { source: { kind: 'task', id: ctrl.taskId }, removeHighlight: id })
-      }
-      ctrl.marks = ctrl.marks.filter(m => !hIds.includes(m.id))
-      ctrl.onToast('已取消划线')
+    ctrl.settings = await ctrl.onSettingsChange({ highlightStyle: style, highlightColor: color })
+    const primary = existing[0]
+    if (primary?.id) {
+      await readerApi.postBookmarkAction(ctrl.settings, { updateBookmark: { id: primary.id, style, color } })
+      primary.style = style
+      primary.color = color
     } else {
       const created = await readerApi.postBookmarkAction(ctrl.settings, {
         source: { kind: 'task', id: ctrl.taskId },
         selection: sel,
         highlightOnly: true,
+        style,
+        color,
       })
       ctrl.marks.push({
         id: created?.id || 'local-' + Date.now(),
         kind: 'highlight',
+        style,
+        color,
         view: sel.view,
         blockId: sel.startBlockId,
         quote: sel.exact,
         exact: sel.exact,
       })
-      ctrl.onToast('已划线')
     }
     await offlineDb.saveMarks(ctrl.taskId, ctrl.marks)
     ctrl.clearSelection()
     ctrl.renderBlocks()
+    ctrl.onToast('已保存划线')
   }
+
+  host.querySelector('[data-cap="remove"]')?.addEventListener('click', async () => {
+    for (const m of existing) {
+      await readerApi.postBookmarkAction(
+        ctrl.settings,
+        m.kind === 'bookmark' ? { muteHighlight: m.id } : { removeHighlight: m.id }
+      )
+    }
+    const rmIds = new Set(existing.map(m => m.id))
+    ctrl.marks = ctrl.marks.filter(m => !rmIds.has(m.id))
+    await offlineDb.saveMarks(ctrl.taskId, ctrl.marks)
+    ctrl.clearSelection()
+    ctrl.renderBlocks()
+    ctrl.onToast('已取消划线')
+  })
+
+  host.querySelectorAll('[data-cap-style]').forEach(btn => {
+    btn.onclick = () => applyHighlight(btn.dataset.capStyle, activeColor)
+  })
+
+  host.querySelectorAll('[data-cap-color]').forEach(btn => {
+    btn.onclick = async () => {
+      const nextColor = btn.dataset.capColor
+      const style = existing[0]?.style || ctrl.settings.highlightStyle || 'highlight'
+      await applyHighlight(style, nextColor)
+    }
+  })
 
   host.querySelector('[data-cap="note"]').onclick = () => {
     const sel = ctrl.selectionInfo
@@ -227,8 +266,11 @@ export function renderReaderChrome(ctrl, host) {
       WEREAD_SPACING_PRESETS.find(
         p =>
           Math.abs(p.lineHeight - Number(s.lineHeight)) < 0.03 &&
-          Math.abs(p.paraSpacing - Number(s.paraSpacing ?? 0.85)) < 0.05
+          Math.abs(p.paraSpacing - Number(s.paraSpacing ?? 0.85)) < 0.06
       )?.id || ''
+    const fontCat = ctrl.fontCat || 'all'
+    const shownFonts = WEREAD_FONTS.filter(f => fontCat === 'all' || f.cat === fontCat)
+    const letterVal = Number(s.letterSpacing ?? 0.01)
     panelHtml = `
       <div class="wr-dockPanel">
         <div class="wr-stepperBar">
@@ -237,7 +279,7 @@ export function renderReaderChrome(ctrl, host) {
           <span style="font-size:12px;font-weight:700;min-width:34px;text-align:center;">${s.fontSize || 18}</span>
           <button type="button" class="wr-stepBtn" data-font-step="1">A+</button>
         </div>
-        <div class="wr-barRow">
+        <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
           <span style="font-size:12px;color:var(--fg-muted);">字重粗细</span>
           <div class="wr-segGroup">
             ${[
@@ -253,8 +295,22 @@ export function renderReaderChrome(ctrl, host) {
               .join('')}
           </div>
         </div>
+        <div class="wr-barRow" style="gap:6px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--fg-muted);">字体分类</span>
+          <div class="wr-segGroup">
+            ${[
+              ['all', '全部'],
+              ['serif', '宋体'],
+              ['kaiti', '楷仿'],
+              ['sans', '黑圆'],
+              ['western', '西文'],
+            ]
+              .map(([cid, clabel]) => `<button type="button" class="wr-segBtn ${fontCat === cid ? 'active' : ''}" data-font-cat="${cid}">${clabel}</button>`)
+              .join('')}
+          </div>
+        </div>
         <div class="wr-fontGrid">
-          ${WEREAD_FONTS.map(
+          ${shownFonts.map(
             f => `
             <button type="button" class="wr-fontCard ${s.fontFamily === f.id ? 'active' : ''}" data-font="${f.id}">
               <span class="wr-fontCardTitle" style="font-family:${escapeHtml(f.stack)};">${escapeHtml(f.label)}</span>
@@ -265,7 +321,7 @@ export function renderReaderChrome(ctrl, host) {
         </div>
         <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
           <span style="font-size:12px;color:var(--fg-muted);">版面疏密</span>
-          <div class="wr-segGroup">
+          <div class="wr-segGroup" style="flex-wrap:wrap;">
             ${WEREAD_SPACING_PRESETS.map(
               p =>
                 `<button type="button" class="wr-segBtn ${activePreset === p.id ? 'active' : ''}" data-spacing-preset="${p.id}">${p.label}</button>`
@@ -276,9 +332,12 @@ export function renderReaderChrome(ctrl, host) {
             <button type="button" class="wr-segBtn ${(s.textAlign || 'justify') === 'justify' ? 'active' : ''}" data-act="toggle-align">${(s.textAlign || 'justify') === 'justify' ? '两端对齐' : '左对齐'}</button>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
           <label class="wr-field" style="margin:0;">行距 ${s.lineHeight}
             <input type="range" min="1.35" max="2.35" step="0.05" value="${s.lineHeight}" data-typo="lineHeight" />
+          </label>
+          <label class="wr-field" style="margin:0;">字距 ${letterVal.toFixed(2)}em
+            <input type="range" min="-0.02" max="0.08" step="0.005" value="${letterVal}" data-typo="letterSpacing" />
           </label>
           <label class="wr-field" style="margin:0;">段距 ${s.paraSpacing ?? 0.85}
             <input type="range" min="0.35" max="1.5" step="0.05" value="${s.paraSpacing ?? 0.85}" data-typo="paraSpacing" />
@@ -454,6 +513,12 @@ export function renderReaderChrome(ctrl, host) {
       ctrl.renderChrome()
     }
   })
+  host.querySelectorAll('[data-font-cat]').forEach(btn => {
+    btn.onclick = () => {
+      ctrl.fontCat = btn.dataset.fontCat
+      ctrl.renderChrome()
+    }
+  })
   host.querySelectorAll('[data-font]').forEach(btn => {
     btn.onclick = async () => {
       ctrl.settings = await ctrl.onSettingsChange({ fontFamily: btn.dataset.font })
@@ -470,6 +535,7 @@ export function renderReaderChrome(ctrl, host) {
         lineHeight: preset.lineHeight,
         paraSpacing: preset.paraSpacing,
         marginX: preset.marginX,
+        letterSpacing: preset.letterSpacing ?? 0.01,
       })
       ctrl.applyTypographyVars()
       ctrl.recomputeLayout(true)

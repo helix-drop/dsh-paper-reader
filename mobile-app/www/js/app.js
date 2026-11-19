@@ -409,6 +409,7 @@ function renderShelfBody() {
   const pdfDocsCount = allDocs.filter(d => d.hasPdf !== false).length
   const pdfCachedCount = allDocs.filter(d => d.hasPdf !== false && state.cachedPdfIds.has(d.id)).length
 
+  const searching = Boolean(state.searchQuery.trim())
   return `
     ${recentDoc ? `
       <div class="wr-heroContinue" data-open-book="${escapeHtml(recentDoc.id)}">
@@ -423,7 +424,7 @@ function renderShelfBody() {
         </div>
       </div>
     ` : ''}
-    <div class="wr-pillRow">
+    ${!searching ? `<div class="wr-pillRow">
       <button type="button" class="wr-pill ${state.selectedFolder === 'all' ? 'active' : ''}" data-folder="all">全部 (${allDocs.length})</button>
       <button type="button" class="wr-pill ${state.selectedFolder === 'uncategorized' ? 'active' : ''}" data-folder="uncategorized">未归类</button>
       ${folders.map(f => `<button type="button" class="wr-pill ${state.selectedFolder === f.id ? 'active' : ''}" data-folder="${escapeHtml(f.id)}">${escapeHtml(f.name)}</button>`).join('')}
@@ -435,9 +436,9 @@ function renderShelfBody() {
         ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost wr-bulkBtn" data-act="cancel-sync">取消下载</button>' : ''}
       </div>
     ` : ''}
-    <div data-role="sync-card-host">${currentSyncCardHtml(true)}</div>
-    <div id="wr-lib-search-host">${renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery)}</div>
-    ${!visibleDocs.length ? `
+    <div data-role="sync-card-host">${currentSyncCardHtml(true)}</div>` : ''}
+    <div id="wr-lib-search-host">${renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery, docs)}</div>
+    ${searching ? '' : !visibleDocs.length ? `
       <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
         <p style="margin:12px 0;">${state.library.documents?.length ? '没有匹配的文献' : '书架为空，请先在「设置」配置轻量云服务器并点击同步。'}</p>
       </div>
@@ -489,13 +490,13 @@ function renderShelfBody() {
         }).join('')}
       </div>
     `}
-    ${isEink && state.shelfTotalPages > 1 ? `
+    ${searching || !isEink || state.shelfTotalPages <= 1 ? '' : `
       <div class="wr-einkPager" style="margin-top:12px;">
         <button type="button" class="wr-btnGhost" data-shelf-page="prev" ${state.shelfPage <= 0 ? 'disabled' : ''}>‹ 上一页</button>
         <span style="font-size:12px;color:var(--fg-muted);">书架 第 ${state.shelfPage + 1} / ${state.shelfTotalPages} 页</span>
         <button type="button" class="wr-btnGhost" data-shelf-page="next" ${state.shelfPage >= state.shelfTotalPages - 1 ? 'disabled' : ''}>下一页 ›</button>
       </div>
-    ` : ''}
+    `}
   `
 }
 
@@ -714,6 +715,9 @@ function render() {
 
   if (state.tab === 'shelf') {
     const bindSearchHits = root => {
+      root?.querySelectorAll('[data-act="clear-shelf-search"]').forEach(el => {
+        el.onclick = () => { state.searchQuery = ''; render() }
+      })
       root?.querySelectorAll('[data-open-book]').forEach(el => { el.onclick = () => openBook(el.dataset.openBook) })
       root?.querySelectorAll('[data-search-jump]').forEach(btn => {
         btn.onclick = () => openBook(btn.dataset.searchJump, btn.dataset.jumpBlock, btn.dataset.jumpView, state.searchQuery.trim())
@@ -730,7 +734,9 @@ function render() {
       state.libSearch = { ...state.libSearch, loading: true, query: q, ctrl }
       const paint = () => {
         const h = document.getElementById('wr-lib-search-host'); if (!h) return
-        h.innerHTML = renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery); bindSearchHits(h)
+        const tl = q.toLowerCase()
+        const tMatches = (state.library.documents ?? []).filter(d => [d.name, d.author, d.titleSource].filter(Boolean).join(' ').toLowerCase().includes(tl))
+        h.innerHTML = renderLibrarySearchSectionHtml(state.libSearch, state.searchQuery, tMatches); bindSearchHits(h)
       }
       paint()
       state.libSearch.timer = setTimeout(async () => {

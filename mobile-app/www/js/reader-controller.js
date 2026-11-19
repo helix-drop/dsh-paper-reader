@@ -1,13 +1,7 @@
 import {
-  buildFootnoteIndex,
-  computeViewportLayout,
-  escapeHtml,
-  footnoteDisplayNumbers,
-  renderBlockBodyHtml,
-  resolveFontStack,
-  resolveFootnote,
-  resolveSwipeDecision,
-  resolveTapZoneAction,
+  buildFootnoteIndex, computeViewportLayout, escapeHtml, footnoteDisplayNumbers,
+  renderBlockBodyHtml, renderBlockCommentsBubbleHtml, resolveFontStack, resolveFootnote,
+  resolveSwipeDecision, resolveTapZoneAction,
 } from './reading-core.js'
 import { readerApi } from './api.js'
 import { offlineDb } from './offline-db.js'
@@ -231,16 +225,14 @@ export class ReaderController {
     r.setProperty('--reader-size', `${s.fontSize || 18}px`)
     r.setProperty('--reader-weight', String(s.fontWeight || 400))
     r.setProperty('--reader-lh', String(s.lineHeight || 1.78))
+    r.setProperty('--reader-ls', `${s.letterSpacing ?? 0.01}em`)
     r.setProperty('--reader-para-gap', `${s.paraSpacing ?? 0.85}em`)
     r.setProperty('--reader-indent', s.textIndent ? '2em' : '0em')
     r.setProperty('--reader-align', s.textAlign || 'justify')
     r.setProperty('--reader-pad-x', `${this.layoutInfo?.horizontalPadding ?? s.marginX}px`)
     r.setProperty('--reader-font', resolveFontStack(s.fontFamily))
-    const dim = Math.max(0, Math.min(0.65, (100 - Number(s.brightness ?? 100)) / 100))
-    r.setProperty('--reader-dimmer', dim.toFixed(2))
-    if (this.trackEl) {
-      this.trackEl.classList.toggle('no-anim', s.pageTransition === 'none' || s.theme === 'eink' || s.deviceMode === 'eink')
-    }
+    r.setProperty('--reader-dimmer', Math.max(0, Math.min(0.65, (100 - Number(s.brightness ?? 100)) / 100)).toFixed(2))
+    if (this.trackEl) this.trackEl.classList.toggle('no-anim', s.pageTransition === 'none' || s.theme === 'eink' || s.deviceMode === 'eink')
   }
 
   render() {
@@ -360,41 +352,23 @@ export class ReaderController {
 
     const html = blocks
       .map(b => {
-        const mainText =
-          this.viewMode === 'original'
-            ? (b.sourceText ?? b.text)
-            : this.reading.standaloneView === 'translation'
-            ? b.text
-            : (b.translation ?? b.text)
-        const blockMarks = (marksByBlock.get(b.id) ?? []).filter(
-          m => m.view === (this.viewMode === 'original' ? 'original' : 'translation')
-        )
-        const showTrigger = this.viewMode === 'translation' && Boolean(b.sourceText || b.pdfPage)
+        const mainText = this.viewMode === 'original' ? (b.sourceText ?? b.text) : this.reading.standaloneView === 'translation' ? b.text : (b.translation ?? b.text)
+        const blockMarks = (marksByBlock.get(b.id) ?? []).filter(m => m.view === (this.viewMode === 'original' ? 'original' : 'translation'))
+        const bubble = renderBlockCommentsBubbleHtml((marksByBlock.get(b.id) ?? []).filter(m => m.comment))
         const body = renderBlockBodyHtml(mainText, b, {
           view: this.viewMode === 'original' ? 'original' : 'translation',
-          marks: blockMarks,
-          noteNumbers,
-          showDrawerTrigger: showTrigger,
-          searchQuery: this.searchQuery,
+          marks: blockMarks, noteNumbers, showDrawerTrigger: this.viewMode === 'translation' && Boolean(b.sourceText || b.pdfPage), searchQuery: this.searchQuery,
         })
-
         if (this.viewMode === 'bilingual' && b.sourceText && b.sourceText !== mainText) {
           const srcMarks = (marksByBlock.get(b.id) ?? []).filter(m => m.view === 'original')
-          const srcHtml = renderBlockBodyHtml(b.sourceText, b, {
-            view: 'original',
-            marks: srcMarks,
-            noteNumbers: origNoteNumbers,
-            showDrawerTrigger: Boolean(b.pdfPage),
-            searchQuery: this.searchQuery,
-          })
+          const srcHtml = renderBlockBodyHtml(b.sourceText, b, { view: 'original', marks: srcMarks, noteNumbers: origNoteNumbers, showDrawerTrigger: Boolean(b.pdfPage), searchQuery: this.searchQuery })
           if (useParallelBilingual) {
-            return `<div class="wr-block bilingual-parallel" data-block-id="${escapeHtml(b.id)}"><div class="wr-bilingualPrimary" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}</div><div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div></div>`
+            return `<div class="wr-block bilingual-parallel" data-block-id="${escapeHtml(b.id)}"><div class="wr-bilingualPrimary" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}${bubble}</div><div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div></div>`
           }
           const bilingualExtra = `<div class="wr-bilingualSource" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="original">${srcHtml}</div>`
-          return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}${bilingualExtra}</div>`
+          return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="translation">${body}${bubble}${bilingualExtra}</div>`
         }
-
-        return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="${this.viewMode === 'original' ? 'original' : 'translation'}">${body}</div>`
+        return `<div class="wr-block" data-block-id="${escapeHtml(b.id)}" data-bookmark-block="${escapeHtml(b.id)}" data-bookmark-view="${this.viewMode === 'original' ? 'original' : 'translation'}">${body}${bubble}</div>`
       })
       .join('')
 
@@ -784,12 +758,10 @@ export class ReaderController {
         this.openBilingualDrawer(drawerBtn.dataset.drawerBlock)
         return
       }
+      const noteBtn = e.target.closest?.('[data-note-bubble]')
+      if (noteBtn) { e.stopPropagation(); this.openMarkDetail(noteBtn.dataset.noteBubble); return }
       const markEl = e.target.closest?.('mark[data-mark-ids]')
-      if (markEl && (!window.getSelection() || window.getSelection().isCollapsed)) {
-        e.stopPropagation()
-        this.openMarkDetail(markEl.dataset.markIds)
-        return
-      }
+      if (markEl && (!window.getSelection() || window.getSelection().isCollapsed)) { e.stopPropagation(); this.openMarkDetail(markEl.dataset.markIds); return }
       const sel = window.getSelection()
       if (sel && !sel.isCollapsed) return
       if (this.selectionInfo) {

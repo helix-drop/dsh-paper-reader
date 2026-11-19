@@ -1,4 +1,6 @@
 import {
+  HIGHLIGHT_COLORS,
+  HIGHLIGHT_STYLES,
   escapeHtml,
   plainText,
   renderSearchSnippetHtml,
@@ -138,15 +140,40 @@ export function renderReaderSheet(ctrl, host) {
       `
     }
 
+    const tocQ = String(ctrl.tocSearch || '').trim()
+    const pct = ctrl.totalPages > 0 ? Math.min(100, Math.round(((ctrl.currentPage + 1) / ctrl.totalPages) * 100)) : 0
+    const buildTocBody = () => {
+      if (tocQ) {
+        const res = searchBookContent(ctrl.reading, tocQ, { maxMatches: 80 })
+        if (!res.matches.length) return '<p style="color:var(--fg-muted);font-size:13px;padding:12px 0;">未在本书中找到匹配内容</p>'
+        return `<div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:11.5px;color:var(--fg-muted);">共 ${res.totalMatches} 处匹配</div>
+          ${res.matches.map(h => `<button type="button" class="wr-searchHitCard" data-toc-hit="${escapeHtml(h.blockId)}" data-toc-view="${escapeHtml(h.view)}">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span class="wr-searchTag">${h.view === 'original' ? '原文' : '译文'}</span>${h.chapterLabel ? `<span class="wr-searchChapter">${escapeHtml(h.chapterLabel)}</span>` : ''}</div>
+            <div class="wr-searchSnippetText">${renderSearchSnippetHtml(h.snippet, h.matchOffset, h.matchLen)}</div>
+          </button>`).join('')}
+        </div>`
+      }
+      return tabBody
+    }
+
     inner = `
-      <div class="wr-barRow">
-        <div class="wr-tocTabs" style="flex:1;">
-          <button type="button" class="wr-tocTab ${subTab === 'outline' ? 'active' : ''}" data-toc-tab="outline">目录 (${items.length})</button>
-          <button type="button" class="wr-tocTab ${subTab === 'marks' ? 'active' : ''}" data-toc-tab="marks">划线 (${ctrl.marks.length})</button>
+      <div class="wr-barRow" style="gap:8px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(ctrl.reading.title || '阅读目录')}</div>
+          <div style="font-size:11px;color:var(--fg-muted);">已读 ${pct}% · 共 ${ctrl.marks.length} 条划线笔记</div>
         </div>
-        <button type="button" class="wr-btnGhost" data-act="close" style="padding:5px 10px;">关闭</button>
+        <button type="button" class="wr-btnGhost" data-toc-bm="1" style="padding:4px 9px;font-size:12px;">+ 书签</button>
+        <button type="button" class="wr-btnGhost" data-act="close" style="padding:4px 10px;">关闭</button>
       </div>
-      ${tabBody}
+      <div class="wr-barRow" style="gap:6px;">
+        <input type="search" class="wr-input" data-toc-search="1" value="${escapeHtml(ctrl.tocSearch || '')}" placeholder="在目录内直接搜索本书内容..." style="flex:1;padding:6px 10px;font-size:12.5px;" />
+      </div>
+      <div class="wr-tocTabs">
+        <button type="button" class="wr-tocTab ${subTab === 'outline' && !tocQ ? 'active' : ''}" data-toc-tab="outline">目录 (${items.length})</button>
+        <button type="button" class="wr-tocTab ${subTab === 'marks' && !tocQ ? 'active' : ''}" data-toc-tab="marks">划线 (${ctrl.marks.length})</button>
+      </div>
+      <div data-role="toc-body">${buildTocBody()}</div>
     `
   } else if (ctrl.activeSheet === 'drawer') {
     const b = ctrl.sheetData.block
@@ -224,16 +251,29 @@ export function renderReaderSheet(ctrl, host) {
         <h3 style="margin:0;font-size:16px;">划线与想法</h3>
         <button type="button" class="wr-btnGhost" data-act="close">关闭</button>
       </div>
-      ${matched.length ? matched.map(m => `
-        <div class="wr-card" style="margin:0;">
-          <div style="font-size:11px;color:var(--fg-muted);margin-bottom:6px;">${m.view === 'original' ? '原文' : '译文'} · ${m.kind === 'bookmark' ? '笔记/书签' : '划线'}</div>
-          <blockquote class="wr-quoteBox" style="margin-bottom:${m.comment ? '8px' : '0'};">${escapeHtml(m.quote || m.exact || '')}</blockquote>
-          ${m.comment ? `<p style="margin:6px 0 0;font-size:14px;line-height:1.55;">💭 ${escapeHtml(m.comment)}</p>` : ''}
-          <div class="wr-barRow" style="justify-content:flex-end;margin-top:8px;">
-            <button type="button" class="wr-btnGhost" data-del-mark="${escapeHtml(m.id)}" data-del-kind="${escapeHtml(m.kind || 'highlight')}" style="color:#dc2626;padding:5px 12px;font-size:12px;">${m.kind === 'bookmark' ? '取消划线' : '删除高亮'}</button>
+      ${matched.length ? matched.map(m => {
+        const curStyle = m.style || 'highlight'
+        const curColor = m.color || 'gold'
+        return `
+        <div class="wr-card" style="margin:0;display:flex;flex-direction:column;gap:8px;" data-mark-card="${escapeHtml(m.id)}">
+          <div style="font-size:11px;color:var(--fg-muted);">${m.view === 'original' ? '原文' : '译文'} · ${m.kind === 'bookmark' ? '想法/书签' : '划线'}</div>
+          <blockquote class="wr-quoteBox" style="margin:0;">${escapeHtml(m.quote || m.exact || '')}</blockquote>
+          <div class="wr-barRow" style="flex-wrap:wrap;gap:6px;">
+            <div class="wr-segGroup">
+              ${HIGHLIGHT_STYLES.map(st => `<button type="button" class="wr-segBtn ${curStyle === st.id ? 'active' : ''}" data-mk-style="${st.id}" data-mk-id="${escapeHtml(m.id)}">${st.label}</button>`).join('')}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${HIGHLIGHT_COLORS.map(c => `<button type="button" class="wr-markColorSwatch ${curColor === c.id ? 'active' : ''}" data-mk-color="${c.id}" data-mk-id="${escapeHtml(m.id)}" style="background:${c.hex};" title="${c.label}"></button>`).join('')}
+            </div>
+          </div>
+          <textarea class="wr-textarea" data-mark-comment="${escapeHtml(m.id)}" placeholder="写下或修改想法批注..." style="min-height:76px;">${escapeHtml(m.comment || '')}</textarea>
+          <div class="wr-barRow" style="justify-content:flex-end;gap:8px;">
+            <button type="button" class="wr-btnGhost" data-del-mark="${escapeHtml(m.id)}" data-del-kind="${escapeHtml(m.kind || 'highlight')}" style="color:#dc2626;padding:5px 12px;font-size:12px;">取消划线</button>
+            <button type="button" class="wr-btnPrimary" data-save-mark="${escapeHtml(m.id)}" style="padding:5px 12px;font-size:12px;">保存想法</button>
           </div>
         </div>
-      `).join('') : '<p style="color:var(--fg-muted);font-size:13px;">未找到该划线记录</p>'}
+      `
+      }).join('') : '<p style="color:var(--fg-muted);font-size:13px;">未找到该划线记录</p>'}
     `
   }
 
@@ -245,18 +285,46 @@ export function renderReaderSheet(ctrl, host) {
   host.querySelector('[data-act="close"]')?.addEventListener('click', () => ctrl.closeSheet())
 
   if (ctrl.activeSheet === 'toc') {
+    const bindTocNav = () => {
+      host.querySelectorAll('[data-toc-id]').forEach(btn => {
+        btn.onclick = () => { const id = btn.dataset.tocId; ctrl.closeSheet(); ctrl.jumpToBlock(id) }
+      })
+      host.querySelectorAll('[data-toc-hit]').forEach(btn => {
+        btn.onclick = () => { ctrl.searchQuery = String(ctrl.tocSearch || '').trim(); ctrl.closeSheet(); ctrl.jumpToSearchMatch(btn.dataset.tocHit, btn.dataset.tocView) }
+      })
+    }
+    bindTocNav()
     host.querySelectorAll('[data-toc-tab]').forEach(btn => {
-      btn.onclick = () => {
-        ctrl.tocSubTab = btn.dataset.tocTab
-        ctrl.renderSheet()
-      }
+      btn.onclick = () => { ctrl.tocSearch = ''; ctrl.tocSubTab = btn.dataset.tocTab; ctrl.renderSheet() }
     })
-    host.querySelectorAll('[data-toc-id]').forEach(btn => {
-      btn.onclick = () => {
-        const id = btn.dataset.tocId
-        ctrl.closeSheet()
-        ctrl.jumpToBlock(id)
-      }
+    host.querySelector('[data-toc-search="1"]')?.addEventListener('input', e => {
+      ctrl.tocSearch = e.target.value
+      const q = ctrl.tocSearch.trim()
+      const body = host.querySelector('[data-role="toc-body"]')
+      if (!q || !body) { if (!q) ctrl.renderSheet(); return }
+      const res = searchBookContent(ctrl.reading, q, { maxMatches: 80 })
+      body.innerHTML = res.matches.length
+        ? `<div style="display:flex;flex-direction:column;gap:6px;"><div style="font-size:11.5px;color:var(--fg-muted);">共 ${res.totalMatches} 处匹配</div>${res.matches.map(h => `<button type="button" class="wr-searchHitCard" data-toc-hit="${escapeHtml(h.blockId)}" data-toc-view="${escapeHtml(h.view)}"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span class="wr-searchTag">${h.view === 'original' ? '原文' : '译文'}</span>${h.chapterLabel ? `<span class="wr-searchChapter">${escapeHtml(h.chapterLabel)}</span>` : ''}</div><div class="wr-searchSnippetText">${renderSearchSnippetHtml(h.snippet, h.matchOffset, h.matchLen)}</div></button>`).join('')}</div>`
+        : '<p style="color:var(--fg-muted);font-size:13px;padding:12px 0;">未在本书中找到匹配内容</p>'
+      bindTocNav()
+    })
+    host.querySelector('[data-toc-bm="1"]')?.addEventListener('click', async () => {
+      const bid = ctrl.currentTopBlockId()
+      const blk = (ctrl.reading.blocks || []).find(b => b.id === bid)
+      if (!blk) return
+      const v = ctrl.viewMode === 'original' ? 'original' : 'translation'
+      const exact = plainText(v === 'original' ? (blk.sourceText ?? blk.text) : (blk.translation ?? blk.text)).slice(0, 120)
+      if (!exact) return
+      const created = await readerApi.postBookmarkAction(ctrl.settings, {
+        source: { kind: 'task', id: ctrl.taskId },
+        selection: { view: v, startBlockId: bid, endBlockId: bid, exact },
+        style: ctrl.settings.highlightStyle || 'highlight',
+        color: ctrl.settings.highlightColor || 'gold',
+      })
+      ctrl.marks.push({ id: created?.id || 'local-' + Date.now(), kind: 'bookmark', view: v, blockId: bid, quote: exact, exact, style: ctrl.settings.highlightStyle || 'highlight', color: ctrl.settings.highlightColor || 'gold' })
+      await offlineDb.saveMarks(ctrl.taskId, ctrl.marks)
+      ctrl.onToast('已加入当前段落书签')
+      ctrl.renderSheet()
     })
     host.querySelector('[data-toc-page="prev"]')?.addEventListener('click', () => ctrl.turnTocPage(-1))
     host.querySelector('[data-toc-page="next"]')?.addEventListener('click', () => ctrl.turnTocPage(1))
@@ -286,10 +354,14 @@ export function renderReaderSheet(ctrl, host) {
         selection: ctrl.sheetData.selection,
         comment,
         tags,
+        style: ctrl.settings.highlightStyle || 'highlight',
+        color: ctrl.settings.highlightColor || 'gold',
       })
       ctrl.marks.push({
         id: created?.id || 'local-' + Date.now(),
         kind: 'bookmark',
+        style: ctrl.settings.highlightStyle || 'highlight',
+        color: ctrl.settings.highlightColor || 'gold',
         view: ctrl.sheetData.selection.view,
         blockId: ctrl.sheetData.selection.startBlockId,
         quote: ctrl.sheetData.selection.exact,
@@ -385,6 +457,28 @@ export function renderReaderSheet(ctrl, host) {
       ctrl.renderSheet()
     })
   } else if (ctrl.activeSheet === 'markDetail') {
+    const patchMark = async (id, patch) => {
+      await readerApi.postBookmarkAction(ctrl.settings, { updateBookmark: { id, ...patch } })
+      const m = ctrl.marks.find(x => x.id === id)
+      if (m) Object.assign(m, patch)
+      await offlineDb.saveMarks(ctrl.taskId, ctrl.marks)
+      ctrl.renderBlocks()
+    }
+    host.querySelectorAll('[data-mk-style]').forEach(btn => {
+      btn.onclick = async () => { await patchMark(btn.dataset.mkId, { style: btn.dataset.mkStyle }); ctrl.renderSheet(); ctrl.onToast('已切换样式') }
+    })
+    host.querySelectorAll('[data-mk-color]').forEach(btn => {
+      btn.onclick = async () => { await patchMark(btn.dataset.mkId, { color: btn.dataset.mkColor }); ctrl.renderSheet(); ctrl.onToast('已更换颜色') }
+    })
+    host.querySelectorAll('[data-save-mark]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.saveMark
+        const comment = host.querySelector(`[data-mark-comment="${id}"]`)?.value ?? ''
+        await patchMark(id, { comment, kind: comment.trim() ? 'bookmark' : undefined })
+        ctrl.closeSheet()
+        ctrl.onToast('想法已保存')
+      }
+    })
     host.querySelectorAll('[data-del-mark]').forEach(btn => {
       btn.onclick = async () => {
         const id = btn.dataset.delMark
