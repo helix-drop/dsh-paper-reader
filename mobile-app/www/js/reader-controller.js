@@ -42,7 +42,7 @@ export class ReaderController {
     this.marks = []
     this.barsVisible = false
     this.activeBottomPanel = 'progress' // 'progress' | 'theme' | 'typography'
-    this.tocSubTab = 'outline' // 'outline' | 'marks' | 'glossary'
+    this.tocSubTab = 'outline' // 'outline' | 'marks'
     this.activeSheet = null // 'toc' | 'drawer' | 'footnote' | 'noteEditor' | 'correction' | 'pdf'
     this.sheetData = null
     this.selectionInfo = null
@@ -75,10 +75,22 @@ export class ReaderController {
       nextKeys: this.settings.nextKeys,
     })
 
-    this.marks = await readerApi.loadMarks(this.settings, this.taskId).catch(() => [])
+    this.marks = await offlineDb.getMarks(this.taskId).catch(() => [])
     this.render()
     this.bindGlobalEvents()
-    this.checkRemoteProgress()
+    void this.refreshRemoteInBackground()
+  }
+
+  async refreshRemoteInBackground() {
+    void this.checkRemoteProgress()
+    try {
+      const remoteMarks = await readerApi.loadMarks(this.settings, this.taskId)
+      if (this.destroyed || !Array.isArray(remoteMarks)) return
+      if (JSON.stringify(remoteMarks) !== JSON.stringify(this.marks)) {
+        this.marks = remoteMarks
+        this.renderBlocks()
+      }
+    } catch {}
   }
 
   destroy() {

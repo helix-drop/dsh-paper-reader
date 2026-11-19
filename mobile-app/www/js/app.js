@@ -14,19 +14,67 @@ const state = {
   progress: {},
   bookmarks: [],
   cachedIds: new Set(),
+  cachedPdfIds: new Set(),
   outboxCount: 0,
   searchQuery: '',
   selectedFolder: 'all',
   noteSearch: '',
   noteDocFilter: '',
   syncing: false,
+  syncProgressText: '',
+  syncAbortController: null,
   downloadingId: '',
+  openingId: '',
+  openingTitle: '',
+  openAbortController: null,
+  coverAbortController: null,
   keyCaptureTarget: null, // 'prev' | 'next' | null
   reader: null,
   shelfPage: 0,
   shelfTotalPages: 1,
   toastMsg: '',
   toastTimer: null,
+}
+
+function abortCovers() {
+  if (state.coverAbortController) {
+    state.coverAbortController.abort()
+    state.coverAbortController = null
+  }
+}
+
+function renderStatusBanners() {
+  let syncEl = document.getElementById('wr-sync-bar')
+  if (!state.syncing || !state.syncProgressText || state.reader) {
+    syncEl?.remove()
+  } else {
+    if (!syncEl) {
+      syncEl = document.createElement('div')
+      syncEl.id = 'wr-sync-bar'
+      syncEl.className = 'wr-syncFloatBar'
+      document.body.appendChild(syncEl)
+    }
+    syncEl.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">↻ ${escapeHtml(state.syncProgressText)}</span><button type="button" class="wr-btnGhost" data-act="cancel-sync" style="padding:4px 10px;font-size:12px;flex-shrink:0;">取消</button>`
+    syncEl.querySelector('[data-act="cancel-sync"]').onclick = () => {
+      state.syncAbortController?.abort()
+    }
+  }
+
+  let openEl = document.getElementById('wr-opening-banner')
+  if (!state.openingId || !state.openingTitle || state.reader) {
+    openEl?.remove()
+  } else {
+    if (!openEl) {
+      openEl = document.createElement('div')
+      openEl.id = 'wr-opening-banner'
+      openEl.className = 'wr-syncFloatBar'
+      document.body.appendChild(openEl)
+    }
+    openEl.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">正在下载正文：${escapeHtml(state.openingTitle)}...</span><button type="button" class="wr-btnGhost" data-act="cancel-open" style="padding:4px 10px;font-size:12px;flex-shrink:0;">取消</button>`
+    openEl.querySelector('[data-act="cancel-open"]').onclick = () => {
+      state.openAbortController?.abort()
+    }
+  }
 }
 
 function showToast(msg) {
@@ -72,45 +120,123 @@ async function updateSettings(patch) {
 }
 
 async function refreshLocalState() {
-  const [lib, progress, bookmarks, cachedIds, outbox] = await Promise.all([
+  const [lib, progress, bookmarks, cachedIds, cachedPdfIds, outbox] = await Promise.all([
     offlineDb.getLibraryCache(),
     offlineDb.getAllProgress(),
     offlineDb.getBookmarks(),
     offlineDb.listCachedBookIds(),
+    offlineDb.listCachedPdfIds(),
     offlineDb.listOutbox(),
   ])
   state.library = lib
   state.progress = progress
   state.bookmarks = bookmarks
   state.cachedIds = cachedIds
+  state.cachedPdfIds = cachedPdfIds
   state.outboxCount = outbox.length
 }
 
-async function performSync(silent = false) {
+async function performSync(silent = false, options = {}) {
   if (state.syncing) return
+  abortCovers()
+  const includePdfs = options.includePdfs !== undefined
+    ? Boolean(options.includePdfs)
+    : Boolean(state.settings?.syncIncludePdfs)
+  const ctrl = new AbortController()
+  state.syncAbortController = ctrl
   state.syncing = true
+  state.syncProgressText = includePdfs ? '准备下载所有 MD 与原 PDF...' : '正在同步云端书目与 MD 正文...'
   render()
   try {
-    await readerApi.syncAll(state.settings)
+    let lastCountRefresh = 0
+    const res = await readerApi.syncAll(state.settings, {
+      syncBooks: true,
+      includePdfs,
+      signal: ctrl.signal,
+      onProgress: p => {
+        if (p.phase === 'books') {
+          state.syncProgressText = p.total
+            ? `下载 MD 正文 ${p.done}/${p.total}${p.title ? `：${p.title}` : ''}`
+            : '正在整理书目...'
+          if (p.done - lastCountRefresh >= 5) {
+            lastCountRefresh = p.done
+            void offlineDb.listCachedBookIds().then(ids => { state.cachedIds = ids })
+          }
+        } else if (p.phase === 'pdfs') {
+          state.syncProgressText = p.total
+            ? `下载原 PDF ${p.done}/${p.total}${p.title ? `：${p.title}` : ''}`
+            : '正在检查原 PDF...'
+          void offlineDb.listCachedPdfIds().then(ids => { state.cachedPdfIds = ids })
+        } else if (p.message) {
+          state.syncProgressText = p.message
+        }
+        renderStatusBanners()
+      },
+    })
     await refreshLocalState()
-    if (!silent) showToast('云端书库、进度与笔记已同步')
+    if (ctrl.signal.aborted) {
+      showToast('已取消剩余下载（已完成部分已离线保存）')
+    } else if (!silent) {
+      const totalMd = (res.syncedBooks || 0) + (res.skippedBooks || 0)
+      const totalPdf = (res.syncedPdfs || 0) + (res.skippedPdfs || 0)
+      if (includePdfs) {
+        const failTotal = (res.failedBooks || 0) + (res.failedPdfs || 0)
+        showToast(failTotal > 0
+          ? `下载完成：${totalMd} 篇 MD、${totalPdf} 本 PDF（${failTotal} 项失败可重试）`
+          : `已下载全部文件：${totalMd} 篇 MD 正文与 ${totalPdf} 本原 PDF`)
+      } else if (res.failedBooks > 0) {
+        showToast(`同步完成：${totalMd} 篇 MD 正文已就绪，${res.failedBooks} 篇失败`)
+      } else {
+        showToast(`已下载全部 ${totalMd} 篇原文与译文 MD（PDF 按需查看）`)
+      }
+    }
   } catch (err) {
-    if (!silent) showToast(err.message || '同步失败，当前显示离线缓存')
+    if (!ctrl.signal.aborted && !silent) {
+      showToast(err.message || '同步失败，当前显示离线缓存')
+    }
   } finally {
     state.syncing = false
+    state.syncProgressText = ''
+    if (state.syncAbortController === ctrl) state.syncAbortController = null
     render()
   }
 }
 
 async function openBook(taskId, blockId = '', view = '') {
+  if (!taskId || state.openingId === taskId) return
+  state.openAbortController?.abort()
+  abortCovers()
+
+  const ctrl = new AbortController()
+  const doc = state.library.documents?.find(d => d.id === taskId)
+  state.openingId = taskId
+  state.openAbortController = ctrl
+  state.openingTitle = ''
+
+  const waitTimer = setTimeout(() => {
+    if (state.openingId === taskId && !ctrl.signal.aborted) {
+      state.openingTitle = doc?.name || '文献正文'
+      renderStatusBanners()
+    }
+  }, 150)
+
   try {
-    showToast('正在打开...')
-    const { reading, fromCache } = await readerApi.loadReading(state.settings, taskId)
+    const res = await readerApi.loadReading(state.settings, taskId, {
+      preferOffline: true,
+      signal: ctrl.signal,
+    })
+    if (state.openingId !== taskId || ctrl.signal.aborted) return
     state.cachedIds.add(taskId)
+    clearTimeout(waitTimer)
+    state.openingId = ''
+    state.openingTitle = ''
+    state.openAbortController = null
+    renderStatusBanners()
+
     state.reader = new ReaderController({
       root: appEl,
       taskId,
-      reading,
+      reading: res.reading,
       settings: state.settings,
       initialBlockId: blockId,
       initialView: view,
@@ -124,9 +250,19 @@ async function openBook(taskId, blockId = '', view = '') {
       },
     })
     await state.reader.mount()
-    if (fromCache) showToast('离线模式打开')
+    if (res.offlineFallback) showToast('离线模式打开')
   } catch (err) {
-    showToast(err.message || '无法打开该文献')
+    if (!err?.cancelled && !ctrl.signal.aborted) {
+      showToast(err.message || '无法打开该文献')
+    }
+  } finally {
+    clearTimeout(waitTimer)
+    if (state.openAbortController === ctrl) {
+      state.openingId = ''
+      state.openingTitle = ''
+      state.openAbortController = null
+    }
+    renderStatusBanners()
   }
 }
 
@@ -170,7 +306,12 @@ function renderBookCoverHtml(doc, isEink, badgeText = '') {
 let coverHydrateToken = 0
 async function hydrateShelfCovers() {
   const token = ++coverHydrateToken
-  const imgs = [...appEl.querySelectorAll('img.wr-bookCoverImg[data-cover-task]')]
+  if (state.syncing || state.openingId || state.reader) return
+  abortCovers()
+  const ctrl = new AbortController()
+  state.coverAbortController = ctrl
+
+  const imgs = [...appEl.querySelectorAll('img.wr-bookCoverImg[data-cover-task]')].slice(0, 12)
   if (!imgs.length) return
   const byTask = new Map()
   for (const img of imgs) {
@@ -180,14 +321,14 @@ async function hydrateShelfCovers() {
     byTask.get(taskId).push(img)
   }
   const tasks = [...byTask.keys()]
-  const concurrency = 4
+  const concurrency = 2
   let idx = 0
   const worker = async () => {
     while (idx < tasks.length) {
-      if (token !== coverHydrateToken) return
+      if (token !== coverHydrateToken || ctrl.signal.aborted || state.syncing || state.openingId) return
       const taskId = tasks[idx++]
-      const url = await readerApi.loadCoverUrl(state.settings, taskId)
-      if (token !== coverHydrateToken) return
+      const url = await readerApi.loadCoverUrl(state.settings, taskId, { signal: ctrl.signal })
+      if (token !== coverHydrateToken || ctrl.signal.aborted) return
       for (const el of byTask.get(taskId) ?? []) {
         el.removeAttribute('data-cover-task')
         if (url) {
@@ -242,6 +383,11 @@ function renderShelf() {
     : null
   const recentProg = recentDoc ? progressForDoc(recentDoc) : null
 
+  const allDocs = state.library.documents ?? []
+  const mdMissing = allDocs.filter(d => !state.cachedIds.has(d.id)).length
+  const pdfDocsCount = allDocs.filter(d => d.hasPdf !== false).length
+  const pdfCachedCount = allDocs.filter(d => d.hasPdf !== false && state.cachedPdfIds.has(d.id)).length
+
   return `
     ${recentDoc ? `
       <div class="wr-heroContinue" data-open-book="${escapeHtml(recentDoc.id)}">
@@ -260,10 +406,17 @@ function renderShelf() {
       <input type="search" class="wr-input" placeholder="搜索书名或作者..." value="${escapeHtml(state.searchQuery)}" data-act="search-shelf" />
     </div>
     <div class="wr-pillRow">
-      <button type="button" class="wr-pill ${state.selectedFolder === 'all' ? 'active' : ''}" data-folder="all">全部 (${state.library.documents?.length ?? 0})</button>
+      <button type="button" class="wr-pill ${state.selectedFolder === 'all' ? 'active' : ''}" data-folder="all">全部 (${allDocs.length})</button>
       <button type="button" class="wr-pill ${state.selectedFolder === 'uncategorized' ? 'active' : ''}" data-folder="uncategorized">未归类</button>
       ${folders.map(f => `<button type="button" class="wr-pill ${state.selectedFolder === f.id ? 'active' : ''}" data-folder="${escapeHtml(f.id)}">${escapeHtml(f.name)}</button>`).join('')}
     </div>
+    ${allDocs.length ? `
+      <div class="wr-bulkDownloadRow">
+        <button type="button" class="wr-btnGhost wr-bulkBtn" data-act="dl-all-md" ${state.syncing ? 'disabled' : ''}>↓ 下载所有 MD 文件${mdMissing > 0 ? `（缺 ${mdMissing}）` : '（已全）'}</button>
+        <button type="button" class="wr-btnGhost wr-bulkBtn" data-act="dl-all-files" ${state.syncing ? 'disabled' : ''}>↓ 下载所有文件${pdfDocsCount > 0 ? `（含 PDF ${pdfCachedCount}/${pdfDocsCount}）` : ''}</button>
+        ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost wr-bulkBtn" data-act="cancel-sync">取消下载</button>' : ''}
+      </div>
+    ` : ''}
     ${!visibleDocs.length ? `
       <div class="wr-card" style="text-align:center;color:var(--fg-muted);">
         <p style="margin:12px 0;">${state.library.documents?.length ? '没有匹配的文献' : '书架为空，请先在「设置」配置轻量云服务器并点击同步。'}</p>
@@ -289,6 +442,7 @@ function renderShelf() {
           const prog = progressForDoc(d)
           const pct = prog?.percent || 0
           const isCached = state.cachedIds.has(d.id)
+          const hasPdfCached = state.cachedPdfIds.has(d.id)
           const busy = state.downloadingId === d.id
           return `
             <div class="wr-bookCard wr-bookCardWithCover" data-open-book="${escapeHtml(d.id)}">
@@ -299,7 +453,7 @@ function renderShelf() {
                     <h3 class="wr-bookTitle">${escapeHtml(d.name)}</h3>
                     <div class="wr-bookMeta">${escapeHtml([d.author, d.titleSource, kindLabel[d.kind] || d.kind].filter(Boolean).join(' · '))}</div>
                   </div>
-                  <span class="wr-badge ${isCached ? 'offline' : ''}" style="flex-shrink:0;">${isCached ? '已离线' : '云端'}</span>
+                  <span class="wr-badge ${isCached ? 'offline' : ''}" style="flex-shrink:0;">${isCached ? (hasPdfCached ? 'MD+PDF' : '已离线') : '云端'}</span>
                 </div>
                 <div class="wr-progressTrack"><div class="wr-progressFill" style="width:${pct}%"></div></div>
                 <div class="wr-bookActions">
@@ -388,10 +542,21 @@ function renderSettings() {
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button type="button" class="wr-btnGhost" data-act="save-conn">保存连接</button>
         <button type="button" class="wr-btnGhost" data-act="test-conn">测试连通</button>
-        <button type="button" class="wr-btnPrimary" data-act="sync-now">${state.syncing ? '同步中...' : '立即同步'}</button>
+        <button type="button" class="wr-btnPrimary" data-act="sync-now" ${state.syncing ? 'disabled' : ''}>${state.syncing ? '同步中...' : '立即同步'}</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" class="wr-btnGhost" data-act="dl-all-md" ${state.syncing ? 'disabled' : ''}>↓ 下载所有 MD 文件</button>
+        <button type="button" class="wr-btnGhost" data-act="dl-all-files" ${state.syncing ? 'disabled' : ''}>↓ 下载所有文件（含 PDF）</button>
+        ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost" data-act="cancel-sync">取消下载</button>' : ''}
+      </div>
+      <div class="wr-field" style="margin-top:10px;margin-bottom:0;">顶部「↻ 同步」默认下载范围
+        <div class="wr-segGroup">
+          <button type="button" class="wr-segBtn ${!s.syncIncludePdfs ? 'active' : ''}" data-sync-scope="md">所有 MD 文件（推荐，PDF 按需）</button>
+          <button type="button" class="wr-segBtn ${s.syncIncludePdfs ? 'active' : ''}" data-sync-scope="all">所有文件（含全部 PDF）</button>
+        </div>
       </div>
       <p style="margin:8px 0 0;font-size:12px;color:var(--fg-muted);">
-        待上传离线队列：${state.outboxCount} 条 · 已离线缓存：${state.cachedIds.size} 本
+        待上传离线队列：${state.outboxCount} 条 · 已离线 MD：${state.cachedIds.size} / ${state.library.documents?.length ?? 0} 本 · 已离线 PDF：${state.cachedPdfIds.size} / ${(state.library.documents ?? []).filter(d => d.hasPdf !== false).length} 本
       </p>
     </div>
 
@@ -475,6 +640,7 @@ function renderSettings() {
 }
 
 function render() {
+  renderStatusBanners()
   if (state.reader) return
   const bodyHtml = state.tab === 'notes' ? renderNotes() : state.tab === 'settings' ? renderSettings() : renderShelf()
   const shelfLayout = state.settings?.shelfLayout || 'list'
@@ -518,7 +684,20 @@ function render() {
     }
   }
 
+  const bindDownloadActions = beforeRun => {
+    appEl.querySelectorAll('[data-act="dl-all-md"]').forEach(btn => {
+      btn.onclick = async () => { await beforeRun?.(); await performSync(false, { includePdfs: false }) }
+    })
+    appEl.querySelectorAll('[data-act="dl-all-files"]').forEach(btn => {
+      btn.onclick = async () => { await beforeRun?.(); await performSync(false, { includePdfs: true }) }
+    })
+    appEl.querySelectorAll('[data-act="cancel-sync"]').forEach(btn => {
+      btn.onclick = () => state.syncAbortController?.abort()
+    })
+  }
+
   if (state.tab === 'shelf') {
+    bindDownloadActions()
     const search = appEl.querySelector('[data-act="search-shelf"]')
     if (search) search.oninput = () => { state.searchQuery = search.value; state.shelfPage = 0; render() }
     appEl.querySelectorAll('[data-folder]').forEach(btn => {
@@ -605,6 +784,13 @@ function render() {
       await updateSettings(readConn())
       await performSync(false)
     }
+    bindDownloadActions(() => updateSettings(readConn()))
+    appEl.querySelectorAll('[data-sync-scope]').forEach(btn => {
+      btn.onclick = async () => {
+        await updateSettings({ syncIncludePdfs: btn.dataset.syncScope === 'all' })
+        render()
+      }
+    })
     appEl.querySelectorAll('[data-set-theme]').forEach(btn => {
       btn.onclick = async () => {
         const theme = btn.dataset.setTheme

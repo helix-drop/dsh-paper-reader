@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   textAlign: 'justify', // justify | left
   brightness: 100, // 35..100
   fontFamily: 'serif', // serif | fzsong | kaiti | fangsong | sans | yuan | literary | mono
+  syncIncludePdfs: false, // false: 同步仅拉取 MD 正文与插图（PDF 按需）; true: 同时下载全量 PDF
   prevKeys: ['VolumeUp', 'PageUp', 'ArrowLeft', 'ArrowUp', 24, 92, 19, 21],
   nextKeys: ['VolumeDown', 'PageDown', 'ArrowRight', 'ArrowDown', 25, 93, 20, 22],
 }
@@ -115,9 +116,26 @@ export const offlineDb = {
     return new Set(keys)
   },
 
+  async listCachedPdfIds() {
+    const keys = await withStore('pdfs', 'readonly', s => reqPromise(s.getAllKeys())).catch(() => [])
+    return new Set(keys)
+  },
+
   async deleteBook(taskId) {
-    await withStore('books', 'readwrite', s => reqPromise(s.delete(taskId)))
+    await withStore('books', 'readwrite', s => reqPromise(s.delete(taskId))).catch(() => {})
     await withStore('pdfs', 'readwrite', s => reqPromise(s.delete(taskId))).catch(() => {})
+    await withStore('marks', 'readwrite', s => reqPromise(s.delete(`marks:${taskId}`))).catch(() => {})
+    await withStore('assets', 'readwrite', s => new Promise((resolve, reject) => {
+      const req = s.openCursor()
+      const prefix = `${taskId}::`
+      req.onsuccess = () => {
+        const cursor = req.result
+        if (!cursor) { resolve(); return }
+        if (typeof cursor.key === 'string' && cursor.key.startsWith(prefix)) cursor.delete()
+        cursor.continue()
+      }
+      req.onerror = () => reject(req.error)
+    })).catch(() => {})
   },
 
   async getAsset(taskId, ref) {

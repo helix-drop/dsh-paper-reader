@@ -1,6 +1,5 @@
 import {
   escapeHtml,
-  extractGlossaryHits,
   plainText,
   validateCorrectionMarkers,
 } from './reading-core.js'
@@ -34,7 +33,13 @@ export function renderReaderSheet(ctrl, host) {
               : p.error
               ? `<p style="color:#dc2626;">${escapeHtml(p.error)}</p>`
               : p.fallbackPdfUrl
-              ? `<iframe src="${p.fallbackPdfUrl}#page=${p.page}" style="width:100%;height:100%;border:none;"></iframe>`
+              ? `<div style="width:100%;height:100%;display:flex;flex-direction:column;">
+                  <div class="wr-barRow" style="padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);justify-content:space-between;">
+                    <span style="font-size:12px;color:var(--fg-muted);">已加载完整原 PDF 离线副本</span>
+                    <a class="wr-btnPrimary" href="${p.fallbackPdfUrl}" download="source-${escapeHtml(ctrl.taskId)}.pdf" target="_blank" rel="noopener noreferrer" style="padding:4px 10px;font-size:12px;text-decoration:none;">外部打开 / 保存 PDF</a>
+                  </div>
+                  <iframe src="${p.fallbackPdfUrl}#page=${p.page}" style="width:100%;flex:1;border:none;"></iframe>
+                </div>`
               : `<img class="wr-pdfPageImg" src="${p.imgUrl}" style="width:${p.zoom}%;max-width:none;" />`
           }
         </div>
@@ -56,8 +61,7 @@ export function renderReaderSheet(ctrl, host) {
   if (ctrl.activeSheet === 'toc') {
     const currentBlock = ctrl.currentTopBlockId()
     const items = ctrl.outlineItems()
-    const glossary = ctrl.reading.glossary ?? []
-    const subTab = ctrl.tocSubTab || 'outline'
+    const subTab = ctrl.tocSubTab === 'marks' ? 'marks' : 'outline'
     const usePagination = ctrl.settings.deviceMode === 'eink' || ctrl.settings.theme === 'eink' || items.length > 12
     const pageSize = 10
     ctrl.tocTotalPages = usePagination ? Math.max(1, Math.ceil(items.length / pageSize)) : 1
@@ -94,7 +98,7 @@ export function renderReaderSheet(ctrl, host) {
             : ''
         }
       `
-    } else if (subTab === 'marks') {
+    } else {
       tabBody = `
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${
@@ -113,26 +117,6 @@ export function renderReaderSheet(ctrl, host) {
           }
         </div>
       `
-    } else {
-      tabBody = `
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          ${
-            glossary.length
-              ? glossary
-                  .slice(0, 120)
-                  .map(
-                    g => `
-            <div style="padding:8px 6px;border-bottom:1px solid var(--border);font-size:13px;">
-              <div style="font-weight:600;">${escapeHtml(g.source || g.src || '')} → <span style="color:var(--accent);">${escapeHtml(g.target || g.dst || '')}</span></div>
-              ${g.note || g.info ? `<div style="font-size:11.5px;color:var(--fg-muted);margin-top:2px;">${escapeHtml(g.note || g.info)}</div>` : ''}
-            </div>
-          `
-                  )
-                  .join('')
-              : '<p style="color:var(--fg-muted);font-size:13px;text-align:center;margin:16px 0;">本书暂无术语表</p>'
-          }
-        </div>
-      `
     }
 
     inner = `
@@ -140,7 +124,6 @@ export function renderReaderSheet(ctrl, host) {
         <div class="wr-tocTabs" style="flex:1;">
           <button type="button" class="wr-tocTab ${subTab === 'outline' ? 'active' : ''}" data-toc-tab="outline">目录 (${items.length})</button>
           <button type="button" class="wr-tocTab ${subTab === 'marks' ? 'active' : ''}" data-toc-tab="marks">划线 (${ctrl.marks.length})</button>
-          <button type="button" class="wr-tocTab ${subTab === 'glossary' ? 'active' : ''}" data-toc-tab="glossary">术语 (${glossary.length})</button>
         </div>
         <button type="button" class="wr-btnGhost" data-act="close" style="padding:5px 10px;">关闭</button>
       </div>
@@ -150,7 +133,6 @@ export function renderReaderSheet(ctrl, host) {
     const b = ctrl.sheetData.block
     const transText = ctrl.reading.standaloneView === 'translation' ? b.text : (b.translation ?? b.text)
     const origText = b.sourceText ?? b.text
-    const glossaryHits = extractGlossaryHits(transText, origText, ctrl.reading.glossary)
     inner = `
       <div class="wr-barRow">
         <h3 style="margin:0;font-size:16px;">双语对照${b.pdfPage ? ` · 原书第 ${b.pdfPage} 页` : ''}</h3>
@@ -158,18 +140,6 @@ export function renderReaderSheet(ctrl, host) {
       </div>
       ${ctrl.hasTranslation ? `<div><div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">译文</div><p style="margin:0;line-height:1.65;">${escapeHtml(plainText(transText))}</p></div>` : ''}
       <div><div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">原文</div><p style="margin:0;line-height:1.65;color:var(--fg-muted);">${escapeHtml(plainText(origText))}</p></div>
-      ${
-        glossaryHits.length
-          ? `
-        <div>
-          <div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px;">命中术语</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            ${glossaryHits.map(g => `<span class="wr-badge">${escapeHtml(g.source)} → ${escapeHtml(g.target)}</span>`).join('')}
-          </div>
-        </div>
-      `
-          : ''
-      }
       <div class="wr-barRow" style="margin-top:4px;">
         <button type="button" class="wr-btnGhost" data-act="correct-from-drawer">段落纠错</button>
         ${b.pdfPage ? `<button type="button" class="wr-btnPrimary" data-act="open-pdf-page">查看原 PDF 第 ${b.pdfPage} 页</button>` : ''}
