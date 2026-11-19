@@ -849,8 +849,8 @@ function render() {
     appEl.querySelectorAll('[data-devmode]').forEach(btn => {
       btn.onclick = async () => {
         const presets = {
-          'eink-stylus': [{ deviceMode: 'eink', theme: 'eink', tapZoneMode: 'keysOnly', showPageTurnBar: true }, '已启用汉王 N10 电磁笔+侧键专享模式'],
-          eink: [{ deviceMode: 'eink', theme: 'eink', tapZoneMode: 'classic', showPageTurnBar: false }, '已启用汉王墨水屏模式'],
+          'eink-stylus': [{ deviceMode: 'eink', theme: 'eink', fontWeight: 500, tapZoneMode: 'keysOnly', showPageTurnBar: true }, '已启用汉王 N10 电磁笔+侧键专享模式'],
+          eink: [{ deviceMode: 'eink', theme: 'eink', fontWeight: 500, tapZoneMode: 'classic', showPageTurnBar: false }, '已启用汉王墨水屏模式'],
           phone: [{ deviceMode: 'phone', theme: 'paper', tapZoneMode: 'ergonomic', showPageTurnBar: false }, '已切换为安卓手机竖屏模式'],
         }
         const [patch, msg] = presets[btn.dataset.devmode] || presets.phone

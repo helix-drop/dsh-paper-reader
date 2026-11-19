@@ -777,7 +777,14 @@ mark.wr-ms-line {
   border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
   color: var(--fg-muted); font-family: var(--ui-font); font-size: 11px; vertical-align: middle; cursor: pointer;
 }
-body[data-eink="true"] mark.wr-ms-highlight, body[data-theme="eink"] mark.wr-ms-highlight { background: transparent; border-bottom: 2px solid #000; }
+body[data-eink="true"] mark.wr-ms-highlight, body[data-theme="eink"] mark.wr-ms-highlight,
+body[data-eink="true"] mark[class*="wr-mc-"]:not(.wr-ms-wave):not(.wr-ms-line),
+body[data-theme="eink"] mark[class*="wr-mc-"]:not(.wr-ms-wave):not(.wr-ms-line) { background: transparent !important; border-bottom: 2px solid #000 !important; }
+body[data-eink="true"] mark.wr-ms-wave, body[data-theme="eink"] mark.wr-ms-wave,
+body[data-eink="true"] mark.wr-ms-line, body[data-theme="eink"] mark.wr-ms-line { text-decoration-color: #000 !important; }
+body[data-eink="true"] mark.wr-markSearch, body[data-theme="eink"] mark.wr-markSearch { background: #000 !important; color: #fff !important; }
+body[data-eink="true"] .wr-brightnessDimmer, body[data-theme="eink"] .wr-brightnessDimmer { display: none; }
+body[data-eink="true"] .wr-noteBubble, body[data-theme="eink"] .wr-noteBubble { border: 1.5px solid #000; color: #000; }
 body[data-eink="true"] .wr-selectionCapsule.wr-capsuleStack, body[data-theme="eink"] .wr-selectionCapsule.wr-capsuleStack { background: #fff; color: #000; border: 2px solid #000; }
 
 /* --- WeRead Sleek Compact Bottom Typo Sheet & Interactive Pill Sliders --- */
@@ -810,5 +817,7 @@ body[data-eink="true"] .wr-selectionCapsule.wr-capsuleStack, body[data-theme="ei
 }
 .wr-actionPill.active-soft { color: var(--accent); border-color: rgba(27, 110, 243, 0.28); font-weight: 600; }
 .wr-chev { opacity: 0.55; font-size: 13px; }
-body[data-theme="eink"] .wr-pillSlider, body[data-theme="eink"] .wr-actionPill { background: #fff; border: 1.5px solid #000; }
-body[data-theme="eink"] .wr-pillThumb { border: 2px solid #000; box-shadow: none; }
+body[data-eink="true"] .wr-pillSlider, body[data-theme="eink"] .wr-pillSlider,
+body[data-eink="true"] .wr-actionPill, body[data-theme="eink"] .wr-actionPill { background: #fff; border: 1.5px solid #000; color: #000; }
+body[data-eink="true"] .wr-actionPill.active-soft, body[data-theme="eink"] .wr-actionPill.active-soft { border: 2px solid #000; color: #000; font-weight: 700; }
+body[data-eink="true"] .wr-pillThumb, body[data-theme="eink"] .wr-pillThumb { border: 2px solid #000; box-shadow: none; }

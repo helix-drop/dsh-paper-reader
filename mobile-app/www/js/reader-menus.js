@@ -601,8 +601,11 @@ export function renderReaderChrome(ctrl, host) {
       const k = inp.dataset.typo
       const val = Number(inp.value)
       ctrl.settings[k] = val
-      ctrl.applyTypographyVars()
-      if (k === 'marginX') document.documentElement.style.setProperty('--reader-pad-x', `${val}px`)
+      const isEink = ctrl.settings.deviceMode === 'eink' || ctrl.settings.theme === 'eink'
+      if (!isEink || k === 'brightness') {
+        ctrl.applyTypographyVars()
+        if (k === 'marginX') document.documentElement.style.setProperty('--reader-pad-x', `${val}px`)
+      }
       const thumb = host.querySelector(`[data-thumb-for="${k}"]`)
       if (thumb && inp.dataset.min !== undefined) {
         const pct = pillPercent(val, Number(inp.dataset.min), Number(inp.dataset.max))
