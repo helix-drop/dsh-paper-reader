@@ -15,7 +15,7 @@ function authHeaders(settings, extra = {}) {
 }
 
 async function apiFetch(settings, route, options = {}) {
-  const { timeoutMs = 30000, signal: outerSignal, retries = 0, ...fetchOpts } = options
+  const { timeoutMs = 30000, signal: outerSignal, retries = 0, readAs = null, ...fetchOpts } = options
   if (outerSignal?.aborted) {
     throw Object.assign(new Error('已取消加载'), { name: 'AbortError', cancelled: true })
   }
@@ -42,7 +42,15 @@ async function apiFetch(settings, route, options = {}) {
         signal: ctrl.signal,
         headers: authHeaders(settings, fetchOpts.headers ?? {}),
       })
-      if (attempt < retries && res.status >= 500) continue
+      if (attempt < retries && (res.status >= 500 || res.status === 429)) {
+        await res.arrayBuffer().catch(() => {})
+        await new Promise(r => setTimeout(r, Math.min(2500, 500 * (attempt + 1))))
+        continue
+      }
+      if (readAs === 'text') {
+        const text = await res.text()
+        return { res, text }
+      }
       return res
     } catch (err) {
       if (cancelled || outerSignal?.aborted) {
@@ -51,12 +59,13 @@ async function apiFetch(settings, route, options = {}) {
       const msg = String(err?.message || '')
       if (timedOut || err?.name === 'AbortError') {
         lastErr = Object.assign(new Error('请求超时，请检查网络连接或服务器响应'), { transient: true })
-      } else if (err instanceof TypeError || /failed to fetch|load failed|network/i.test(msg)) {
-        lastErr = Object.assign(new Error('网络连接失败，请检查服务器地址或点击「同步」离线阅读'), { transient: true })
+      } else if (err instanceof TypeError || /failed to fetch|load failed|network|http2|stream|protocol/i.test(msg)) {
+        lastErr = Object.assign(new Error('网络连接中断，请检查网络或点击「同步」重试'), { transient: true })
       } else {
-        lastErr = err
+        lastErr = Object.assign(err instanceof Error ? err : new Error(msg || '网络请求失败'), { transient: true })
       }
       if (attempt >= retries || !lastErr.transient) throw lastErr
+      await new Promise(r => setTimeout(r, Math.min(2500, 500 * (attempt + 1))))
     } finally {
       if (timer) clearTimeout(timer)
       outerSignal?.removeEventListener('abort', onOuterAbort)
@@ -66,8 +75,7 @@ async function apiFetch(settings, route, options = {}) {
 }
 
 async function apiJson(settings, route, options = {}) {
-  const res = await apiFetch(settings, route, options)
-  const text = await res.text()
+  const { res, text } = await apiFetch(settings, route, { ...options, readAs: 'text' })
   let data = null
   try {
     data = text ? JSON.parse(text) : {}
@@ -115,7 +123,7 @@ async function syncBookAssets(settings, taskId, reading, { signal, onProgress } 
         const res = await apiFetch(
           settings,
           `/pipeline/tasks/${encodeURIComponent(taskId)}/asset?path=${encodeURIComponent(ref)}`,
-          { signal, timeoutMs: 25000 },
+          { signal, timeoutMs: 45000, retries: 1 },
         )
         if (res.ok) {
           const blob = await res.blob()
@@ -317,6 +325,17 @@ export const readerApi = {
       }
     }
 
+    if (!signal?.aborted && docs.length) {
+      let cIdx = 0
+      const coverWorker = async () => {
+        while (cIdx < docs.length && !signal?.aborted) {
+          const doc = docs[cIdx++]
+          await this.syncBookCover(settings, doc, { signal }).catch(() => {})
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(3, docs.length) }, () => coverWorker()))
+    }
+
     let addedBooks = 0
     let renamedBooks = 0
     for (const doc of docs) {
@@ -396,7 +415,10 @@ export const readerApi = {
         })
         let nextIdx = 0
         let finished = 0
+        let lastFailMsg = ''
         const maxBookPct = includePdfs ? 65 : 98
+        // Sequential book download avoids HTTP/2 single-socket contention on slow cellular links
+        // and immediately persists each completed book into IndexedDB.
         const worker = async () => {
           while (nextIdx < total) {
             if (signal?.aborted) return
@@ -405,7 +427,7 @@ export const readerApi = {
               const reading = await apiJson(
                 settings,
                 `/pipeline/tasks/${encodeURIComponent(doc.id)}/reading?lean=1`,
-                { timeoutMs: 60000, retries: 1, signal },
+                { timeoutMs: 180000, retries: 2, signal },
               )
               const normalized = {
                 ...reading,
@@ -418,6 +440,7 @@ export const readerApi = {
             } catch (err) {
               if (err?.cancelled) return
               failedBooks++
+              lastFailMsg = String(err?.message || '下载失败')
             }
             finished++
             onProgress?.({
@@ -427,24 +450,14 @@ export const readerApi = {
               total,
               skipped: skippedBooks,
               failed: failedBooks,
+              ...(lastFailMsg ? { lastError: lastFailMsg } : {}),
               pct: Math.round(25 + (finished / total) * (maxBookPct - 25)),
               title: doc.name || '',
             })
           }
         }
-        await Promise.all(Array.from({ length: Math.min(2, total) }, () => worker()))
+        await worker()
       }
-    }
-
-    if (!signal?.aborted && docs.length) {
-      let cIdx = 0
-      const coverWorker = async () => {
-        while (cIdx < docs.length && !signal?.aborted) {
-          const doc = docs[cIdx++]
-          await this.syncBookCover(settings, doc, { signal }).catch(() => {})
-        }
-      }
-      await Promise.all(Array.from({ length: Math.min(3, docs.length) }, () => coverWorker()))
     }
 
     let syncedPdfs = 0
