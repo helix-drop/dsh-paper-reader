@@ -30,8 +30,8 @@ export function renderConnectionCardHtml(s, { syncing, syncAbortActive, syncStat
     <div class="wr-card">
       <h3 class="wr-cardTitle">云端书库连接（6 位动态码一键配对）</h3>
       <p style="margin:0 0 10px;font-size:12px;color:${s.token ? 'var(--accent)' : 'var(--fg-muted)'};">${escapeHtml(pairedLabel)}</p>
-      <label class="wr-field">云服务器地址（域名 HTTPS 或 IP 地址）
-        <input type="url" class="wr-input" id="set-url" placeholder="https://dsh-reader.duckdns.org" value="${escapeHtml(s.serverUrl)}" />
+      <label class="wr-field">云服务器地址（已默认填入你的 HTTPS 域名）
+        <input type="url" class="wr-input" id="set-url" placeholder="https://dsh-reader.duckdns.org" value="${escapeHtml(s.serverUrl || 'https://dsh-reader.duckdns.org')}" />
       </label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <label class="wr-field">6 位动态配对码
