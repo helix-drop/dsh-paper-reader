@@ -299,12 +299,13 @@ function progressForDoc(doc) {
 function renderBookCoverHtml(doc, isEink, badgeText = '') {
   const pal = bookCoverPalette(doc.name, isEink)
   const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
-  const coverState = doc.hasPdf === false ? null : readerApi.getCachedCoverUrl(doc.id)
+  const sha = String(doc.coverSha256 ?? '')
+  const coverState = doc.hasCover !== true ? null : readerApi.getCachedCoverUrl(doc.id, sha)
   const coverImgHtml = typeof coverState === 'string'
     ? `<img class="wr-bookCoverImg loaded" src="${escapeHtml(coverState)}" alt="" />`
     : coverState === null
       ? ''
-      : `<img class="wr-bookCoverImg" data-cover-task="${escapeHtml(doc.id)}" alt="" />`
+      : `<img class="wr-bookCoverImg" data-cover-task="${escapeHtml(doc.id)}" data-cover-sha="${escapeHtml(sha)}" alt="" />`
   return `
     <div class="wr-bookCover" style="background:${pal.bg};color:${pal.fg};">
       ${coverImgHtml}
@@ -323,7 +324,7 @@ async function hydrateShelfCovers() {
   const ctrl = new AbortController()
   state.coverAbortController = ctrl
 
-  const imgs = [...appEl.querySelectorAll('img.wr-bookCoverImg[data-cover-task]')].slice(0, 12)
+  const imgs = [...appEl.querySelectorAll('img.wr-bookCoverImg[data-cover-task]')]
   if (!imgs.length) return
   const byTask = new Map()
   for (const img of imgs) {
@@ -333,15 +334,17 @@ async function hydrateShelfCovers() {
     byTask.get(taskId).push(img)
   }
   const tasks = [...byTask.keys()]
-  const concurrency = 2
+  const concurrency = 3
   let idx = 0
   const worker = async () => {
     while (idx < tasks.length) {
       if (token !== coverHydrateToken || ctrl.signal.aborted || state.syncing || state.openingId) return
       const taskId = tasks[idx++]
-      const url = await readerApi.loadCoverUrl(state.settings, taskId, { signal: ctrl.signal })
+      const els = byTask.get(taskId) ?? []
+      const sha = els[0]?.getAttribute('data-cover-sha') || ''
+      const url = await readerApi.loadCoverUrl(state.settings, taskId, { signal: ctrl.signal, hasCover: true, coverSha256: sha })
       if (token !== coverHydrateToken || ctrl.signal.aborted) return
-      for (const el of byTask.get(taskId) ?? []) {
+      for (const el of els) {
         el.removeAttribute('data-cover-task')
         if (url) {
           el.src = url

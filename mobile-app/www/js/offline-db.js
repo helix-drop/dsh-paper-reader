@@ -156,8 +156,12 @@ export const offlineDb = {
     return withStore('assets', 'readonly', s => reqPromise(s.get(`${taskId}::${ref}`))).catch(() => null)
   },
 
-  async saveAsset(taskId, ref, blob, mimeType) {
-    return withStore('assets', 'readwrite', s => reqPromise(s.put({ blob, mimeType, cachedAt: Date.now() }, `${taskId}::${ref}`)))
+  async saveAsset(taskId, ref, blob, mimeType, sha256 = null) {
+    return withStore('assets', 'readwrite', s => reqPromise(s.put({ blob, mimeType, sha256, cachedAt: Date.now() }, `${taskId}::${ref}`)))
+  },
+
+  async deleteAsset(taskId, ref) {
+    return withStore('assets', 'readwrite', s => reqPromise(s.delete(`${taskId}::${ref}`))).catch(() => {})
   },
 
   async getPdf(taskId) {

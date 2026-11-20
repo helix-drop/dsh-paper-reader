@@ -129,49 +129,105 @@ async function syncBookAssets(settings, taskId, reading, { signal, onProgress } 
 }
 
 export const readerApi = {
-  getCachedCoverUrl(taskId) {
-    return coverUrlCache.get(taskId)
+  getCachedCoverUrl(taskId, expectedSha = '') {
+    if (!coverUrlCache.has(taskId)) return undefined
+    const cached = coverUrlCache.get(taskId)
+    if (!cached) return cached
+    if (typeof cached === 'object') {
+      if (expectedSha && cached.sha256 && cached.sha256 !== expectedSha) return undefined
+      return cached.url
+    }
+    return cached
   },
 
-  async loadCoverUrl(settings, taskId, { signal } = {}) {
-    if (!taskId) return null
-    if (coverUrlCache.has(taskId)) return coverUrlCache.get(taskId)
+  async syncBookCover(settings, doc, { signal } = {}) {
+    const taskId = doc?.id
+    if (!taskId) return false
+    await offlineDb.deleteAsset(taskId, '__cover_page_1__').catch(() => {})
+    if (doc.hasCover !== true) {
+      await offlineDb.deleteAsset(taskId, '__cover__.jpg').catch(() => {})
+      coverUrlCache.set(taskId, null)
+      return false
+    }
+    const wantSha = String(doc.coverSha256 ?? '')
+    const cached = await offlineDb.getAsset(taskId, '__cover__.jpg')
+    if (cached?.blob && (!wantSha || cached.sha256 === wantSha)) {
+      if (!coverUrlCache.has(taskId) || (coverUrlCache.get(taskId)?.sha256 ?? '') !== (cached.sha256 ?? '')) {
+        coverUrlCache.set(taskId, { url: URL.createObjectURL(cached.blob), sha256: cached.sha256 || wantSha || '' })
+      }
+      return false
+    }
+    if (signal?.aborted) return false
+    try {
+      const res = await apiFetch(
+        settings,
+        `/pipeline/tasks/${encodeURIComponent(taskId)}/cover`,
+        { signal, timeoutMs: 12000 },
+      )
+      if (!res.ok) {
+        if (res.status === 404) coverUrlCache.set(taskId, null)
+        return false
+      }
+      const blob = await res.blob()
+      const sha = wantSha || null
+      await offlineDb.saveAsset(taskId, '__cover__.jpg', blob, blob.type || 'image/jpeg', sha).catch(() => {})
+      coverUrlCache.set(taskId, { url: URL.createObjectURL(blob), sha256: sha || '' })
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  async loadCoverUrl(settings, taskId, { signal, hasCover = true, coverSha256 = '' } = {}) {
+    if (!taskId || hasCover === false) return null
+    const wantSha = String(coverSha256 ?? '')
+    if (coverUrlCache.has(taskId)) {
+      const entry = coverUrlCache.get(taskId)
+      if (!entry) return null
+      if (typeof entry === 'object') {
+        if (!wantSha || !entry.sha256 || entry.sha256 === wantSha) return entry.url
+      } else {
+        return entry
+      }
+    }
     if (signal?.aborted) return null
-    if (coverLoadPromises.has(taskId)) return coverLoadPromises.get(taskId)
+    const inflightKey = `${taskId}:${wantSha}`
+    if (coverLoadPromises.has(inflightKey)) return coverLoadPromises.get(inflightKey)
 
     const job = (async () => {
       try {
-        const cached = await offlineDb.getAsset(taskId, '__cover_page_1__')
-        if (cached?.blob) {
+        const cached = await offlineDb.getAsset(taskId, '__cover__.jpg')
+        if (cached?.blob && (!wantSha || cached.sha256 === wantSha)) {
           const url = URL.createObjectURL(cached.blob)
-          coverUrlCache.set(taskId, url)
+          coverUrlCache.set(taskId, { url, sha256: cached.sha256 || wantSha })
           return url
         }
-        if (signal?.aborted) return null
+        if (signal?.aborted || !baseUrl(settings)) return null
         const res = await apiFetch(
           settings,
-          `/pipeline/tasks/${encodeURIComponent(taskId)}/pdf-page/1?dpi=72&format=jpeg&maxWidth=360`,
+          `/pipeline/tasks/${encodeURIComponent(taskId)}/cover`,
           { signal, timeoutMs: 12000 },
         )
         if (!res.ok) {
-          if (res.status === 400 || res.status === 404 || res.status === 501) {
+          if (res.status === 400 || res.status === 404) {
             coverUrlCache.set(taskId, null)
           }
           return null
         }
         const blob = await res.blob()
-        await offlineDb.saveAsset(taskId, '__cover_page_1__', blob, blob.type || 'image/jpeg').catch(() => {})
+        const sha = wantSha || null
+        await offlineDb.saveAsset(taskId, '__cover__.jpg', blob, blob.type || 'image/jpeg', sha).catch(() => {})
         const url = URL.createObjectURL(blob)
-        coverUrlCache.set(taskId, url)
+        coverUrlCache.set(taskId, { url, sha256: wantSha })
         return url
       } catch {
         return null
       } finally {
-        coverLoadPromises.delete(taskId)
+        coverLoadPromises.delete(inflightKey)
       }
     })()
 
-    coverLoadPromises.set(taskId, job)
+    coverLoadPromises.set(inflightKey, job)
     return job
   },
 
@@ -366,6 +422,17 @@ export const readerApi = {
         }
         await Promise.all(Array.from({ length: Math.min(2, total) }, () => worker()))
       }
+    }
+
+    if (!signal?.aborted && docs.length) {
+      let cIdx = 0
+      const coverWorker = async () => {
+        while (cIdx < docs.length && !signal?.aborted) {
+          const doc = docs[cIdx++]
+          await this.syncBookCover(settings, doc, { signal }).catch(() => {})
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(3, docs.length) }, () => coverWorker()))
     }
 
     let syncedPdfs = 0
