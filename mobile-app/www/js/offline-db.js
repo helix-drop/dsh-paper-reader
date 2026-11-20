@@ -6,6 +6,8 @@ const DB_VERSION = 1
 export const DEFAULT_SETTINGS = {
   serverUrl: '',
   token: '',
+  vaultName: '',
+  authMode: 'device', // device | root
   deviceId: '',
   deviceName: '我的移动设备',
   shelfLayout: 'list', // list (书封+详情卡片) | grid (微信读书三列书封宫格)

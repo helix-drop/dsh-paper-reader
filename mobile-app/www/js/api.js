@@ -9,6 +9,8 @@ function authHeaders(settings, extra = {}) {
   const headers = { ...extra }
   const token = String(settings?.token ?? '').trim()
   if (token) headers.authorization = `Bearer ${token}`
+  const vault = String(settings?.vaultName ?? '').trim()
+  if (vault) headers['x-dsh-vault'] = encodeURIComponent(vault)
   return headers
 }
 
@@ -218,6 +220,31 @@ export const readerApi = {
 
   async testConnection(settings) {
     return apiJson(settings, '/sync/health')
+  },
+
+  async pairWithCode(settings, { serverUrl, code, vaultName = '', deviceId = '', deviceName = '' } = {}) {
+    const cleanUrl = String(serverUrl ?? settings?.serverUrl ?? '').trim().replace(/\/+$/, '')
+    const targetSettings = { serverUrl: cleanUrl, token: '', vaultName: '' }
+    const res = await apiFetch(targetSettings, '/sync/auth/pair', {
+      method: 'POST',
+      timeoutMs: 20000,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        code: String(code ?? '').trim(),
+        vaultName: String(vaultName ?? '').trim(),
+        deviceId: deviceId || settings?.deviceId || '',
+        deviceName: deviceName || settings?.deviceName || '我的移动设备',
+      }),
+    })
+    const text = await res.text()
+    let data = {}
+    try { data = text ? JSON.parse(text) : {} } catch { data = { error: text } }
+    if (!res.ok) {
+      const err = new Error(data?.error || `配对失败 (${res.status})`)
+      err.status = res.status
+      throw err
+    }
+    return { ...data, serverUrl: cleanUrl }
   },
 
   async flushOutbox(settings, { onProgress, signal } = {}) {

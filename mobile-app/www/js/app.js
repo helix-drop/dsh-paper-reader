@@ -3,6 +3,7 @@ import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
 import { ReaderController } from './reader-controller.js'
+import { renderConnectionCardHtml, bindConnectionCard } from './connection-panel.js'
 
 const appEl = document.getElementById('app')
 
@@ -537,35 +538,11 @@ function renderSettings() {
   const curTheme = s.theme || 'paper'
   const curFont = s.fontFamily || 'serif'
   return `
-    <div class="wr-card">
-      <h3 class="wr-cardTitle">云端书库连接</h3>
-      <label class="wr-field">云服务器地址（留空则使用当前页面同源地址）
-        <input type="url" class="wr-input" id="set-url" placeholder="https://reader.example.com" value="${escapeHtml(s.serverUrl)}" />
-      </label>
-      <label class="wr-field">同步密钥（Bearer Token）
-        <input type="password" class="wr-input" id="set-token" placeholder="输入服务器 SYNC_TOKEN" value="${escapeHtml(s.token)}" />
-      </label>
-      <label class="wr-field">当前设备名称（用于跨端进度提示）
-        <input type="text" class="wr-input" id="set-devname" value="${escapeHtml(s.deviceName)}" />
-      </label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button type="button" class="wr-btnGhost" data-act="save-conn">保存连接</button>
-        <button type="button" class="wr-btnGhost" data-act="test-conn">测试连通</button>
-        <button type="button" class="wr-btnPrimary" data-act="sync-now" ${state.syncing ? 'disabled' : ''}>${state.syncing ? '同步中...' : '立即同步'}</button>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button type="button" class="wr-btnGhost" data-act="dl-all-md" ${state.syncing ? 'disabled' : ''}>↓ 下载所有 MD 文件</button>
-        <button type="button" class="wr-btnGhost" data-act="dl-all-files" ${state.syncing ? 'disabled' : ''}>↓ 下载所有文件（含 PDF）</button>
-        ${state.syncing && state.syncAbortController ? '<button type="button" class="wr-btnGhost" data-act="cancel-sync">取消下载</button>' : ''}
-      </div>
-      <div class="wr-field" style="margin-top:10px;margin-bottom:0;">顶部「↻ 同步」默认下载范围
-        <div class="wr-segGroup">
-          <button type="button" class="wr-segBtn ${!s.syncIncludePdfs ? 'active' : ''}" data-sync-scope="md">所有 MD 文件（推荐，PDF 按需）</button>
-          <button type="button" class="wr-segBtn ${s.syncIncludePdfs ? 'active' : ''}" data-sync-scope="all">所有文件（含全部 PDF）</button>
-        </div>
-      </div>
-      <div data-role="sync-card-host" style="margin-top:10px;">${currentSyncCardHtml(false)}</div>
-    </div>
+    ${renderConnectionCardHtml(s, {
+      syncing: state.syncing,
+      syncAbortActive: Boolean(state.syncAbortController),
+      syncStatusCardHtml: currentSyncCardHtml(false),
+    })}
 
     <div class="wr-card">
       <h3 class="wr-cardTitle">阅读主题背景与字体预览</h3>
@@ -789,34 +766,14 @@ function render() {
       }
     })
   } else if (state.tab === 'settings') {
-    const readConn = () => ({
-      serverUrl: document.getElementById('set-url').value.trim().replace(/\/+$/, ''),
-      token: document.getElementById('set-token').value.trim(),
-      deviceName: document.getElementById('set-devname').value.trim() || '我的移动设备',
-    })
-    appEl.querySelector('[data-act="save-conn"]').onclick = async () => {
-      await updateSettings(readConn())
-      showToast('连接配置已保存')
-    }
-    appEl.querySelector('[data-act="test-conn"]').onclick = async () => {
-      const next = await updateSettings(readConn())
-      try {
-        const res = await readerApi.testConnection(next)
-        showToast(`连接成功！云端共 ${res.documents ?? 0} 篇文献`)
-      } catch (err) {
-        showToast(err.message || '连接失败')
-      }
-    }
-    appEl.querySelector('[data-act="sync-now"]').onclick = async () => {
-      await updateSettings(readConn())
-      await performSync(false)
-    }
-    bindDownloadActions(() => updateSettings(readConn()))
-    appEl.querySelectorAll('[data-sync-scope]').forEach(btn => {
-      btn.onclick = async () => {
-        await updateSettings({ syncIncludePdfs: btn.dataset.syncScope === 'all' })
-        render()
-      }
+    bindConnectionCard(appEl, {
+      state,
+      readerApi,
+      updateSettings,
+      performSync,
+      showToast,
+      render,
+      bindDownloadActions,
     })
     appEl.querySelectorAll('[data-set-theme]').forEach(btn => {
       btn.onclick = async () => {
