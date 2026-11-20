@@ -128,13 +128,30 @@ async function syncBookAssets(settings, taskId, reading, { signal, onProgress } 
   return list.length
 }
 
+async function fetchAndStoreCover(settings, taskId, wantSha, { signal } = {}) {
+  const route = `/pipeline/tasks/${encodeURIComponent(taskId)}/cover${wantSha ? `?v=${encodeURIComponent(wantSha)}` : ''}`
+  const res = await apiFetch(settings, route, { signal, timeoutMs: 12000 })
+  if (!res.ok) {
+    if (res.status === 400 || res.status === 404) {
+      coverUrlCache.set(taskId, wantSha ? { url: null, sha256: wantSha } : null)
+    }
+    return null
+  }
+  const blob = await res.blob()
+  if (!blob?.size || (blob.type && !blob.type.startsWith('image/'))) return null
+  await offlineDb.saveAsset(taskId, '__cover__.jpg', blob, blob.type || 'image/jpeg', wantSha || null).catch(() => {})
+  const url = URL.createObjectURL(blob)
+  coverUrlCache.set(taskId, { url, sha256: wantSha })
+  return url
+}
+
 export const readerApi = {
   getCachedCoverUrl(taskId, expectedSha = '') {
     if (!coverUrlCache.has(taskId)) return undefined
     const cached = coverUrlCache.get(taskId)
-    if (!cached) return cached
+    if (!cached) return expectedSha ? undefined : cached
     if (typeof cached === 'object') {
-      if (expectedSha && cached.sha256 && cached.sha256 !== expectedSha) return undefined
+      if (expectedSha && cached.sha256 !== expectedSha) return undefined
       return cached.url
     }
     return cached
@@ -151,28 +168,19 @@ export const readerApi = {
     }
     const wantSha = String(doc.coverSha256 ?? '')
     const cached = await offlineDb.getAsset(taskId, '__cover__.jpg')
-    if (cached?.blob && (!wantSha || cached.sha256 === wantSha)) {
-      if (!coverUrlCache.has(taskId) || (coverUrlCache.get(taskId)?.sha256 ?? '') !== (cached.sha256 ?? '')) {
+    if (cached?.blob && cached.blob.size > 0 && (!wantSha || cached.sha256 === wantSha)) {
+      const cur = coverUrlCache.get(taskId)
+      if (!cur || typeof cur !== 'object' || !cur.url || (wantSha && cur.sha256 !== wantSha)) {
         coverUrlCache.set(taskId, { url: URL.createObjectURL(cached.blob), sha256: cached.sha256 || wantSha || '' })
       }
       return false
     }
+    if (coverUrlCache.get(taskId) === null || (coverUrlCache.get(taskId)?.url === null)) {
+      coverUrlCache.delete(taskId)
+    }
     if (signal?.aborted) return false
     try {
-      const res = await apiFetch(
-        settings,
-        `/pipeline/tasks/${encodeURIComponent(taskId)}/cover`,
-        { signal, timeoutMs: 12000 },
-      )
-      if (!res.ok) {
-        if (res.status === 404) coverUrlCache.set(taskId, null)
-        return false
-      }
-      const blob = await res.blob()
-      const sha = wantSha || null
-      await offlineDb.saveAsset(taskId, '__cover__.jpg', blob, blob.type || 'image/jpeg', sha).catch(() => {})
-      coverUrlCache.set(taskId, { url: URL.createObjectURL(blob), sha256: sha || '' })
-      return true
+      return Boolean(await fetchAndStoreCover(settings, taskId, wantSha, { signal }))
     } catch {
       return false
     }
@@ -181,15 +189,8 @@ export const readerApi = {
   async loadCoverUrl(settings, taskId, { signal, hasCover = true, coverSha256 = '' } = {}) {
     if (!taskId || hasCover === false) return null
     const wantSha = String(coverSha256 ?? '')
-    if (coverUrlCache.has(taskId)) {
-      const entry = coverUrlCache.get(taskId)
-      if (!entry) return null
-      if (typeof entry === 'object') {
-        if (!wantSha || !entry.sha256 || entry.sha256 === wantSha) return entry.url
-      } else {
-        return entry
-      }
-    }
+    const mem = this.getCachedCoverUrl(taskId, wantSha)
+    if (mem !== undefined) return mem
     if (signal?.aborted) return null
     const inflightKey = `${taskId}:${wantSha}`
     if (coverLoadPromises.has(inflightKey)) return coverLoadPromises.get(inflightKey)
@@ -197,29 +198,13 @@ export const readerApi = {
     const job = (async () => {
       try {
         const cached = await offlineDb.getAsset(taskId, '__cover__.jpg')
-        if (cached?.blob && (!wantSha || cached.sha256 === wantSha)) {
+        if (cached?.blob && cached.blob.size > 0 && (!wantSha || cached.sha256 === wantSha)) {
           const url = URL.createObjectURL(cached.blob)
           coverUrlCache.set(taskId, { url, sha256: cached.sha256 || wantSha })
           return url
         }
         if (signal?.aborted || !baseUrl(settings)) return null
-        const res = await apiFetch(
-          settings,
-          `/pipeline/tasks/${encodeURIComponent(taskId)}/cover`,
-          { signal, timeoutMs: 12000 },
-        )
-        if (!res.ok) {
-          if (res.status === 400 || res.status === 404) {
-            coverUrlCache.set(taskId, null)
-          }
-          return null
-        }
-        const blob = await res.blob()
-        const sha = wantSha || null
-        await offlineDb.saveAsset(taskId, '__cover__.jpg', blob, blob.type || 'image/jpeg', sha).catch(() => {})
-        const url = URL.createObjectURL(blob)
-        coverUrlCache.set(taskId, { url, sha256: wantSha })
-        return url
+        return await fetchAndStoreCover(settings, taskId, wantSha, { signal })
       } catch {
         return null
       } finally {
