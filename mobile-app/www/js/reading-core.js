@@ -489,6 +489,101 @@ export function bookCoverPalette(title = '', isEink = false) {
   return COVER_PALETTES[Math.abs(h) % COVER_PALETTES.length]
 }
 
+const EDITORIAL_COVER_TINTS = [
+  { paper: '#faf7f0', darkPaper: '#232220', ink: '#1d2228', darkInk: '#ece7dd', subInk: '#4c5460', darkSubInk: '#b7b0a4', accent: '#2b4c6f', darkAccent: '#7da7d1' },
+  { paper: '#f9f4f2', darkPaper: '#252021', ink: '#221c1d', darkInk: '#efe6e4', subInk: '#5c4b4d', darkSubInk: '#c2adaa', accent: '#7c3438', darkAccent: '#d68c90' },
+  { paper: '#f3f7f4', darkPaper: '#1e2421', ink: '#1a231e', darkInk: '#e4ede7', subInk: '#46584d', darkSubInk: '#a8bdb0', accent: '#2a5746', darkAccent: '#7bb59e' },
+  { paper: '#f5f4f9', darkPaper: '#222027', ink: '#1f1d27', darkInk: '#e9e6f2', subInk: '#504c61', darkSubInk: '#b5afd0', accent: '#4c3e6e', darkAccent: '#a99ad0' },
+  { paper: '#f9f6ee', darkPaper: '#25231e', ink: '#25211a', darkInk: '#efeae0', subInk: '#5b5244', darkSubInk: '#bfb4a2', accent: '#6d5432', darkAccent: '#cca97a' },
+  { paper: '#f2f6f9', darkPaper: '#1d2328', ink: '#18222a', darkInk: '#e3ecf2', subInk: '#465764', darkSubInk: '#a5bac8', accent: '#255364', darkAccent: '#7bb4c9' },
+]
+
+export function editorialCoverSpec(doc, isEink = false) {
+  const name = String(doc?.name ?? '未命名文献').trim() || '未命名文献'
+  const kindMap = {
+    paper: '学术论文',
+    chapter: '文献选章',
+    collection: '论文合集',
+    book: '研究专著',
+  }
+  const kicker = kindMap[doc?.kind] || 'DSH 文献'
+  let units = 0
+  for (const ch of name) units += ch.charCodeAt(0) > 127 ? 1 : 0.55
+  const sizeClass = units <= 11 ? 'is-short' : units <= 21 ? 'is-medium' : 'is-long'
+
+  let mainTitle = name
+  let subTitle = ''
+  const sepMatch = name.match(/^(.{3,20}?)(?:：|——)(.{3,})$/)
+  if (sepMatch) {
+    mainTitle = sepMatch[1] + (name.includes('：') ? '：' : '——')
+    subTitle = sepMatch[2].trim()
+  }
+
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0
+  const tint = EDITORIAL_COVER_TINTS[Math.abs(h) % EDITORIAL_COVER_TINTS.length]
+  const author = String(doc?.author || doc?.titleSource || '').trim()
+  if (isEink) {
+    return {
+      kicker,
+      mainTitle,
+      subTitle,
+      sizeClass,
+      units: Math.round(units),
+      author,
+      styleVars: '--cov-bg:#ffffff;--cov-bg-dark:#ffffff;--cov-fg:#000000;--cov-fg-dark:#000000;--cov-sub:#000000;--cov-sub-dark:#000000;--cov-accent:#000000;--cov-accent-dark:#000000;',
+    }
+  }
+  return {
+    kicker,
+    mainTitle,
+    subTitle,
+    sizeClass,
+    units: Math.round(units),
+    author,
+    styleVars: `--cov-bg:${tint.paper};--cov-bg-dark:${tint.darkPaper};--cov-fg:${tint.ink};--cov-fg-dark:${tint.darkInk};--cov-sub:${tint.subInk};--cov-sub-dark:${tint.darkSubInk};--cov-accent:${tint.accent};--cov-accent-dark:${tint.darkAccent};`,
+  }
+}
+
+export function renderBookCoverHtml(doc, isEink = false, badgeText = '', cachedCoverUrl = undefined) {
+  if (doc?.hasCover === true) {
+    const pal = bookCoverPalette(doc.name, isEink)
+    const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
+    const sha = String(doc.coverSha256 ?? '')
+    const coverImgHtml = typeof cachedCoverUrl === 'string'
+      ? `<img class="wr-bookCoverImg loaded" src="${escapeHtml(cachedCoverUrl)}" alt="" />`
+      : cachedCoverUrl === null
+        ? ''
+        : `<img class="wr-bookCoverImg" data-cover-task="${escapeHtml(doc.id)}" data-cover-sha="${escapeHtml(sha)}" alt="" />`
+    return `
+      <div class="wr-bookCover" style="background:${pal.bg};color:${pal.fg};">
+        ${coverImgHtml}
+        ${badgeText ? `<span class="wr-bookCoverBadge">${escapeHtml(badgeText)}</span>` : ''}
+        <div class="wr-bookCoverTitle">${escapeHtml(doc.name || '未命名文献')}</div>
+        <div class="wr-bookCoverAuthor">${escapeHtml(doc.author || kindLabel[doc.kind] || 'DSH 文献')}</div>
+      </div>
+    `
+  }
+
+  const spec = editorialCoverSpec(doc, isEink)
+  const fallbackFoot = doc?.kind === 'paper' ? '文献译本' : (spec.kicker.split('·').pop()?.trim() || 'DSH')
+  return `
+    <div class="wr-bookCover is-generated ${spec.sizeClass}" style="${spec.styleVars}">
+      <div class="wr-covHead">
+        <span class="wr-covKicker">${escapeHtml(spec.kicker)}</span>
+        ${badgeText ? `<span class="wr-covBadge">${escapeHtml(badgeText)}</span>` : ''}
+      </div>
+      <div class="wr-covRule"></div>
+      <div class="wr-covTitle" title="${escapeHtml(doc?.name || '')}">
+        <span class="wr-covTitleMain">${escapeHtml(spec.mainTitle)}</span>${spec.subTitle ? `<span class="wr-covTitleSub">${escapeHtml(spec.subTitle)}</span>` : ''}
+      </div>
+      <div class="wr-covFoot">
+        <span class="wr-covAuthor">${escapeHtml(spec.author || fallbackFoot)}</span>
+      </div>
+    </div>
+  `
+}
+
 export function stripMarkdownForSearch(raw) {
   return String(raw ?? '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')

@@ -1,4 +1,4 @@
-import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, bookCoverPalette, resolveFontStack, renderLibrarySearchSectionHtml, renderSyncStatusCardHtml } from './reading-core.js'
+import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, resolveFontStack, renderBookCoverHtml as renderEditorialCoverHtml, renderLibrarySearchSectionHtml, renderSyncStatusCardHtml } from './reading-core.js'
 import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
@@ -297,23 +297,8 @@ function progressForDoc(doc) {
 }
 
 function renderBookCoverHtml(doc, isEink, badgeText = '') {
-  const pal = bookCoverPalette(doc.name, isEink)
-  const kindLabel = { book: '整书', paper: '论文', chapter: '章节', collection: '合集' }
-  const sha = String(doc.coverSha256 ?? '')
-  const coverState = doc.hasCover !== true ? null : readerApi.getCachedCoverUrl(doc.id, sha)
-  const coverImgHtml = typeof coverState === 'string'
-    ? `<img class="wr-bookCoverImg loaded" src="${escapeHtml(coverState)}" alt="" />`
-    : coverState === null
-      ? ''
-      : `<img class="wr-bookCoverImg" data-cover-task="${escapeHtml(doc.id)}" data-cover-sha="${escapeHtml(sha)}" alt="" />`
-  return `
-    <div class="wr-bookCover" style="background:${pal.bg};color:${pal.fg};">
-      ${coverImgHtml}
-      ${badgeText ? `<span class="wr-bookCoverBadge">${escapeHtml(badgeText)}</span>` : ''}
-      <div class="wr-bookCoverTitle">${escapeHtml(doc.name || '未命名文献')}</div>
-      <div class="wr-bookCoverAuthor">${escapeHtml(doc.author || kindLabel[doc.kind] || 'DSH 文献')}</div>
-    </div>
-  `
+  const cachedUrl = doc?.hasCover === true ? readerApi.getCachedCoverUrl(doc.id, String(doc.coverSha256 ?? '')) : null
+  return renderEditorialCoverHtml(doc, isEink, badgeText, cachedUrl)
 }
 
 let coverHydrateToken = 0

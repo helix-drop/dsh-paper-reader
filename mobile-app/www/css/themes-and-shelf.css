@@ -586,6 +586,56 @@ body[data-theme="eink"] .wr-bookCover::before {
   text-overflow: ellipsis;
 }
 
+.wr-bookCover.is-generated {
+  --cov-surface: var(--cov-bg, #faf7f0);
+  --cov-ink: var(--cov-fg, #1d2228);
+  --cov-sub-ink: var(--cov-sub, #4c5460);
+  --cov-accent-ink: var(--cov-accent, #2b4c6f);
+  width: 72px;
+  height: 98px;
+  padding: 6px 6px 5px 8px;
+  background: var(--cov-surface) !important;
+  color: var(--cov-ink) !important;
+  border: 1px solid rgba(25, 30, 38, 0.14);
+  border-left: 3.5px solid var(--cov-accent-ink);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  justify-content: flex-start;
+}
+.wr-bookCover.is-generated::before { display: none; }
+body[data-theme="dark"] .wr-bookCover.is-generated {
+  --cov-surface: var(--cov-bg-dark, #232220);
+  --cov-ink: var(--cov-fg-dark, #ece7dd);
+  --cov-sub-ink: var(--cov-sub-dark, #b7b0a4);
+  --cov-accent-ink: var(--cov-accent-dark, #7da7d1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+body[data-eink="true"] .wr-bookCover.is-generated,
+body[data-theme="eink"] .wr-bookCover.is-generated {
+  --cov-surface: #ffffff;
+  --cov-ink: #000000;
+  --cov-sub-ink: #000000;
+  --cov-accent-ink: #000000;
+  border: 1.5px solid #000000;
+  border-left: 4.5px solid #000000;
+  box-shadow: none;
+}
+.wr-heroContinue .wr-bookCover.is-generated { width: 82px; height: 110px; padding: 8px 7px 6px 9px; }
+.wr-covHead { display: flex; align-items: center; justify-content: space-between; gap: 3px; margin-bottom: 3px; flex-shrink: 0; }
+.wr-covKicker { font-size: 6.8px; font-weight: 700; letter-spacing: 0.02em; line-height: 1.15; color: var(--cov-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wr-covBadge { font-size: 6.8px; font-weight: 700; line-height: 1.1; padding: 1px 3px; border-radius: 3px; background: var(--cov-accent-ink); color: var(--cov-surface); flex-shrink: 0; }
+.wr-covRule { height: 1px; background: var(--cov-accent-ink); opacity: 0.25; margin-bottom: 5px; flex-shrink: 0; }
+body[data-eink="true"] .wr-covRule, body[data-theme="eink"] .wr-covRule { opacity: 1; }
+.wr-covTitle { flex: 1; min-height: 0; font-family: "Noto Serif SC", "Songti SC", "LXGW WenKai Screen", serif; font-size: 9.2px; line-height: 1.3; text-align: left; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; word-break: normal; overflow-wrap: break-word; text-wrap: pretty; }
+.wr-bookCover.is-generated.is-short .wr-covTitle { font-size: 10.6px; line-height: 1.32; -webkit-line-clamp: 4; }
+.wr-bookCover.is-generated.is-long .wr-covTitle { font-size: 8.4px; line-height: 1.28; -webkit-line-clamp: 5; }
+.wr-heroContinue .wr-bookCover.is-generated.is-long .wr-covTitle { font-size: 9.2px; line-height: 1.32; }
+.wr-covTitleMain { font-weight: 700; color: var(--cov-ink); }
+.wr-covTitleSub { font-weight: 500; color: var(--cov-sub-ink); }
+body[data-eink="true"] .wr-covTitleMain, body[data-eink="true"] .wr-covTitleSub,
+body[data-theme="eink"] .wr-covTitleMain, body[data-theme="eink"] .wr-covTitleSub { font-weight: 600; }
+.wr-covFoot { margin-top: 4px; padding-top: 3px; border-top: 1px dashed rgba(127, 127, 127, 0.28); display: flex; align-items: center; flex-shrink: 0; }
+.wr-covAuthor { font-size: 7.5px; line-height: 1.2; color: var(--cov-sub-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .wr-bookCardWithCover {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -631,6 +681,17 @@ body[data-theme="eink"] .wr-bookCover::before {
   font-size: 12.5px;
   -webkit-line-clamp: 4;
 }
+
+.wr-gridBookItem .wr-bookCover.is-generated { padding: 9px 8px 8px 10px; border-left-width: 4px; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covHead { margin-bottom: 4px; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covKicker { font-size: clamp(7.5px, 2vw, 9.5px); }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covBadge { font-size: clamp(7.5px, 2vw, 9px); padding: 1px 4px; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covRule { margin-bottom: 7px; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covTitle { font-size: clamp(11px, 2.9vw, 13.5px); line-height: 1.38; -webkit-line-clamp: 5; }
+.wr-gridBookItem .wr-bookCover.is-generated.is-short .wr-covTitle { font-size: clamp(12.5px, 3.4vw, 16px); line-height: 1.34; -webkit-line-clamp: 4; }
+.wr-gridBookItem .wr-bookCover.is-generated.is-long .wr-covTitle { font-size: clamp(9.6px, 2.55vw, 12px); line-height: 1.38; -webkit-line-clamp: 5; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covFoot { margin-top: 6px; padding-top: 5px; }
+.wr-gridBookItem .wr-bookCover.is-generated .wr-covAuthor { font-size: clamp(8.5px, 2.2vw, 10.5px); }
 
 .wr-gridBookName {
   margin: 0;
