@@ -1,12 +1,30 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {execFile} from 'node:child_process'
-import {loadSourceMap,translationMapMatches} from './source-map.js'
+import {loadSourceMap,taskSourcePdf,translationMapMatches} from './source-map.js'
 import {markdownBlocks} from './markdown.js'
+import {pruneDirByLru} from './hygiene.js'
+import {mapWorkspacePath} from '../../shared/workspace.js'
 
 const RENDER_PDF_PAGE_SCRIPT = `
 import sys
 pdf_path, page_num, dpi, out_path = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+max_w = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+out_fmt = (sys.argv[6] if len(sys.argv) > 6 else "PNG").upper()
+
+def save_pil(img):
+    if max_w > 0 and getattr(img, "width", 0) > max_w:
+        from PIL import Image
+        h = max(1, int(round(img.height * (max_w / img.width))))
+        resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+        img = img.resize((max_w, h), resample)
+    if out_fmt == "JPEG":
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.save(out_path, format="JPEG", quality=82, optimize=True)
+    else:
+        img.save(out_path, format="PNG", optimize=True)
+
 try:
     import pypdfium2 as pdfium
     doc = pdfium.PdfDocument(pdf_path)
@@ -15,8 +33,7 @@ try:
         sys.exit(2)
     page = doc[page_num - 1]
     bitmap = page.render(scale=dpi / 72.0)
-    pil_image = bitmap.to_pil()
-    pil_image.save(out_path, format="PNG")
+    save_pil(bitmap.to_pil())
     sys.stdout.write(str(len(doc)))
     sys.exit(0)
 except ImportError:
@@ -29,13 +46,21 @@ try:
         sys.exit(2)
     page = doc[page_num - 1]
     pix = page.get_pixmap(dpi=dpi)
-    pix.save(out_path)
+    if max_w > 0 or out_fmt == "JPEG":
+        from PIL import Image
+        mode = "RGBA" if pix.alpha else "RGB"
+        img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
+        save_pil(img)
+    else:
+        pix.save(out_path)
     sys.stdout.write(str(len(doc)))
     sys.exit(0)
 except ImportError:
     sys.stderr.write("NO_PDF_RENDERER")
     sys.exit(3)
 `
+
+const CACHE_FILE_RE = /^page_\d+_dpi\d+(?:_w\d+)?\.(?:png|jpe?g)$/i
 
 function execWithPython(bin, args) {
   return new Promise(resolve => {
@@ -45,15 +70,22 @@ function execWithPython(bin, args) {
   })
 }
 
-export async function renderPdfPage({ pdfFile, cacheDir, page, dpi = 180, pythonBin = 'python3' }) {
+export async function renderPdfPage({ pdfFile, cacheDir, page, dpi = 180, format = 'png', maxWidth = 0, pythonBin = 'python3', maxBytes = 80 * 1024 * 1024, maxAgeMs = 30 * 24 * 60 * 60 * 1000 }) {
   const pageNum = Math.max(1, Math.round(Number(page) || 1))
-  const clampedDpi = Math.max(72, Math.min(300, Math.round(Number(dpi) || 180)))
+  const clampedDpi = Math.max(48, Math.min(300, Math.round(Number(dpi) || 180)))
+  const wantsJpeg = format === 'jpeg' || format === 'jpg'
+  const outFmt = wantsJpeg ? 'JPEG' : 'PNG'
+  const ext = wantsJpeg ? 'jpg' : 'png'
+  const mimeType = wantsJpeg ? 'image/jpeg' : 'image/png'
+  const clampedW = Math.max(0, Math.min(2400, Math.round(Number(maxWidth) || 0)))
   await fs.mkdir(cacheDir, { recursive: true })
-  const outFile = path.join(cacheDir, `page_${pageNum}_dpi${clampedDpi}.png`)
+  const outFile = path.join(cacheDir, `page_${pageNum}_dpi${clampedDpi}${clampedW > 0 ? `_w${clampedW}` : ''}.${ext}`)
 
   try {
     const bytes = await fs.readFile(outFile)
-    return { supported: true, bytes, cached: true, page: pageNum }
+    const now = new Date()
+    void fs.utimes(outFile, now, now).catch(() => {})
+    return { supported: true, bytes, mimeType, cached: true, page: pageNum }
   } catch {}
 
   const candidates = [...new Set([pythonBin, '/opt/homebrew/bin/python3', 'python3'].filter(Boolean))]
@@ -66,12 +98,16 @@ export async function renderPdfPage({ pdfFile, cacheDir, page, dpi = 180, python
       String(pageNum),
       String(clampedDpi),
       outFile,
+      String(clampedW),
+      outFmt,
     ])
     if (!err) {
       const bytes = await fs.readFile(outFile)
+      await pruneDirByLru(cacheDir, { maxBytes, maxAgeMs, filePattern: CACHE_FILE_RE }).catch(() => {})
       return {
         supported: true,
         bytes,
+        mimeType,
         cached: false,
         page: pageNum,
         pageCount: Number(String(stdout).trim()) || null,
@@ -88,20 +124,23 @@ export async function renderPdfPage({ pdfFile, cacheDir, page, dpi = 180, python
   }
 
   // Fallback to pdftoppm if installed
-  const prefix = outFile.replace(/\.png$/i, '')
+  const ppmFile = outFile.replace(/\.(?:png|jpe?g)$/i, '')
   const ppm = await execWithPython('pdftoppm', [
-    '-png',
+    wantsJpeg ? '-jpeg' : '-png',
     '-f', String(pageNum),
     '-l', String(pageNum),
     '-r', String(clampedDpi),
+    ...(clampedW > 0 ? ['-scale-to-x', String(clampedW), '-scale-to-y', '-1'] : []),
     '-singlefile',
     pdfFile,
-    prefix,
+    ppmFile,
   ])
   if (!ppm.err) {
     try {
-      const bytes = await fs.readFile(outFile)
-      return { supported: true, bytes, cached: false, page: pageNum, pageCount: null }
+      const produced = `${ppmFile}.${wantsJpeg ? 'jpg' : 'png'}`
+      const bytes = await fs.readFile(produced)
+      await pruneDirByLru(cacheDir, { maxBytes, maxAgeMs, filePattern: CACHE_FILE_RE }).catch(() => {})
+      return { supported: true, bytes, mimeType, cached: false, page: pageNum, pageCount: null }
     } catch {}
   }
 
@@ -149,15 +188,17 @@ export async function attachPdfLocations(manager,t,doc){
         return {...b,originalPdfPage:originalValid?sourceIndex.get(b.id)?.pdfPages[0]??null:null,pdfPage:location?.pdfPages[0]??null,pdfPages:location?.pdfPages??[],sourceParagraphId:location?.blockId}
       }
       const blocks=doc.blocks.map(located)
-      return {...doc,blocks,originalBlocks:doc.originalBlocks?.map(b=>({...b,pdfPage:originalValid?sourceIndex.get(b.id)?.pdfPages[0]??null:null})),sourceMapAvailable:true,sourceMapViews:{original:originalValid,translation:translated&&!!activeMap},pdfLocationAvailable:blocks.some(b=>b.pdfPage),pdfLocationWarning:!originalValid?'正文修订后来源映射需要重新核验':translated&&!activeMap?'译文尚无有效段落来源映射':null}
+      return {...doc,blocks,originalBlocks:doc.originalBlocks?.map(b=>({...b,pdfPage:originalValid?sourceIndex.get(b.id)?.pdfPages[0]??null:null})),sourceMapAvailable:true,pdfAvailable:true,sourceMapViews:{original:originalValid,translation:translated&&!!activeMap},pdfLocationAvailable:blocks.some(b=>b.pdfPage),pdfLocationWarning:!originalValid?'正文修订后来源映射需要重新核验':translated&&!activeMap?'译文尚无有效段落来源映射':null}
     }
   }
-  if(!(t.legacy?.artifacts?.sourcePdf||t.input?.type==='pdf'))return doc
+  const hasDirectPdf=Boolean(t.legacy?.artifacts?.sourcePdf||t.input?.type==='pdf')
+  const fallbackPdf=hasDirectPdf?null:await taskSourcePdf(manager,t).catch(()=>null)
+  if(!hasDirectPdf&&!fallbackPdf)return doc
   const source=doc.standaloneView==='translation'?doc.originalBlocks??[]:doc.blocks
   let sourcePages=new Map()
   if(t.paperImport){sourcePages=new Map(source.map((b,i)=>[b.id,Number.isInteger((t.paperImport.pages??[])[i])&&(t.paperImport.pages??[])[i]>0?(t.paperImport.pages??[])[i]:null]))}
   else{
-    const base=t.legacy?t.legacy.directory:manager.docDir(t),dir=path.join(base,'ai_convert/edits/body')
+    const base=t.legacy?mapWorkspacePath(manager.root,t.legacy.directory):(t.sourceHistory?.directory?mapWorkspacePath(manager.root,t.sourceHistory.directory):manager.docDir(t)),dir=path.join(base,'ai_convert/edits/body')
     const files=(await fs.readdir(dir).catch(()=>[])).filter(f=>/^page_\d+\.json$/.test(f)).sort()
     const stats=await Promise.all(files.map(async file=>{const st=await fs.stat(path.join(dir,file)).catch(()=>null);return file+':'+(st?st.size+':'+st.mtimeMs:'missing')}))
     const stamp=stats.join('|'),cached=cache.get(dir)
@@ -171,7 +212,7 @@ export async function attachPdfLocations(manager,t,doc){
       }));pages=pages.filter(Boolean);cache.set(dir,{stamp,pages});if(cache.size>16)cache.delete(cache.keys().next().value)
     }
     sourcePages=locateSourceBlocks(source,pages)
-    if(!t.legacy){
+    if(!t.legacy&&!t.sourceHistory?.directory){
       const profile=await fs.readFile(path.join(base,'document_profile.json'),'utf8').then(JSON.parse).catch(()=>({}))
       const mapping=new Map((profile.source_page_map??[]).map(p=>[p.logical_page,p.source_page]))
       // Without a scope map a normalized page cannot establish the original PDF page.
@@ -179,7 +220,7 @@ export async function attachPdfLocations(manager,t,doc){
     }
   }
   const clean=page=>Number.isInteger(page)&&page>0?page:null
-  return {...doc,pdfLocationAvailable:[...sourcePages.values()].some(p=>clean(p)),
+  return {...doc,pdfAvailable:true,pdfLocationAvailable:[...sourcePages.values()].some(p=>clean(p)),
     originalBlocks:doc.originalBlocks?.map(b=>({...b,pdfPage:clean(sourcePages.get(b.id))})),
     blocks:doc.blocks.map(b=>({...b,pdfPage:clean(sourcePages.get(doc.standaloneView==='translation'?b.sourceBlockId:b.id))}))}
 }

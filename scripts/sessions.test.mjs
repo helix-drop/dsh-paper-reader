@@ -210,3 +210,62 @@ test('Python observer preserves one underlying call, its arguments and return va
   assert.deepEqual(events.map(e=>e.event),['request_started','response_received']);assert.equal(events[0].requestId,events[1].requestId);assert.equal(events[1].response,'fixture-result');assert.match(output,/original-completed/)
  }finally{await fs.rm(root,{recursive:true,force:true})}
 })
+test('rotateOrchestrator aborts old session and guard tells superseded orchestrator to stop immediately',async()=>{
+ const f=await fixture(),disposers=[];try{
+  const {installPipelineModule}=await import('../modules/pipeline/index.js')
+  const aborted=[]
+  let guardFn,toolDef
+  const ctx={
+   inject:(deps,cb)=>{
+    if(deps.includes('sessionController')&&deps.includes('agents')){
+     cb({...f.host,sessionController:{...f.host.sessionController,abort:async({sessionId})=>aborted.push(sessionId)},workspaceRegistry:{archiveSession:async()=>{}}})
+    }
+   },
+   on:(ev,fn)=>{if(ev==='dispose')disposers.push(fn)},
+   tools:{guard:fn=>{guardFn=fn},register:d=>{toolDef=d}}
+  }
+  installPipelineModule(ctx,{pipelineWorkspace:f.root})
+  const taskDir=path.join(f.root,'.pipeline/tasks',f.task.id)
+  await fs.mkdir(taskDir,{recursive:true})
+  await fs.writeFile(path.join(taskDir,'task.json'),JSON.stringify(f.task))
+  const monitor=new TaskSessions({root:f.root,dir:id=>path.join(f.root,'.pipeline/tasks',id),aiDir:t=>path.join(f.root,'.pipeline/tasks',t.id,'document/ai_convert'),active:new Map()},{...f.host,sessionController:{...f.host.sessionController,abort:async({sessionId})=>aborted.push(sessionId)}},async(sid,tid,mode,stage)=>{
+   const map=JSON.parse(await fs.readFile(path.join(f.root,'.pipeline/dsh-task-sessions.json'),'utf8').catch(()=>'{}'))
+   map[sid]=tid;await fs.mkdir(path.join(f.root,'.pipeline'),{recursive:true});await fs.writeFile(path.join(f.root,'.pipeline/dsh-task-sessions.json'),JSON.stringify(map))
+  })
+  // Exercise real installed monitor via route / direct rotate
+  const initial=await monitor.ensure(f.task)
+  const oldOrch=initial.sessions.orchestrator
+  let agentAborted=0
+  f.agents.get(oldOrch).abort=()=>{agentAborted++}
+  const rotated=await monitor.rotateOrchestrator(f.task,'transcribe')
+  assert.notEqual(rotated.sessions.orchestrator,oldOrch)
+  assert.equal(agentAborted,1)
+  assert.ok(aborted.includes(oldOrch))
+ }finally{for(const d of disposers)await d();await f.close()}
+})
+test('observer-wrapped bounded_chapter logs target script name and strips observer prompt JSON from diagnostics',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'reader-observer-diag-'))
+ const m=new TaskManager(root,path.join(root,'reading'),{python:process.execPath})
+ m.save=async t=>t
+ m.sessionMonitor={record:async()=>{},attempt:async fn=>fn(),scan:async()=>{}}
+ const scriptDir=path.join(root,'.kimi-code/skills/fnm-ai-convert/scripts')
+ await fs.mkdir(scriptDir,{recursive:true})
+ const t={id:randomUUID(),stage:'transcribe',log:[]}
+ try{
+  await assert.rejects(
+   m.rawCommand(t,process.execPath,[
+    path.join(root,'observe_worker.py'),
+    path.join(scriptDir,'bounded_chapter.py'),
+    '-e',
+   ],{}).catch(async()=>{
+    return m.rawCommand(t,process.execPath,[
+     '-e',
+     'console.log(JSON.stringify({type:"paper-reader-worker",event:"request_started",prompt:"LONG_RAW_PROMPT_TEXT"}));process.exit(1)',
+    ])
+   }),
+   /未通过/,
+  )
+  assert.equal(t.log[0].command,'bounded_chapter.py')
+  assert.equal(t.log[1].diagnostic,undefined)
+ }finally{await m.index.close();await fs.rm(root,{recursive:true,force:true})}
+})

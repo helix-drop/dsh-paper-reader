@@ -49,10 +49,14 @@ export function taskSummary(t){
 }
 export async function evidenceSummary(manager,t,{chapterId,offset=0,limit=8}={}){
  const directory=manager.dir(t.id),deliveryCandidate=path.join(manager.aiDir(t),'delivery'),chapterFile=await existing(directory,path.join(manager.aiDir(t),'chapters.json')),chapters=chapterFile?await read(chapterFile):[]
+ const chapterList=Array.isArray(chapters)?chapters:[]
  const delivery=await existing(directory,deliveryCandidate)
  if(typeof chapterId==='string')chapterId=chapterId.replace(/^chapter_(\d{3,6})$/,'$1')
  if(chapterId!==undefined&&!/^\d{3,6}$/.test(chapterId))throw new Error('章节编号无效')
- const entries=(delivery?await fs.readdir(delivery,{withFileTypes:true}):[]).filter(e=>e.isDirectory()&&!e.isSymbolicLink()&&/^chapter_\d{3,6}$/.test(e.name)&&(!chapterId||e.name==='chapter_'+chapterId)).sort((a,b)=>a.name.localeCompare(b.name))
+ const allDelivered=(delivery?await fs.readdir(delivery,{withFileTypes:true}):[]).filter(e=>e.isDirectory()&&!e.isSymbolicLink()&&/^chapter_\d{3,6}$/.test(e.name)).sort((a,b)=>a.name.localeCompare(b.name))
+ const deliveredIds=new Set(allDelivered.map(e=>e.name.slice(8)))
+ const pendingChapterIds=chapterList.map(c=>String(c.id)).filter(cid=>!deliveredIds.has(cid)&&(!chapterId||cid===chapterId))
+ const entries=chapterId?allDelivered.filter(e=>e.name==='chapter_'+chapterId):allDelivered
  offset=bounded(offset,0,100000);limit=Math.max(1,bounded(limit,8,12));const summaries=[]
  for(const entry of entries.slice(offset,offset+limit)){
   const folder=await taskEvidencePath(directory,path.join(delivery,entry.name)),id=entry.name.slice(8)
@@ -62,9 +66,9 @@ export async function evidenceSummary(manager,t,{chapterId,offset=0,limit=8}={})
   const book=await existing(directory,state?.book??path.join(folder,'selected/book'))
   const selectedAi=book?path.join(book,'ai_convert'):null,paths={state:statePath,report:reportPath,selectedBook:book}
   for(const [key,relative] of Object.entries({actions:`actions/chapter_${id}.json`,similarity:`similarity_report/chapter_${id}.json`,body:'edits/body',notes:'edits/notes',images:'page_images'}))paths[key]=selectedAi?await existing(directory,path.join(selectedAi,relative)):null
-  const chapter=chapters.find(c=>String(c.id)===id)
+  const chapter=chapterList.find(c=>String(c.id)===id)
   summaries.push({chapterId:id,title:chapter?.title??null,startPage:chapter?.start_page??null,endPage:chapter?.end_page??null,qualityStatus:report?.quality_status??'report_missing',deliveryStatus:report?.delivery_status??null,executionFinished:state?.finished??false,errorCount:report?.errors?.length??0,errors:(report?.errors??[]).slice(0,8).map(s=>String(s).slice(0,700)),errorsTruncated:(report?.errors?.length??0)>8,paths,pageBudgets:Object.entries(state?.attempts??{}).slice(0,30).map(([page,b])=>({page:Number(page),used:b.used??0,needsRepair:b.needs_repair??false,lastState:b.history?.at(-1)?.state??null,lastOutcome:b.history?.at(-1)?.outcome??null}))})
  }
  const failureDiagnostic=t.state==='blocked'?(t.message??(t.log?.at(-1)?.diagnostic??null)):null
- return {taskId:t.id,taskState:t.state,stage:t.stage,message:t.message,failureDiagnostic,taskDirectory:directory,totalChapters:entries.length,offset,nextOffset:offset+limit<entries.length?offset+limit:null,chapters:summaries,instructions:'paths 只返回实际存在的证据；null 表示不存在。报告中的 <book> 指该章节 paths.selectedBook。先看 errors 和质量状态，再读取对应 actions/similarity 的必要部分。需要定位文件时调用 files，需要查询文件时调用 search；禁止猜测文件名。executionFinished 仅表示执行结束，不代表验收通过。'}
+ return {taskId:t.id,taskState:t.state,stage:t.stage,message:t.message,failureDiagnostic,taskDirectory:directory,totalChapters:entries.length,definedChapters:chapterList.length,pendingChapterIds,offset,nextOffset:offset+limit<entries.length?offset+limit:null,chapters:summaries,instructions:'paths 只返回实际存在的证据；null 表示不存在。totalChapters 为已生成 delivery 目录的章节数，definedChapters 为 chapters.json 定义的总章节数，pendingChapterIds 为尚未启动 delivery 的章节。报告中的 <book> 指该章节 paths.selectedBook。先看 errors 和质量状态，再读取对应 actions/similarity 的必要部分。需要定位文件时调用 files，需要查询文件时调用 search；禁止猜测文件名。executionFinished 仅表示执行结束，不代表验收通过。'}
 }

@@ -1,24 +1,43 @@
 package com.dsh.paperreader;
 
+import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.view.View;
 import android.view.Window;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.util.HashSet;
 import java.util.Set;
 import org.json.JSONException;
 
-@CapacitorPlugin(name = "ReaderNative")
+@CapacitorPlugin(
+    name = "ReaderNative",
+    permissions = {
+        @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications")
+    }
+)
 public class ReaderNativePlugin extends Plugin {
+    static final String NOTICE_CHANNEL = "paper-reader-pipeline";
     static volatile boolean selectionMenuDisabled = false;
     static volatile boolean keyInterceptionEnabled = false;
     static volatile boolean keyCaptureMode = false;
@@ -129,5 +148,77 @@ public class ReaderNativePlugin extends Plugin {
     public void setKeyCapture(PluginCall call) {
         keyCaptureMode = Boolean.TRUE.equals(call.getBoolean("capturing", false));
         call.resolve();
+    }
+
+    @PluginMethod
+    public void requestNotifications(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 33) {
+            resolveGranted(call, true);
+            return;
+        }
+        Activity activity = getActivity();
+        if (activity == null) {
+            resolveGranted(call, false);
+            return;
+        }
+        if (ActivityCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            resolveGranted(call, true);
+            return;
+        }
+        requestPermissionForAlias("notifications", call, "notificationsPermsCallback");
+    }
+
+    @PermissionCallback
+    private void notificationsPermsCallback(PluginCall call) {
+        resolveGranted(call, getPermissionState("notifications") == PermissionState.GRANTED);
+    }
+
+    @PluginMethod
+    public void notify(PluginCall call) {
+        final String title = call.getString("title", "Paper Reader");
+        final String body = call.getString("body", "");
+        final String noticeId = call.getString("id", "pipeline");
+        final Activity activity = getActivity();
+        if (activity == null || title == null || title.isEmpty()) {
+            call.resolve();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33 && ActivityCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            call.resolve();
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            NotificationManager manager = (NotificationManager) activity.getSystemService(Activity.NOTIFICATION_SERVICE);
+            if (manager == null) {
+                call.resolve();
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel channel = new NotificationChannel(NOTICE_CHANNEL, "转写与翻译", NotificationManager.IMPORTANCE_DEFAULT);
+                channel.setDescription("转写或翻译完成，以及处理遇到问题时的通知");
+                manager.createNotificationChannel(channel);
+            }
+            Intent intent = new Intent(activity, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent pending = PendingIntent.getActivity(activity, 0, intent, flags);
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(activity, NOTICE_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pending);
+            manager.notify(noticeId.hashCode(), builder.build());
+            call.resolve();
+        });
+    }
+
+    private void resolveGranted(PluginCall call, boolean granted) {
+        JSObject ret = new JSObject();
+        ret.put("granted", granted);
+        call.resolve(ret);
     }
 }

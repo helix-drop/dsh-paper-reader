@@ -55,20 +55,22 @@
 - **`task`**：读取绑定任务元数据、当前阶段与证据目录说明。
 - **`inspect`**：检查当前运行环境、Python 依赖与模型网关。
 - **`probe_page`（别名 `probe`）**：**受控 PDF 页面探测**。传入 `page` 或 `pages`（1–8 页），自动提取 PDF 文本层文本与标题，并在任务目录下渲染 `probe-pages/page_NNNN.png`，可配合 `read_image` 原生查验。
-- **`evidence`**：结构化查看章节交付状态、错误报告、路径定位与预算开销。
+- **`evidence`**：结构化查看章节交付状态、错误报告、路径定位与预算开销（返回 `totalChapters` 已启动交付数、`definedChapters` 总章数及 `pendingChapterIds` 待启动章节）。
 - **`files`** 与 **`search`**：任务目录文件分页浏览与文本文件关键词行检索。
 - **`ocr`**：对指定页面与归一化坐标 `region: [左, 上, 右, 下]` 执行局部 PaddleOCR。
-- **`run`**：启动当前阶段（支持 `options: { reanalyze, retryErrors, singleStep }`）。
+- **`source_edit`** 与 **`note_continuation`**：在目检原页图像后，受控修补章节正文文字、脚注锚点、注释定义或跨页无编号脚注续段，自动重算 `paragraph_summary` 并绑定 `worker_audit.jsonl` 加密回执。
+- **`run`**：启动当前阶段（支持 `options: { reanalyze, retryErrors, singleStep, chapterId, concurrency }`）。
 - **`review_prepare` / `review_assemble` / `review_apply`**：审校审计包准备、汇总校验与补丁打入。
+- **`sync_profile`**：在底本物理起止页不变时，无损同步体例配置并对齐 scope 与章节交付快照指纹。
 - **`reset_transcription`**：清空转写记录与交付快照（可选保留章节结构），重置阶段为待转写。
 
 ### 4.2 核心编排 SOP 与沙箱安全门禁 (`sessionGuard`)
 
 - **目录切章三重交叉核验（TOC Tri-Verification）**：专著与合集切分章节时，严禁单凭乱码内嵌文本层盲猜。必须执行：① 目录原页高清目检（`probe_page` + `read_image` 抄录标题与印刷页码）；② 局部 `ocr` 与文本层互校（消除错字）；③ 正文各章起始页与部扉页（Part Title）原图实核（印证该页真实赫然印有章名，严防 1–2 页边界偏差）。
-- **底本输入依赖冻结**：章节启动转写并生成 delivery 后，`book_analysis.json` 等输入文件被 SHA256 快照锁定，严禁中途篡改（否则触发门禁阻断）；转写中遇到页下注由视觉模型自然处理，无需亦不可中途修改元数据。
+- **底本输入依赖冻结与审计回执约束**：章节启动转写并生成 delivery 后，`book_analysis.json` 等输入文件被 `state.json` 的 `source_hashes` 快照锁定，严禁中途篡改；正文文字、段落增删与注释定义修补必须走 `source_edit` / `note_continuation` 生成加密审计回执，严禁用 `edit`/`write` 无回执手改或手改 `paragraph_summary`。
 - **只读资产保护**：原始 PDF 输入、流水线 Python 脚本、执行日志、预算与审校快照受只读保护，禁止 Agent 篡改。
 - **凭证绝缘**：自动拦截 `.env`、`credentials`、`auth.json`、`config.toml` 等敏感文件的读取与写入。
-- **角色分离**：真实大模型交互局限在 `orchestrator` 会话；程序执行进度、Worker 输出由宿主单向沉淀到 `worker` / `linguagacha` 日志会话中，不触发额外模型调用。
+- **角色分离与会话接替保护**：真实大模型交互局限在当前活跃 `orchestrator` 会话；程序执行进度、Worker 输出由宿主单向沉淀到 `worker` / `linguagacha` 日志会话中；轮换新编排会话时自动中止旧会话并在 `sessionGuard` 拦截已归档旧会话的残余调用。
 
 ---
 

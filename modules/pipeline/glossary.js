@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto'
 import {DatabaseSync,backup} from 'node:sqlite'
 import {jsonrepair} from 'jsonrepair'
 import {hash,markdownBlocks} from './markdown.js'
-import {compactCleaningUnits,partitionCleaningCandidates,applyConsolidation} from './glossary-semantics.js'
+import {compactCleaningUnits,partitionCleaningCandidates,applyConsolidation,normalizeGlossaryCategory,isNonUniversalPublicTerm,isNonTermSectionHeading,normalizeGlossaryDomains,AUTO_PASS_REASON} from './glossary-semantics.js'
 import {encodeGlossaryUnit,verifyModelInputs,captureModelOutput,watchGlossaryProviderFailure,compatibleGlossaryPrompt,QUOTA_ABORT_WINDOW_MS,createQuotaAbortTracker,TIMEOUT_ABORT_WINDOW_MS,createTimeoutAbortTracker,formatQuotaExhaustedMessage} from './glossary-transport.js'
 import {assembleReviewAudit,applyReviewAudit,reviewAuditDirectory,assertReviewInputs} from './review-audit.js'
 
@@ -116,7 +116,8 @@ export function cleanCandidates(records,blocks){
  for(const record of records)for(const item of record.terms??[]){
   const src=exact(item.src),dst=normalizeCjkPunctuation(exact(item.dst)),category=item.category,rawEvidence=item.evidence??(item.blockId?{blockId:item.blockId}:null),evidence=src?sourceEvidence(rawEvidence,blocks,src):null
   const sense=exact(item.sense??item.info??'')
-  const reason=!src||!dst?'empty-term':!/[\p{L}]/u.test(src)?'number-or-punctuation':!['concept','method','technical','institution','person','title'].includes(category)?'not-an-academic-term':!evidence?'unsupported-source-evidence':null
+  const nonTermReason=isNonTermSectionHeading(src)?'non-term-section-heading':/^(?:no change needed|unchanged|无需修改|无需更改)$/iu.test(dst)?'meta-placeholder-target':/^[A-Z][\p{L}'’.-]+(?:\s+(?:et al\.|&\s+[A-Z][\p{L}'’.-]+))?\s+\(?(?:1[5-9]\d{2}|20[0-2]\d)\)?$/u.test(src)?'author-year-citation':/^B\d+(?:[、,，\s-]+B\d+)*$/iu.test(src)?'block-reference':null
+  const reason=!src||!dst?'empty-term':!/[\p{L}]/u.test(src)?'number-or-punctuation':!['concept','method','technical','institution','person','title'].includes(category)?'not-an-academic-term':nonTermReason?nonTermReason:!evidence?'unsupported-source-evidence':null
   if(reason){dropped.push({candidate:item,reason});continue}
   const id=normalTerm(src)+'|'+dst+'|'+sense,old=kept.get(id)
   if(old){if(!old.evidence.some(e=>e.blockId===evidence.blockId&&e.quote===evidence.quote))old.evidence.push(evidence);old.uncertain||=item.uncertain===true}
@@ -135,13 +136,29 @@ function normalizePublic(entries){
  const safe=[],ambiguous=[];for(const options of groups.values())if(options.length===1)safe.push(options[0]);else ambiguous.push({language:options[0].language,src:options[0].src,options})
  return {entries:safe,ambiguous}
 }
-export async function readPublicGlossary(root){
+export async function readDomainGlossary(root,domain){
+ const cleanDomain=normalizeGlossaryDomains([domain])[0];if(!cleanDomain)throw new Error('领域术语库标识无效')
+ const file=path.join(root,'.pipeline/glossaries/domains',`${cleanDomain}.json`),stored=await read(file,null)
+ if(stored){if(stored.schemaVersion!==1||!Array.isArray(stored.entries)||!Array.isArray(stored.ambiguous))throw new Error(`领域术语库 (${cleanDomain}) 格式异常`);const canonical=normalizePublic(stored.entries);if(canonical.ambiguous.length)throw new Error(`领域术语库 (${cleanDomain}) 含重复冲突`);return {...stored,domain:cleanDomain,file}}
+ return {schemaVersion:1,domain:cleanDomain,revision:`domain-empty-${cleanDomain}`,entries:[],ambiguous:[],file}
+}
+export async function readPublicGlossary(root,domains=[]){
  const file=path.join(root,'.pipeline/glossaries/common.json'),stored=await read(file,null)
- if(stored){if(stored.schemaVersion!==1||!Array.isArray(stored.entries)||!Array.isArray(stored.ambiguous))throw new Error('公共术语库格式异常，保留原件后核查');const canonical=normalizePublic(stored.entries);if(canonical.ambiguous.length)throw new Error('公共术语库含重复冲突，不能直接用于翻译');return {...stored,file}}
- const legacy=path.join(root,'lingua/glossaries/master_academic.json'),entries=await read(legacy,[])
- if(!Array.isArray(entries))throw new Error('原公共术语母表格式无效')
- const normalized=normalizePublic(entries)
- return {schemaVersion:1,revision:'seed-'+hash(JSON.stringify(entries)),...normalized,file,seed:{file:legacy,sha256:hash(JSON.stringify(entries))}}
+ let base
+ if(stored){if(stored.schemaVersion!==1||!Array.isArray(stored.entries)||!Array.isArray(stored.ambiguous))throw new Error('公共术语库格式异常，保留原件后核查');const canonical=normalizePublic(stored.entries);if(canonical.ambiguous.length)throw new Error('公共术语库含重复冲突，不能直接用于翻译');base={...stored,file}}
+ else{
+  const legacy=path.join(root,'lingua/glossaries/master_academic.json'),entries=await read(legacy,[])
+  if(!Array.isArray(entries))throw new Error('原公共术语母表格式无效')
+  const normalized=normalizePublic(entries)
+  base={schemaVersion:1,revision:'seed-'+hash(JSON.stringify(entries)),...normalized,file,seed:{file:legacy,sha256:hash(JSON.stringify(entries))}}
+ }
+ const cleanDomains=normalizeGlossaryDomains(domains)
+ if(!cleanDomains.length)return base
+ const domainStores=await Promise.all(cleanDomains.map(d=>readDomainGlossary(root,d)))
+ const merged=normalizePublic([...base.entries,...domainStores.flatMap(ds=>ds.entries.map(e=>({...e,_domain:ds.domain})))])
+ const mergedAmbiguous=[...base.ambiguous,...domainStores.flatMap(ds=>ds.ambiguous),...merged.ambiguous]
+ const compositeRevision=hash(base.revision+'|'+domainStores.map(ds=>`${ds.domain}:${ds.revision}`).join('|'))
+ return {...base,revision:compositeRevision,entries:merged.entries,ambiguous:mergedAmbiguous,domains:cleanDomains}
 }
 export function planGlossary(common,cleaned,blocks,language){
  const observed=new Map(),candidates=new Map(),publicOptions=new Map()
@@ -414,17 +431,18 @@ export function glossaryTransportUnits(kind,units){
   maps.set(unitId,{unit,entries})
   if(kind==='analysis')return {unitId,passages:unit.passages.map(p=>({...p,blockId:block(p.blockId)}))}
   const neededContextIds=new Set()
-  for(const entry of unit.entries??[])if(entry.conflict||entry.uncertain)for(const e of entry.evidence??[])if(e.contextId)neededContextIds.add(e.contextId)
+  for(const entry of unit.entries??[])if(entry.conflict||entry.uncertain||entry.publicOnly)for(const e of entry.evidence??[])if(e.contextId)neededContextIds.add(e.contextId)
   const contexts=new Map()
   for(const c of unit.contexts??[])if(neededContextIds.has(c.contextId))contexts.set(c.contextId,'C'+String(contexts.size+1).padStart(3,'0'))
   const wireEntries=unit.entries.map((entry,j)=>{
    const shortId=entry.id??(j+1),entryId='E'+String(j+1).padStart(3,'0')
    entries.set(entryId,entry.entryId)
-   if(!entry.conflict&&!entry.uncertain)return {id:shortId,src:entry.src,dst:entry.dst,category:entry.category}
+   if(!entry.conflict&&!entry.uncertain&&!entry.publicOnly)return {id:shortId,src:entry.src,dst:entry.dst,category:entry.category}
    return {
     id:shortId,src:entry.src,dst:entry.dst,category:entry.category,
     ...(entry.conflict?{conflict:true}:{}),
     ...(entry.uncertain?{uncertain:true}:{}),
+    ...(entry.publicOnly?{publicOnly:true}:{}),
     ...(entry.proposals?.length?{proposals:entry.proposals}:{}),
     ...(entry.publicOptions?.length?{publicOptions:entry.publicOptions}:{}),
     evidence:(entry.evidence??[]).map(e=>({contextId:contexts.get(e.contextId)})).filter(e=>e.contextId),
@@ -593,13 +611,31 @@ export async function promoteReviewedGlossary(manager,t,review){
  const db=new DatabaseSync(path.join(dir,'write-lock.sqlite'));let acquired=false
  try{
   db.exec('PRAGMA busy_timeout=1000');db.exec('BEGIN IMMEDIATE');acquired=true
-  const current=await readPublicGlossary(manager.root),entries=[...current.entries],index=new Map(entries.map(e=>[key(e.language,e.src),e])),skipped=[],added=[]
-  const conflicts=new Set(additions.filter(term=>{const old=index.get(key(term.language,term.src))??index.get(key('*',term.src)),ambiguous=current.ambiguous.some(g=>(g.language==='*'||g.language===term.language)&&normalTerm(g.src)===normalTerm(term.src));return ambiguous||old&&!same(old.dst,term.dst)}).map(term=>term.conceptId))
+  const current=await readPublicGlossary(manager.root),entries=[...current.entries],index=new Map(entries.map(e=>[key(e.language,e.src),e])),skipped=[],added=[],domainAdded={},domainStores=new Map()
+  const targetDomain=term=>term.semanticApproval?.tier==='domain'?normalizeGlossaryDomains([term.semanticApproval?.domain])[0]??'':''
+  const loadDomain=async d=>{if(!domainStores.has(d)){const ds=await readDomainGlossary(manager.root,d);domainStores.set(d,{store:ds,entries:[...ds.entries],idx:new Map(ds.entries.map(e=>[key(e.language,e.src),e])),changed:false})}return domainStores.get(d)}
+  for(const d of new Set(additions.map(targetDomain).filter(Boolean)))await loadDomain(d)
+  const conflicts=new Set(additions.filter(term=>{
+   const d=targetDomain(term),ds=d?domainStores.get(d):null
+   const oldCommon=index.get(key(term.language,term.src))??index.get(key('*',term.src))
+   const oldDom=ds?(ds.idx.get(key(term.language,term.src))??ds.idx.get(key('*',term.src))):null
+   const ambCommon=current.ambiguous.some(g=>(g.language==='*'||g.language===term.language)&&normalTerm(g.src)===normalTerm(term.src))
+   const ambDom=ds?ds.store.ambiguous.some(g=>(g.language==='*'||g.language===term.language)&&normalTerm(g.src)===normalTerm(term.src)):false
+   return ambCommon||ambDom||(oldCommon&&!same(oldCommon.dst,term.dst))||(oldDom&&!same(oldDom.dst,term.dst))
+  }).map(term=>term.conceptId))
   for(const term of additions){
    if(term.semanticApproval?.publicEligible!==true||!term.semanticApproval.reason)throw new Error('公共候选缺少可复用判定')
-   if(conflicts.has(term.conceptId)){skipped.push({src:term.src,reason:'公共表已有不同译名，整组保留本书用法'});continue}
-   const k=key(term.language,term.src),old=index.get(k)??index.get(key('*',term.src))
-   if(!old){const e={...term,origin:{taskId:t.id,sourceFingerprint:t.glossarySourceFingerprint,reviewFingerprint:review.reportFingerprint}};entries.push(e);index.set(k,e);added.push(term.src)}
+   if(isNonUniversalPublicTerm(term.src,term.dst)||String(term.info??'').includes(AUTO_PASS_REASON)){skipped.push({src:term.src,reason:'不符合公共术语普适性准入规则'});continue}
+   if(conflicts.has(term.conceptId)){skipped.push({src:term.src,reason:'公共或领域库已有不同译名，整组保留本书用法'});continue}
+   const dom=targetDomain(term),k=key(term.language,term.src),normCat=normalizeGlossaryCategory(term.category,'concept')
+   const entry={...term,category:normCat,origin:{taskId:t.id,sourceFingerprint:t.glossarySourceFingerprint,reviewFingerprint:review.reportFingerprint,...(dom?{domain:dom}:{})}}
+   if(dom){
+    const ds=domainStores.get(dom),old=ds.idx.get(k)??ds.idx.get(key('*',term.src))
+    if(!old){ds.entries.push(entry);ds.idx.set(k,entry);ds.changed=true;(domainAdded[dom]??=[]).push(term.src)}
+   }else{
+    const old=index.get(k)??index.get(key('*',term.src))
+    if(!old){entries.push(entry);index.set(k,entry);added.push(term.src)}
+   }
   }
   const next={schemaVersion:1,revision:hash(JSON.stringify({entries,ambiguous:current.ambiguous})),entries,ambiguous:current.ambiguous,seed:current.seed}
   if(added.length){
@@ -607,8 +643,15 @@ export async function promoteReviewedGlossary(manager,t,review){
    if(bytes){await fs.mkdir(path.join(dir,'history'),{recursive:true});await fs.writeFile(path.join(dir,'history',hash(bytes)+'.json'),bytes,{mode:0o600})}
    await atomic(base.file,next)
   }
+  for(const [dom,ds] of domainStores.entries()){
+   if(!ds.changed)continue
+   const nextDom={schemaVersion:1,domain:dom,revision:hash(JSON.stringify({entries:ds.entries,ambiguous:ds.store.ambiguous})),entries:ds.entries,ambiguous:ds.store.ambiguous}
+   const bytes=await fs.readFile(ds.store.file).catch(()=>null)
+   if(bytes){await fs.mkdir(path.join(dir,'history'),{recursive:true});await fs.writeFile(path.join(dir,'history',hash(bytes)+'.json'),bytes,{mode:0o600})}
+   await atomic(ds.store.file,nextDom)
+  }
   db.exec('COMMIT');acquired=false
-  const receipt={status:'reviewed',reviewFingerprint:review.reportFingerprint,glossaryFingerprint:review.glossaryFingerprint,added,skipped,revision:added.length?next.revision:current.revision,at:new Date().toISOString()}
+  const receipt={status:'reviewed',reviewFingerprint:review.reportFingerprint,glossaryFingerprint:review.glossaryFingerprint,added,domainAdded,skipped,revision:added.length?next.revision:current.revision,at:new Date().toISOString()}
   await atomic(path.join(directory,'public-promotion.json'),receipt);t.glossaryPublication=receipt;return receipt
  }finally{if(acquired)db.exec('ROLLBACK');db.close()}
 }
@@ -625,7 +668,8 @@ export async function analyseBookGlossary(manager,t,options={}){
  if(t.profile.glossary_model&&t.profile.glossary_model!==status.model.model)throw new Error('术语模型与任务指定值不一致，未发送分析')
  const analysisMaxChars=options.analysisMaxChars??t.profile?.glossary_analysis_max_chars??manager.glossaryAnalysisMaxChars??DEFAULT_ANALYSIS_MAX_CHARS
  if(!Number.isInteger(analysisMaxChars)||analysisMaxChars<100)throw new Error('术语提取分块大小无效')
- const directory=path.join(manager.dir(t.id),'glossary'),{blocks,units}=analysisUnits(source,analysisMaxChars),common=await readPublicGlossary(manager.root)
+ const domains=normalizeGlossaryDomains(options.domains??t.glossaryDomains??t.profile?.glossary_domains??[])
+ const directory=path.join(manager.dir(t.id),'glossary'),{blocks,units}=analysisUnits(source,analysisMaxChars),common=await readPublicGlossary(manager.root,domains)
  const previousFingerprint=t.glossaryReport?.effectiveFingerprint
  t.glossaryRuns=t.glossaryRuns??{};delete t.glossaryReport;delete t.glossaryPublication
  await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'source.md'),source,{mode:0o600});t.glossarySourceFingerprint=hash(source)

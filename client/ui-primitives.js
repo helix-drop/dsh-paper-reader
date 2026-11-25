@@ -23,6 +23,10 @@ function icon(name, size = 18) {
     check: 'M5 13l4 4L19 7',
     info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
     edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z',
+    copy: 'M9 9h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Zm-4 6H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+    download: 'M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2',
+    note: 'M4 4h16v12H8l-4 4V4Z',
+    quote: 'M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3a1 1 0 0 1 1 1v5a5 5 0 0 1-3 4.6M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3a1 1 0 0 1 1 1v5a5 5 0 0 1-3 4.6',
   }
   const isFilled = name.startsWith('triangle') || name === 'play'
   const is20 = isFilled
@@ -250,7 +254,9 @@ function FolderAssignModal({ targetId, targetName, currentFolderId, folders, onS
 }
 function CloudSyncModal({ onClose, onSynced }) {
   const [status, setStatus] = useState(null)
+  const [authStatus, setAuthStatus] = useState(null)
   const [cloudUrl, setCloudUrl] = useState('')
+  const [vaultName, setVaultName] = useState('')
   const [token, setToken] = useState('')
   const [deviceName, setDeviceName] = useState('PC DSH 主机')
   const [includePdf, setIncludePdf] = useState(true)
@@ -258,6 +264,11 @@ function CloudSyncModal({ onClose, onSynced }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [resultMsg, setResultMsg] = useState('')
+  const [pairCode, setPairCode] = useState(null)
+  const [pairCountdown, setPairCountdown] = useState(0)
+  const [showRootPanel, setShowRootPanel] = useState(false)
+  const [recoveryKeyText, setRecoveryKeyText] = useState('')
+  const [storageAudit, setStorageAudit] = useState(null)
   const lastSyncRef = useRef(null)
 
   const applyStatus = useCallback(v => {
@@ -275,18 +286,43 @@ function CloudSyncModal({ onClose, onSynced }) {
     }
   }, [onSynced])
 
+  const loadRemoteAuth = useCallback(async () => {
+    try {
+      const r = await fetch('/api/paper-reader/pipeline/sync/auth/status')
+      const v = await r.json()
+      if (r.ok) {
+        setAuthStatus(v)
+        if (v.vaultName) setVaultName(prev => prev || v.vaultName)
+      }
+    } catch {}
+  }, [])
+
   useEffect(() => {
     fetch('/api/paper-reader/pipeline/sync/status')
       .then(r => r.json())
       .then(v => {
         applyStatus(v)
         setCloudUrl(v.cloudUrl || '')
+        setVaultName(v.vaultName || '')
         setDeviceName(v.deviceName || 'PC DSH 主机')
         setIncludePdf(v.includePdf !== undefined ? Boolean(v.includePdf) : true)
         setAutoSync(v.autoSync !== undefined ? Boolean(v.autoSync) : true)
+        if (v.configured) void loadRemoteAuth()
       })
       .catch(e => setError(e.message || '读取同步配置失败'))
-  }, [])
+  }, [loadRemoteAuth])
+
+  useEffect(() => {
+    if (!pairCode?.expiresAt) { setPairCountdown(0); return }
+    const updateTick = () => {
+      const sec = Math.max(0, Math.floor((Date.parse(pairCode.expiresAt) - Date.now()) / 1000))
+      setPairCountdown(sec)
+      if (sec <= 0) setPairCode(null)
+    }
+    updateTick()
+    const timer = setInterval(updateTick, 1000)
+    return () => clearInterval(timer)
+  }, [pairCode])
 
   useEffect(() => {
     if (!status?.background?.running) return
@@ -297,7 +333,12 @@ function CloudSyncModal({ onClose, onSynced }) {
           applyStatus(v)
           if (!v?.background?.running && v?.lastResult && !v?.lastError) {
             const lr = v.lastResult
-            setResultMsg(`后台同步完成：推送 ${lr.pushedBooks ?? 0} 本书、${lr.pushedPdfs ?? 0} 份 PDF；拉取 ${lr.pulledProgress ?? 0} 条进度、${lr.pulledBookmarks ?? 0} 条书签、${lr.appliedCorrections ?? 0} 条移动端勘误。`)
+            const extras = [
+              lr.renamedBooks ? `同步改名 ${lr.renamedBooks} 本` : '',
+              lr.deduplicatedPdfs ? `秒传去重 ${lr.deduplicatedPdfs} 份` : '',
+              lr.deletedCloudBooks ? `清理云端已删 ${lr.deletedCloudBooks} 本` : '',
+            ].filter(Boolean).join('，')
+            setResultMsg(`后台同步完成：推送 ${lr.pushedBooks ?? 0} 本书、${lr.pushedPdfs ?? 0} 份 PDF${extras ? `（${extras}）` : ''}；拉取 ${lr.pulledProgress ?? 0} 条进度、${lr.pulledBookmarks ?? 0} 条书签、${lr.appliedCorrections ?? 0} 条移动端勘误。`)
           }
         })
         .catch(() => {})
@@ -311,6 +352,7 @@ function CloudSyncModal({ onClose, onSynced }) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         cloudUrl,
+        vaultName: vaultName.trim(),
         ...(token.trim() ? { token: token.trim() } : {}),
         deviceName,
         includePdf,
@@ -322,6 +364,15 @@ function CloudSyncModal({ onClose, onSynced }) {
     if (!r.ok) throw new Error(v.error || '保存配置失败')
     setStatus(v)
     setToken('')
+    if (v.configured && vaultName.trim()) {
+      const bindRes = await fetch('/api/paper-reader/pipeline/sync/auth/bind-vault', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ vaultName: vaultName.trim(), force: true }),
+      })
+      const bindVal = await bindRes.json().catch(() => ({}))
+      if (bindRes.ok) setAuthStatus(bindVal)
+    }
     return v
   }
 
@@ -329,9 +380,10 @@ function CloudSyncModal({ onClose, onSynced }) {
     setBusy(true); setError(''); setResultMsg('')
     try {
       const v = await saveConfig()
+      if (v.configured) await loadRemoteAuth()
       setResultMsg(v.configured && v.autoSync
-        ? '配置已保存，已转入后台自动同步（可直接关闭此窗口）。'
-        : '云端同步配置已保存。')
+        ? '配置已保存并存入本地数据库，已转入后台自动同步。'
+        : '云端连接与书库绑定已保存至本地数据库。')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -359,6 +411,121 @@ function CloudSyncModal({ onClose, onSynced }) {
     }
   }
 
+  const handleGeneratePairCode = async () => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      await saveConfig({ startBackground: false })
+      const r = await fetch('/api/paper-reader/pipeline/sync/auth/pair-code', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '生成动态配对码失败')
+      setPairCode(v)
+      await loadRemoteAuth()
+      setResultMsg('已生成 6 位一次性动态配对码，请在手机或汉王 APK 输入配对。')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleTogglePairing = async enabled => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      const r = await fetch('/api/paper-reader/pipeline/sync/auth/pairing-toggle', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '切换配对状态失败')
+      setAuthStatus(v)
+      if (!enabled) setPairCode(null)
+      setResultMsg(enabled ? '已重新开放动态码配对。' : '已暂停新设备配对，已配对手机与本机不受影响。')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRevokeDevice = async (devId, devName) => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      const r = await fetch('/api/paper-reader/pipeline/sync/auth/revoke-device', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId: devId }),
+      })
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '移除设备失败')
+      setAuthStatus(v)
+      setResultMsg(`已移除设备「${devName}」的访问权限。`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRevealRecovery = async () => {
+    const next = !showRootPanel
+    setShowRootPanel(next)
+    if (next && !recoveryKeyText) {
+      try {
+        const r = await fetch('/api/paper-reader/pipeline/sync/recovery-key')
+        const v = await r.json()
+        if (r.ok && v.rootKey) setRecoveryKeyText(v.rootKey)
+      } catch {}
+    }
+  }
+
+  const handleCopyText = async (txt, msg) => {
+    try {
+      await navigator.clipboard?.writeText?.(txt)
+      setResultMsg(msg)
+    } catch {
+      setError('当前环境不支持自动复制，请手动全选复制')
+    }
+  }
+
+  const handleAuditStorage = async () => {
+    setBusy(true); setError('')
+    try {
+      const r = await fetch('/api/paper-reader/pipeline/storage/audit?dedupe=true')
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '空间检查失败')
+      setStorageAudit(v)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handlePruneStorage = async mode => {
+    setBusy(true); setError(''); setResultMsg('')
+    try {
+      const r = await fetch('/api/paper-reader/pipeline/storage/prune', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode, dedupe: mode === 'compact', purgeTrash: true })
+      })
+      const v = await r.json()
+      if (!r.ok) throw new Error(v.error || '缓存清理失败')
+      setStorageAudit(null)
+      const dedupeTxt = v.dedupe?.clonedFiles ? `，APFS 去重 ${v.dedupe.clonedFiles} 个大文件（省 ${formatBytes(v.dedupe.potentialSavedBytes)}）` : ''
+      setResultMsg(`空间清理完成：释放 ${formatBytes(v.totalBytes)}（${v.totalFiles} 个中间文件）${dedupeTxt}。`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const bg = status?.background
   const bgProgressText = bg?.running
     ? [
@@ -368,45 +535,102 @@ function CloudSyncModal({ onClose, onSynced }) {
         bg.detail || '',
       ].filter(Boolean).join(' ')
     : ''
+  const pairBundleString = pairCode?.code
+    ? `dsh://pair?u=${encodeURIComponent(cloudUrl.trim())}&c=${encodeURIComponent(pairCode.code)}${vaultName.trim() ? `&v=${encodeURIComponent(vaultName.trim())}` : ''}`
+    : ''
+  const fmtCount = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 
   return h('div', { className: 'rr-pdfModalOverlay', onClick: e => { if (e.target === e.currentTarget) onClose() } },
-    h('div', { style: { background: '#fff', borderRadius: 12, padding: '20px 24px', minWidth: 340, maxWidth: 480, width: '92vw', boxShadow: '0 16px 40px rgba(0,0,0,0.2)' } },
+    h('div', { style: { background: '#fff', borderRadius: 12, padding: '20px 24px', minWidth: 340, maxWidth: 520, width: '92vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 16px 40px rgba(0,0,0,0.2)' } },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } },
         h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600 } }, '云端书库同步（手机 / 汉王墨水屏）'),
         button(icon('close', 16), onClose, 'rr-buttonQuiet rr-buttonIcon', { 'aria-label': '关闭' })
       ),
       h('p', { className: 'rr-pipelineNote', style: { margin: '0 0 12px', fontSize: 12 } },
-        '配置完成后默认在后台静默双向同步，不阻塞前台阅读或处理流水线；手机与汉王墨水屏 APK 可随时离线下载并同步进度、划线与勘误。'
+        '电脑绑定书库并在本地数据库保管根恢复密钥；手机与汉王 APK 输入一次性 6 位动态配对码即可长期授权，不再重复输长密钥。'
       ),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 } },
         h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
-          '云服务器地址',
+          '云服务器地址（推荐绑定的域名 HTTPS）',
           h('input', {
             type: 'url',
-            placeholder: 'https://reader.example.com 或 http://IP:4180',
+            placeholder: 'https://dsh-reader.duckdns.org',
             value: cloudUrl,
             onChange: e => setCloudUrl(e.target.value),
             style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
           })
         ),
-        h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
-          '同步密钥（Bearer Token）',
-          h('input', {
-            type: 'password',
-            placeholder: status?.hasToken ? '已配置密钥（留空保持不变）' : '输入云端 SYNC_TOKEN',
-            value: token,
-            onChange: e => setToken(e.target.value),
-            style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
-          })
+        h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
+          h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+            '绑定书库名 (Vault)',
+            h('input', {
+              type: 'text',
+              placeholder: '如 hao-paper-library',
+              value: vaultName,
+              onChange: e => setVaultName(e.target.value),
+              style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+            })
+          ),
+          h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
+            '本机名称',
+            h('input', {
+              type: 'text',
+              value: deviceName,
+              onChange: e => setDeviceName(e.target.value),
+              style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
+            })
+          )
         ),
-        h('label', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } },
-          '本机名称',
-          h('input', {
-            type: 'text',
-            value: deviceName,
-            onChange: e => setDeviceName(e.target.value),
-            style: { width: '100%', boxSizing: 'border-box', marginTop: 4, padding: '8px 10px', fontSize: 13, borderRadius: 8, border: '1px solid #d4d4d8' }
-          })
+        status?.configured ? h('div', { style: { padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+            h('span', { style: { fontSize: 12, fontWeight: 600, color: '#0f172a' } }, '手机 / 汉王 APK 动态码配对'),
+            h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+              authStatus ? button(authStatus.pairingEnabled ? '暂停配对' : '开放配对', () => handleTogglePairing(!authStatus.pairingEnabled), 'rr-buttonQuiet', { disabled: busy, style: { padding: '4px 8px', fontSize: 11 } }) : null,
+              button('生成 6 位动态配对码', handleGeneratePairCode, 'rr-buttonPrimary', { disabled: busy, style: { padding: '5px 10px', fontSize: 12 } })
+            )
+          ),
+          pairCode?.code ? h('div', { style: { marginTop: 10, padding: '10px 12px', borderRadius: 8, background: '#fff', border: '1px solid #cbd5e1', textAlign: 'center' } },
+            h('div', { style: { fontSize: 26, fontWeight: 700, letterSpacing: '0.28em', color: '#0369a1', fontFamily: 'ui-monospace, monospace' } },
+              `${pairCode.code.slice(0, 3)} ${pairCode.code.slice(3)}`
+            ),
+            h('div', { style: { fontSize: 11, color: '#64748b', marginTop: 4 } },
+              `单次有效 · 剩余 ${fmtCount(pairCountdown)} 失效${pairCode.vaultName ? ` · 书库「${pairCode.vaultName}」` : ''}`
+            ),
+            h('div', { style: { display: 'flex', justifyContent: 'center', gap: 8, marginTop: 8 } },
+              button('复制 6 位码', () => handleCopyText(pairCode.code, '已复制 6 位动态配对码'), 'rr-buttonQuiet', { style: { padding: '4px 9px', fontSize: 11 } }),
+              button('复制一键绑定口令', () => handleCopyText(pairBundleString, '已复制一键绑定口令，可直接粘贴到 APK 配对栏'), 'rr-buttonQuiet', { style: { padding: '4px 9px', fontSize: 11 } })
+            )
+          ) : null,
+          authStatus?.devices?.length ? h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 5 } },
+            h('span', { style: { fontSize: 11, color: '#64748b' } }, `已授权移动设备 (${authStatus.devices.length})`),
+            ...authStatus.devices.map(d => h('div', { key: d.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '4px 8px', background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' } },
+              h('span', null, `${d.name} · 最近活跃 ${new Date(d.lastUsedAt || d.createdAt).toLocaleString()}`),
+              button('移除', () => handleRevokeDevice(d.id, d.name), 'rr-buttonQuiet', { disabled: busy, style: { padding: '2px 7px', fontSize: 11, color: '#dc2626' } })
+            ))
+          ) : null
+        ) : null,
+        h('div', { style: { border: '1px solid #e4e4d7', borderRadius: 8, padding: '8px 10px' } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+            h('span', { style: { fontSize: 12, color: '#3f3f46' } },
+              status?.hasToken
+                ? `本机恢复密钥：${status.rootKeyHint || '已配置'}${status.dbBacked ? ' · 已存本地数据库' : ''}`
+                : '首次连接 / 恢复连接密钥（Root Key）'
+            ),
+            button(showRootPanel ? '收起' : '查看/修改', handleRevealRecovery, 'rr-buttonQuiet', { style: { padding: '2px 8px', fontSize: 11 } })
+          ),
+          (showRootPanel || !status?.hasToken) ? h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 } },
+            h('input', {
+              type: 'password',
+              placeholder: status?.hasToken ? '如需更换或恢复密钥可在此粘贴（留空保持不变）' : '输入 VPS 根恢复密钥 SYNC_TOKEN',
+              value: token,
+              onChange: e => setToken(e.target.value),
+              style: { width: '100%', boxSizing: 'border-box', padding: '7px 9px', fontSize: 12, borderRadius: 6, border: '1px solid #d4d4d8' }
+            }),
+            recoveryKeyText ? h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+              h('code', { style: { flex: 1, fontSize: 11, background: '#f4f4f5', padding: '5px 7px', borderRadius: 6, wordBreak: 'break-all' } }, recoveryKeyText),
+              button('复制密钥', () => handleCopyText(recoveryKeyText, '已复制本机根恢复密钥，请妥善备份'), 'rr-buttonQuiet', { style: { padding: '4px 8px', fontSize: 11 } })
+            ) : null
+          ) : null
         ),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#3f3f46', cursor: 'pointer' } },
           h('input', {
@@ -436,6 +660,19 @@ function CloudSyncModal({ onClose, onSynced }) {
       h('div', { className: 'rr-rowActions', style: { justifyContent: 'flex-end', gap: 8 } },
         button('保存配置', handleSave, 'rr-buttonQuiet', { disabled: busy }),
         button(bg?.running ? '后台排队再同步' : '立即后台同步', handleSyncNow, 'rr-buttonPrimary', { disabled: busy || !cloudUrl.trim() })
+      ),
+      h('div', { style: { marginTop: 14, paddingTop: 12, borderTop: '1px solid #e4e4e7' } },
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h('span', { style: { fontSize: 12, fontWeight: 600, color: '#3f3f46' } }, '本地缓存与存储卫生'),
+          h('div', { style: { display: 'flex', gap: 6 } },
+            button('空间体检', handleAuditStorage, 'rr-buttonQuiet', { disabled: busy }),
+            button('安全清理', () => handlePruneStorage('safe'), 'rr-buttonQuiet', { disabled: busy }),
+            button('深度瘦身', () => handlePruneStorage('compact'), 'rr-buttonQuiet', { disabled: busy })
+          )
+        ),
+        storageAudit ? h('p', { className: 'rr-pipelineNote', style: { margin: '8px 0 0', fontSize: 11 } },
+          `安全可清：${formatBytes(storageAudit.safeBytes)}（${storageAudit.safeFiles} 文件）；深度瘦身共可清：${formatBytes(storageAudit.compactBytes)}${storageAudit.dedupe?.potentialSavedBytes ? `；大文件去重可省：${formatBytes(storageAudit.dedupe.potentialSavedBytes)}` : ''}。`
+        ) : null
       )
     )
   )

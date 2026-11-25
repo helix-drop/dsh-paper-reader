@@ -1,4 +1,4 @@
-import {compactCleaningUnits,partitionCleaningCandidates,applyConsolidation,AUTO_PASS_REASON} from '../modules/pipeline/glossary-semantics.js'
+import {compactCleaningUnits,partitionCleaningCandidates,applyConsolidation,AUTO_PASS_REASON,normalizeGlossaryCategory,isNonUniversalPublicTerm,requiresCaseSensitivePublicMatch} from '../modules/pipeline/glossary-semantics.js'
 import {semanticFixture} from './glossary-fixture.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -1358,6 +1358,287 @@ test('agy catalog, effort levels, and bridge helpers support updated agy CLI mod
  assert.equal(resolveAgyCliModelFlag('agy/pro','xhigh'),'gemini-4-argon-high')
  assert.equal(resolveAgyWorkerTier('agy/gemini-4-hydrogen-xhigh'),'pro')
 })
+
+test('cross-domain public proper nouns/titles do not falsely match lowercase words or auto-pass when unextracted, and page-level metadata.issues populate review source_defect hints',async()=>{
+ const blocks=markdownBlocks('This does not change that an ordinary general principle was studied under the Moon and Sun.')
+ const common={
+  entries:[
+   {src:'Change',dst:'《易经》',info:'书名 | 公共术语库',language:'en',category:'title'},
+   {src:'General',dst:'将军之官',info:'肝之官职比喻',language:'en',category:'concept'},
+   {src:'an',dst:'按',info:'自注按語標記',language:'en',category:'technical'},
+   {src:'Sun',dst:'孙一奎',info:'冲突消解为全名孙一奎',language:'en',category:'person'},
+   {src:'ordinary',dst:'常规',info:'测试概念',language:'en',category:'concept'}
+  ],
+  ambiguous:[]
+ }
+ const partitioned=partitionCleaningCandidates({terms:[],dropped:[]},common,blocks,hash('cross-domain'),'en',24000)
+ const allEntries=partitioned.units.flatMap(u=>u.entries)
+ assert(!allEntries.some(e=>e.src==='Change'),'capitalized book title Change must not match lowercase "change"')
+ assert(!allEntries.some(e=>e.src==='General'),'capitalized General must not match lowercase "general"')
+ assert(!allEntries.some(e=>e.src==='an'),'English article/stopword "an" from common.json must not match')
+ assert(allEntries.some(e=>e.src==='ordinary'))
+ assert.equal(partitioned.autoPass.count,0,'unextracted public person entry Sun must not bypass consolidation via auto-pass')
+ const sunEntry=allEntries.find(e=>e.src==='Sun')
+ assert(sunEntry&&sunEntry.publicOnly===true,'unextracted public term Sun must carry publicOnly=true and enter consolidation with context')
+ const wire=glossaryTransportUnits('consolidation',partitioned.units)
+ const wireSun=wire.units[0].entries.find(e=>e.src==='Sun')
+ assert.equal(wireSun.publicOnly,true)
+ assert.ok(wireSun.publicOptions?.some(o=>o.info?.includes('孙一奎')),'unextracted public term must keep publicOptions.info on wire')
+ assert.ok(wireSun.evidence?.length&&wire.units[0].contexts?.length,'unextracted public term must carry source context quote on wire so consolidation LLM can drop false matches')
+
+ const source='The patient was treated by Kraffting.\n',target='该患者由克拉夫特-埃宾治疗。\n'
+ const f=await setup({source,terms:[]});try{
+  const taskDir=f.manager.dir(f.task.id)
+  const pdfPath=path.join(taskDir,'source.pdf')
+  await fs.mkdir(path.join(taskDir,'document/ai_convert/edits/body'),{recursive:true})
+  await fs.writeFile(pdfPath,'fake-pdf-bytes')
+  await fs.writeFile(path.join(taskDir,'document/ai_convert/edits/body/page_011.json'),JSON.stringify({
+   book_page:11,
+   metadata:{issues:['left edge truncated: 1-7 characters missing at the beginning of each line in the scan']}
+  }))
+  const parsedBlock=markdownBlocks(source)[0]
+  await fs.writeFile(f.file+'.source-map.json',JSON.stringify({
+   schemaVersion:1,
+   view:'original',
+   markdownSha256:hash(source),
+   pdf:{file:path.relative(path.dirname(f.file),pdfPath),sha256:hash(await fs.readFile(pdfPath)),totalPages:9},
+   blocks:[{blockId:'src-1',markdownBlockId:parsedBlock.id,type:parsedBlock.type,sourcePids:[],logicalPages:[11],pdfPages:[6],pdfPageRanges:[[6,6]],regions:[]}]
+  }))
+  const translatedPath=path.join(taskDir,'translation/translated.md')
+  await fs.mkdir(path.dirname(translatedPath),{recursive:true})
+  await fs.writeFile(translatedPath,target)
+  f.task.translationPath=translatedPath
+  await fs.writeFile(path.join(taskDir,'glossary.json'),JSON.stringify([
+   {src:'Change',dst:'《易经》',info:'书名'},
+   {src:'General',dst:'将军之官',info:'Traditional Chinese medicine term for the General office.'},
+   {src:'Sun',dst:'孙一奎',info:'人名'}
+  ]))
+  const prepared=await prepareReviewAudit(f.manager,f.task,{force:true})
+  const packet=JSON.parse(await fs.readFile(path.join(prepared.auditDir,'packets/001.json'),'utf8'))
+  assert.ok(!packet[0].hints?.some(h=>h.src==='General'),'"General" must not trigger glossary_mismatch on lowercase text')
+  const defectHint=packet[0].hints?.find(h=>h.type==='source_defect')
+  assert.ok(defectHint,'source_defect hint must be populated from edits/body/page_011.json metadata.issues')
+  assert.deepEqual(defectHint.logicalPages,[11])
+  assert.deepEqual(defectHint.pdfPages,[6])
+  assert.ok(defectHint.issues[0].includes('left edge truncated'))
+  const prompt=buildAgyReviewPrompt(f.manager,f.task,prepared)
+  assert.ok(prompt.includes('source_notes'))
+  assert.ok(prompt.includes('source_corrections'))
+  assert.ok(prompt.includes('source_defect'))
+  assert.ok(prompt.includes('honor able'))
+  assert.ok(prompt.includes('making up people'))
+  assert.ok(prompt.includes('严禁写成扁平 {blockId, old, new}'))
+  assert.ok(prompt.includes('严禁在脚本中兼容无 edits 的扁平格式'))
+  const cliMultiPrompt=buildAgyReviewPrompt(f.manager,{...f.task,reviewConfig:{orchestratorModel:'agy/gemini-4-hydrogen-medium',workerModel:'inherit'}},{...prepared,pendingPackets:['001','002','003']})
+  assert.ok(cliMultiPrompt.includes('派发给子代理的 Prompt 必须原样附带下方返回 JSON 结构示例'))
+ }finally{await f.close()}
+})
+
+test('supplemental re-review (force: true) opens a fresh run with focus instructions even after completed review',async()=>{
+ const source='First paragraph on dynamic nominalism.\n'
+ const target='第一段关于动态唯名论。\n'
+ const f=await setup({source,terms:[]});try{
+  const taskDir=f.manager.dir(f.task.id),translatedPath=path.join(taskDir,'translation/translated.md')
+  await fs.mkdir(path.dirname(translatedPath),{recursive:true});await fs.writeFile(translatedPath,target)
+  f.task.translationPath=translatedPath
+  f.task.reviewConfig={orchestratorModel:'agy/gemini-3-flash',workerModel:'inherit',orchestratorEffort:''}
+  f.task.phaseApproval={phase:'delivery',reviewConfig:{...f.task.reviewConfig}}
+  f.task.stages.translationCheck={state:'done'};f.task.translationReport={passed:true,sourceFingerprint:hash(source),targetFingerprint:hash(target)}
+  f.manager.get=async()=>f.task
+
+  const firstRun=await prepareReviewAudit(f.manager,f.task)
+  await fs.writeFile(path.join(firstRun.auditDir,'results/001.json'),JSON.stringify({packet:'001',status:'pass',patches:[],glossary_decisions:[],unresolved:[]}))
+  await applyReviewAudit(f.manager,f.task,{auditDir:firstRun.auditDir})
+  f.task.stages.review={state:'done',at:new Date().toISOString()}
+  f.task.publication={published:false,validated:true,files:[]}
+  f.task.reviewProgress={conversationId:'old-cid-1234',model:'agy/gemini-3-flash'}
+
+  const prep=await f.manager.prepareReviewAudit(f.task.id,{force:true})
+  assert.notEqual(prep.auditDir,firstRun.auditDir,'force preparation must create a fresh audit directory')
+  assert.deepEqual(prep.pendingPackets,['001'])
+  assert.equal(f.task.publication,undefined,'stale unpublished publication preview must be cleared')
+  assert.equal(f.task.stages.review,undefined,'review done marker must reset while supplemental run is active')
+
+  let seenPrompt='',seenCid='unset'
+  const agyRes=await f.manager.runAgyReviewAudit(f.task.id,{
+   force:true,
+   newConversation:true,
+   note:'修正 honor able 并统一核心译名',
+   agyRunner:async({prompt,auditDir,options})=>{
+    seenPrompt=prompt;seenCid=f.task.reviewProgress.conversationId
+    await fs.writeFile(path.join(auditDir,'results/001.json'),JSON.stringify({packet:'001',status:'pass',patches:[],glossary_decisions:[],unresolved:[]}))
+    return {conversation_id:'new-cid-5678',status:'SUCCESS'}
+   }
+  })
+  assert.equal(seenCid,null,'supplemental re-review must not resume completed CLI conversation')
+  assert.ok(seenPrompt.includes('补充重审'))
+  assert.ok(seenPrompt.includes('【本轮补充重审重点指令】修正 honor able 并统一核心译名'))
+  assert.equal(agyRes.receipt.conversationId,'new-cid-5678')
+ }finally{await f.close()}
+})
+
+test('public glossary admission normalizes categories and blocks non-universal entries (src===dst, citations, autoPass, stopwords)',async()=>{
+ assert.equal(normalizeGlossaryCategory('哲学概念'),'concept')
+ assert.equal(normalizeGlossaryCategory('人名'),'person')
+ assert.equal(normalizeGlossaryCategory('B0066、B0067章节标题'),'concept')
+ assert.equal(isNonUniversalPublicTerm('Greenblatt 1986','Greenblatt 1986'),'identical-source-target')
+ assert.equal(isNonUniversalPublicTerm('Greenblatt 1986','格林布拉特（1986）'),'year-bound-citation')
+ assert.equal(isNonUniversalPublicTerm('an','按'),'stopword-or-too-short')
+ assert.equal(isNonUniversalPublicTerm('Dynamic nominalism','动态唯名论'),null)
+
+ const source='Dynamic nominalism and Greenblatt 1986 appear once with Jean Fernel and B0066.'
+ const blocks=markdownBlocks(source)
+ const structural={
+  terms:[
+   {src:'Dynamic nominalism',dst:'动态唯名论',category:'concept',sense:'核心概念',uncertain:false,evidence:[{blockId:blocks[0].id,quote:source}]},
+   {src:'Greenblatt 1986',dst:'Greenblatt 1986',category:'person',sense:'引文',uncertain:false,evidence:[{blockId:blocks[0].id,quote:source}]},
+   {src:'B0066',dst:'B0066节点',category:'B0066、B0067章节标题',sense:'标题编号',uncertain:false,evidence:[{blockId:blocks[0].id,quote:source}]}
+  ],
+  dropped:[]
+ }
+ const unit=compactCleaningUnits(structural,{entries:[],ambiguous:[]},blocks,hash(source),'en')[0]
+ const res=applyConsolidation(unit,{
+  unitId:unit.unitId,
+  delta:true,
+  groups:unit.entries.map(e=>({
+   members:[{entryId:e.entryId,dst:e.dst,action:'keep'}],
+   category:e.src==='B0066'?'B0066、B0067章节标题':e.category,
+   reason:'测试准入',
+   scope:'全局',
+   uncertain:false,
+   publicEligible:true,
+   publicReason:'测试申请'
+  }))
+ },{shared:[],overrides:[],additions:[],effective:[],groups:[],rejected:[],unresolved:[]},{entries:[],ambiguous:[]},'en')
+
+ assert.deepEqual(res.additions.map(a=>a.src),['Dynamic nominalism'])
+ assert.ok(res.overrides.some(o=>o.src==='Greenblatt 1986'))
+ assert.ok(res.overrides.some(o=>o.src==='B0066'))
+ assert.equal(res.groups.find(g=>g.members.some(m=>m.src==='B0066')).category,'concept')
+})
+
+test('three-tier glossary filters non-terms, keeps delta defaults book-local, and isolates domain promotions',async()=>{
+ const blocks=markdownBlocks('Introduction discusses Qi in stasis and Kidney Fire. Greenblatt 1986 noted epistemology.')
+ const cleaned=cleanCandidates([{terms:[
+  {src:'Introduction',dst:'导论',category:'title',sense:'章节',evidence:{blockId:blocks[0].id}},
+  {src:'Greenblatt 1986',dst:'Greenblatt 1986',category:'person',sense:'引文',evidence:{blockId:blocks[0].id}},
+  {src:'Qi in stasis',dst:'no change needed',category:'concept',sense:'占位',evidence:{blockId:blocks[0].id}},
+  {src:'Qi in stasis',dst:'气郁',category:'concept',sense:'中医病机',evidence:{blockId:blocks[0].id}},
+  {src:'epistemology',dst:'认识论',category:'concept',sense:'哲学核心',evidence:{blockId:blocks[0].id}},
+  {src:'Kidney Fire',dst:'肾火',category:'technical',sense:'中医术语',evidence:{blockId:blocks[0].id}}
+ ]}],blocks)
+ assert.deepEqual(cleaned.terms.map(t=>t.src),['Qi in stasis','epistemology','Kidney Fire'])
+
+ const unit=compactCleaningUnits(cleaned,{entries:[],ambiguous:[]},blocks,hash(blocks[0].text),'en')[0]
+ const epi=unit.entries.find(e=>e.src==='epistemology')
+ const qi=unit.entries.find(e=>e.src==='Qi in stasis')
+ // Leave Kidney Fire unmentioned (DEFAULT-KEEP -> local only); promote Qi in stasis to domain; epistemology to common
+ const consolidated=applyConsolidation(unit,{
+  unitId:unit.unitId,
+  delta:true,
+  groups:[
+   {members:[{entryId:qi.entryId,dst:'气郁',action:'keep'}],category:'concept',tier:'domain',domain:'chinese-medicine-history',reason:'中医核心病机',scope:'东亚医学史',uncertain:false,publicEligible:true,publicReason:'跨东亚医学文献复用'},
+   {members:[{entryId:epi.entryId,dst:'认识论',action:'keep'}],category:'concept',tier:'common',reason:'通用哲学概念',scope:'跨学科',uncertain:false,publicEligible:true,publicReason:'跨学科核心术语'}
+  ]
+ },{shared:[],overrides:[],additions:[],effective:[],groups:[],rejected:[],unresolved:[]},{entries:[],ambiguous:[]},'en')
+
+ assert.equal(consolidated.effective.length,3)
+ assert.deepEqual(consolidated.additions.map(a=>a.src).sort(),['Qi in stasis','epistemology'])
+ assert.ok(!consolidated.additions.some(a=>a.src==='Kidney Fire'),'unmentioned delta-mode default-keep must stay book-local')
+ assert.equal(requiresCaseSensitivePublicMatch({src:'change',matchPolicy:{caseSensitive:true}}),true)
+
+ const f=await setup({source:blocks[0].text,terms:[]});try{
+  const gDir=path.join(f.manager.dir(f.task.id),'glossary')
+  await fs.mkdir(gDir,{recursive:true})
+  await analyseBookGlossary(f.manager,f.task)
+  f.task.stages.glossary={state:'done'}
+  // Overwrite book glossary artifacts coherently via consolidate output to verify promoteReviewedGlossary tier routing
+  await fs.writeFile(path.join(gDir,'public-candidates.json'),JSON.stringify(consolidated.additions))
+  await fs.writeFile(path.join(gDir,'effective.json'),JSON.stringify(consolidated.effective))
+  await fs.writeFile(path.join(f.manager.dir(f.task.id),'glossary.json'),JSON.stringify(consolidated.effective))
+  const rec=JSON.parse(await fs.readFile(path.join(gDir,'pipeline-receipt.json'),'utf8'))
+  rec.artifacts['public-candidates.json']=hash(await fs.readFile(path.join(gDir,'public-candidates.json')))
+  rec.artifacts['effective.json']=hash(await fs.readFile(path.join(gDir,'effective.json')))
+  rec.effectiveFingerprint=hash(await fs.readFile(path.join(f.manager.dir(f.task.id),'glossary.json')))
+  await fs.writeFile(path.join(gDir,'pipeline-receipt.json'),JSON.stringify(rec))
+  f.task.glossaryReport=rec
+
+  const targetPath=path.join(f.manager.dir(f.task.id),'translation/translated.md')
+  await fs.mkdir(path.dirname(targetPath),{recursive:true});await fs.writeFile(targetPath,'译文。\n')
+  f.task.translationPath=targetPath
+  f.task.translationReport={passed:true,sourceFingerprint:hash(blocks[0].text),targetFingerprint:hash('译文。\n')}
+  const reportFile=path.join(f.manager.dir(f.task.id),'review/report.md')
+  await fs.mkdir(path.dirname(reportFile),{recursive:true})
+  const body=`<!-- dsh-review-source:${hash(blocks[0].text)} -->\n<!-- dsh-review-target:${hash('译文。\n')} -->\n<!-- dsh-review-glossary:${rec.effectiveFingerprint} -->\n<!-- dsh-review-issues:${rec.issuesFingerprint} -->\n<!-- dsh-review-status:pass -->\n\n通过\n`
+  await fs.writeFile(reportFile,body)
+  f.task.review={status:'pass',report:reportFile,reportFingerprint:hash(body),sourceFingerprint:hash(blocks[0].text),targetFingerprint:hash('译文。\n'),glossaryFingerprint:rec.effectiveFingerprint,issuesFingerprint:rec.issuesFingerprint}
+
+  const pubRec=await promoteReviewedGlossary(f.manager,f.task,f.task.review)
+  assert.deepEqual(pubRec.added,['epistemology'])
+  assert.deepEqual(pubRec.domainAdded,{'chinese-medicine-history':['Qi in stasis']})
+
+  const globalOnly=await readPublicGlossary(f.root)
+  assert.ok(globalOnly.entries.some(e=>e.src==='epistemology'))
+  assert.ok(!globalOnly.entries.some(e=>e.src==='Qi in stasis'),'domain term must not leak into default common.json')
+
+  const withDomain=await readPublicGlossary(f.root,['chinese-medicine-history'])
+  assert.ok(withDomain.entries.some(e=>e.src==='Qi in stasis'))
+  assert.ok(withDomain.entries.some(e=>e.src==='epistemology'))
+ }finally{await f.close()}
+})
+
+test('delta consolidation reconciles intra-group proposal drops and cross-group duplicate-group drops while rejecting contradictory duplicates and protecting glossary caches',async()=>{
+ const blocks=markdownBlocks('Being and ontology frame Scholastic ens in this treatise.')
+ const structural={
+  terms:[
+   {src:'Being',dst:'存在',category:'concept',sense:'存在论',uncertain:false,evidence:[{blockId:blocks[0].id,quote:blocks[0].text}]},
+   {src:'ontology',dst:'本体论',category:'concept',sense:'哲学',uncertain:false,evidence:[{blockId:blocks[0].id,quote:blocks[0].text}]},
+   {src:'ens',dst:'存在者',category:'concept',sense:'经院哲学拉丁语',uncertain:false,evidence:[{blockId:blocks[0].id,quote:blocks[0].text}]},
+   {src:'ens',dst:'巴黎高等师范学校',category:'institution',sense:'ENS 误匹配',uncertain:false,evidence:[{blockId:blocks[0].id,quote:blocks[0].text}]}
+  ],
+  dropped:[]
+ }
+ const common={entries:[{src:'ontology',dst:'存在论',info:'哲学分支',language:'en'},{src:'ens',dst:'巴黎高等师范学校',info:'ENS 机构',language:'en'}],ambiguous:[]}
+ const partitioned=partitionCleaningCandidates(structural,common,blocks,hash('kierkegaard-heidegger'),'en',24000)
+ assert.equal(partitioned.units.length,1)
+ const unit=partitioned.units[0]
+ const byName=Object.fromEntries(unit.entries.map(e=>[e.src,e.id]))
+ const wire=glossaryTransportUnits('consolidation',[unit])
+ const restored=wire.restore({
+  unitId:'G0001',
+  groups:[
+   {members:[{id:byName.Being,dst:'存在',action:'keep'},{id:byName.ontology,dst:'本体论',action:'keep'}],category:'concept',tier:'domain',domain:'continental-philosophy',reason:'Being 与 ontology 标准译名',uncertain:false,publicEligible:true},
+   {members:[{id:byName.ens,dst:'存在者',action:'keep'},{id:byName.ens,action:'drop',reason:'ENS 与巴黎高师无关，非同一机构'}],category:'concept',tier:'domain',domain:'continental-philosophy',reason:'拉丁语 ens 译为存在者，排除巴黎高师误匹配',uncertain:false,publicEligible:true},
+   {members:[{id:byName.ontology,action:'drop',reason:'duplicate of ontology group'}],category:'concept',tier:'local',reason:'Merged into 本体论 group.',uncertain:false,publicEligible:false}
+  ]
+ })
+ const applied=applyConsolidation(unit,restored,{effective:[],overrides:[]},common,'en')
+ assert.equal(applied.effective.length,3)
+ assert.equal(applied.effective.find(e=>e.src==='Being').dst,'存在')
+ assert.equal(applied.effective.find(e=>e.src==='ontology').dst,'本体论')
+ assert.equal(applied.effective.find(e=>e.src==='ens').dst,'存在者')
+ assert.equal(applied.rejected.length,0)
+
+ // Contradictory non-housekeeping cross-group drop or duplicate keep must still reject with unit/entry details
+ const badContradiction=wire.restore({
+  unitId:'G0001',
+  groups:[
+   {members:[{id:byName.ontology,dst:'本体论',action:'keep'}],category:'concept',tier:'local',reason:'保留',uncertain:false,publicEligible:false},
+   {members:[{id:byName.ontology,action:'drop',reason:'普通日常词而非术语'}],category:'concept',tier:'local',reason:'剔除',uncertain:false,publicEligible:false}
+  ]
+ })
+ assert.throws(()=>applyConsolidation(unit,badContradiction,{effective:[],overrides:[]},common,'en'),/遗漏、重复.*ontology.*retryErrors=true/)
+
+ // Guard protects glossary/consolidation, glossary/analysis, and glossary/pipeline-receipt.json from manual edits
+ const f=await setup();try{
+  const taskDir=f.manager.dir(f.task.id),header={cwd:f.root,agentPreset:'reading-document'}
+  for(const rel of ['glossary/consolidation/sig/records.json','glossary/analysis/sig/receipt.json','glossary/pipeline-receipt.json','glossary/consolidation/sig/checkpoint.json']){
+   const blocked=sessionGuard(f.root,{name:'edit',arguments:{path:path.join(taskDir,rel)},agent:{session:{header}}},{taskDirectory:taskDir,authorizedStage:'glossary'})
+   assert.match(blocked,/程序维护/,rel)
+  }
+ }finally{await f.close()}
+})
+
 
 
 

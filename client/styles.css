@@ -435,7 +435,7 @@
 .rr-paperCard{cursor:grab}
 .rr-paperCardDragging{opacity:0.35!important;outline:2px dashed var(--dsw-alias-brand-primary,#0052d9)!important}
 .rr-folderPillDropActive{background:var(--dsw-alias-brand-primary,#0052d9)!important;color:#fff!important;border-color:var(--dsw-alias-brand-primary,#0052d9)!important;transform:scale(1.08);box-shadow:0 0 0 3px rgba(0,82,217,0.3)!important}
-.rr-pdfLocation{padding:8px 12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;flex:none}.rr-splitPdfPane{display:flex;flex-direction:column}.rr-splitPdfPane iframe{flex:1;min-height:0}
+.rr-pdfLocation{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;flex:none}.rr-splitPdfPane{display:flex;flex-direction:column}.rr-splitPdfPane iframe{flex:1;min-height:0}.rr-splitPdfImgWrap{flex:1;min-height:0;overflow:auto;background:#525659;display:flex;justify-content:center;align-items:flex-start;padding:12px}.rr-splitPdfImgWrap img{max-width:100%;height:auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35)}
 .rr-splitPdfCompare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}
 .rr-splitPdfPane,.rr-splitReaderPane{min-width:0}
 .rr-splitReaderPane .rr-mdLayout{min-width:0}

@@ -11,6 +11,7 @@ import {hash,markdownBlocks,checkMarkdownPair,imageReferences} from './markdown.
 import {loadSourceMap,saveTranslationMap,writeSourceMap} from './source-map.js'
 import {safeText} from './sessions.js'
 import {agyActivity} from './review-feedback.js'
+import {normalizeGlossaryCategory,isNonUniversalPublicTerm,normalizeGlossaryDomains} from './glossary-semantics.js'
 
 const normalize=s=>String(s??'').normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase()
 const termPatterns=new Map(),normalizedBodies=new Map()
@@ -21,6 +22,19 @@ const contains=(body,src)=>{
  let pattern=termPatterns.get(term)
  if(!pattern){const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),cjk=/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(term);pattern=new RegExp((cjk?'':'(?<![\\p{L}\\p{N}_])')+escaped+(cjk?'':'(?![\\p{L}\\p{N}_])'),'iu');if(termPatterns.size>=4096)termPatterns.clear();termPatterns.set(term,pattern)}
  return pattern.test(value)
+}
+const containsExactCase=(body,src)=>{
+ const term=String(src??'').normalize('NFKC').trim().replace(/\s+/g,' ');if(!term)return false
+ const value=String(body??'').normalize('NFKC').replace(/\s+/g,' ')
+ if(!value.includes(term))return false
+ const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),cjk=/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(term)
+ return new RegExp((cjk?'':'(?<![\\p{L}\\p{N}_])')+escaped+(cjk?'':'(?![\\p{L}\\p{N}_])'),'u').test(value)
+}
+const termMatchesSource=(src,term)=>{
+ if(!term?.src)return false
+ const raw=String(term.src).trim(),titleCase=/^[\p{Lu}]/u.test(raw)&&!/^[\p{Lu}\p{N}_'’.\-\s]+$/u.test(raw)
+ const needsExact=term.case_sensitive===true||term.matchPolicy?.caseSensitive===true||(titleCase&&(/^《.*》$/.test(String(term.dst??'').trim())||/(?:书名|人名|专名|篇名|机构|五行|自注|医家|古代|官职|\b(?:person|title|book|proper|institution|general office)\b)/i.test(String(term.info??''))))
+ return needsExact?containsExactCase(src,term.src):contains(src,term.src)
 }
 
 async function atomic(file,value){
@@ -88,7 +102,7 @@ export function scanLineHints(sourceLine,translationLine,glossaryTerms=[],review
   else if(issue.src&&contains(src,issue.src))hints.push({type:'unresolved_term',conceptId:issue.conceptId??issue.issueId,src:issue.src,proposed:issue.candidates??[],reason:issue.reason})
  }
  for(const term of glossaryTerms){
-  if(!contains(src,term.src))continue
+  if(!termMatchesSource(src,term))continue
   const expected=String(term.dst??'').trim()
   if(!expected||normalize(expected)===normalize(term.src))continue
   const parts=expected.split(/[·\s/（）()]+/).filter(p=>p.length>=2)
@@ -167,10 +181,23 @@ export async function prepareReviewAudit(manager,t,options={}){
  await atomic(path.join(auditDir,'glossary-snapshot.json'),glossary)
  await atomic(path.join(auditDir,'review-issues-snapshot.json'),reviewIssues)
 
+ const sourceMap=await loadSourceMap(manager,srcFile,normalizedSource).catch(()=>null)
+ const pageIssuesByLogical=new Map()
+ if(sourceMap?.blocks?.length){
+  const taskDir=manager.dir(t.id),lps=new Set(sourceMap.blocks.flatMap(b=>b.logicalPages??[]))
+  for(const lp of lps){
+   const bodyPage=await readJson(path.join(taskDir,'document/ai_convert/edits/body',`page_${String(lp).padStart(3,'0')}.json`),null)
+   const issues=(bodyPage?.metadata?.issues??[]).filter(x=>typeof x==='string'&&x.trim())
+   if(issues.length)pageIssuesByLogical.set(lp,issues)
+  }
+ }
  const blocks=markdownBlocks(normalizedSource),targets=markdownBlocks(normalizedTranslation)
  const rows=blocks.map((block,i)=>{
   const n=block.line,s=block.text,z=targets[i].text,classify=classifyLine(s),hints=scanLineHints(s,z,glossary,reviewIssues,classify)
-  const matchedTerms=glossary.filter(term=>contains(s,term.src)).map(term=>({src:term.src,dst:term.dst,info:term.info??''}))
+  const mapBlock=sourceMap?.blocks?.[i]
+  const pageDefects=(mapBlock?.logicalPages??[]).flatMap(lp=>(pageIssuesByLogical.get(lp)??[]).map(issue=>`LPage ${lp}: ${issue}`))
+  if(pageDefects.length)hints.push({type:'source_defect',logicalPages:mapBlock.logicalPages,pdfPages:mapBlock.pdfPages??[],issues:pageDefects})
+  const matchedTerms=glossary.filter(term=>termMatchesSource(s,term)).map(term=>({src:term.src,dst:term.dst,info:term.info??''}))
   return {line:n,blockId:'B'+String(i+1).padStart(4,'0'),source:s,translation:z,classify,...(String(n) in revisions?{candidate:revisions[String(n)]}:{}),...(matchedTerms.length?{terms:matchedTerms}:{}),...(hints.length?{hints}:{})}
  })
  const covered=new Set(rows.map(r=>r.line))
@@ -582,11 +609,16 @@ export async function applyReviewAudit(manager,t,options={}){
   for(const d of validation.glossary_decisions??[]){
    const k=normalize(d.src)
    const idx=overrides.findIndex(e=>normalize(e.src)===k)
-   const entry={src:d.src,dst:d.dst,info:d.reason??'联合审校确认译名',language:t.profile?.language??'en',category:d.category??'concept',semanticApproval:{publicEligible:Boolean(d.publicEligible),reason:d.reason??'联合审校确认'}}
-   if(idx>=0)overrides[idx]={...overrides[idx],dst:d.dst,info:d.reason??overrides[idx].info,semanticApproval:entry.semanticApproval}
+   const nonUniversal=isNonUniversalPublicTerm(d.src,d.dst)
+   const domainSlug=d.tier==='domain'?normalizeGlossaryDomains([d.domain])[0]??'':''
+   const allowPublic=d.tier==='local'?false:(d.publicEligible===true&&!nonUniversal)
+   const tier=allowPublic&&domainSlug?'domain':(allowPublic?'common':'local')
+   const category=normalizeGlossaryCategory(d.category,'concept')
+   const entry={src:d.src,dst:d.dst,info:d.reason??'联合审校确认译名',language:t.profile?.language??'en',category,semanticApproval:{publicEligible:allowPublic,tier,...(domainSlug&&allowPublic?{domain:domainSlug}:{}),reason:allowPublic?(d.reason??'联合审校确认'):(nonUniversal?'非普适性公共术语候选，仅保留在本书':(d.reason??'联合审校确认'))}}
+   if(idx>=0)overrides[idx]={...overrides[idx],dst:d.dst,category,info:d.reason??overrides[idx].info,semanticApproval:entry.semanticApproval}
    else overrides.push(entry)
    for(let i=issues.length-1;i>=0;i--)if((issues[i].members??[]).some(m=>normalize(m.src)===k)||normalize(issues[i].src)===k)issues.splice(i,1)
-   if(d.publicEligible===true&&!additions.some(a=>normalize(a.src)===k))additions.push(entry)
+   if(allowPublic&&!additions.some(a=>normalize(a.src)===k))additions.push(entry)
   }
   const byKey=new Map()
   for(const e of [...shared,...overrides])byKey.set(normalize(e.src),{src:e.src,dst:e.dst,info:e.info??'',regex:false,case_sensitive:false})
@@ -753,20 +785,24 @@ export function normalizeReviewConfig(value) {
   return {orchestratorModel:route(v.orchestratorModel),orchestratorEffort:typeof v.orchestratorEffort==='string'?v.orchestratorEffort:'',workerModel:v.workerModel==='inherit'||!v.workerModel?'inherit':route(v.workerModel)}
 }
 
-export function buildAgyReviewPrompt(manager,t,prepared){
+export function buildAgyReviewPrompt(manager,t,prepared,options={}){
  const auditDir=prepared.auditDir,cfg=normalizeReviewConfig(t?.reviewConfig),workerModel=cfg.workerModel
  const useAgyCli=isAgyCliModel(cfg.orchestratorModel),workerTier=resolveAgyWorkerTier(workerModel)
  const pending=prepared.pendingPackets??prepared.manifest?.map(p=>p.id)??Array.from({length:prepared.totalPackets??1},(_,i)=>String(i+1).padStart(3,'0'))
+ const focusNote=typeof options.note==='string'&&options.note.trim()?options.note.trim():''
  return [
-  `执行《${t.name}》正文与术语联合审校。阅读 ${path.join(manager.root,'book-translation-review/SKILL.md')}。本次使用块级差量协议；无需填写哈希、checked_lines 或 body_count。`,
+  `执行《${t.name}》正文与术语联合审校${options.force?'（补充重审）':''}。阅读 ${path.join(manager.root,'book-translation-review/SKILL.md')}。本次使用块级差量协议；无需填写哈希、checked_lines 或 body_count。`,
+  ...(focusNote?[`【本轮补充重审重点指令】${focusNote}`]:[]),
   `审校目录：${auditDir}。仅处理待审包：${pending.join('、')}，其他包已通过程序验证，不得重新派发。每包位于 packets/编号.json，对应结果写入 results/编号.json。`,
   `包内每项含 blockId、source、translation、classify、terms、hints。只依据分包内给出的内容及其相邻上下文判断，不必反复读取全文或完整术语表。`,
   useAgyCli
-   ?(pending.length<=2&&workerTier==='inherit'?'当前待审包不超过两个，可直接审校，无需额外派发子代理。':`使用 invoke_subagent（TypeName: self，Model: ${workerTier}）派发待审包，每包只派发一次。`)
+   ?(pending.length<=2&&workerTier==='inherit'?'当前待审包不超过两个，可直接审校，无需额外派发子代理。':`使用 invoke_subagent（TypeName: self，Model: ${workerTier}）派发待审包，每包只派发一次；派发给子代理的 Prompt 必须原样附带下方返回 JSON 结构示例与字段铁律，严禁省略 schema 只传字段名。`)
    :`每包由 DSH 模型服务执行一次；Worker 为 ${workerModel==='inherit'?'所选审校模型':workerModel}。`,
-  '返回结构：{packet: 包编号, status: pass或needs-work, patches: [{blockId: 块编号, edits: [{old: 原译文中唯一命中的片段, new: 修订片段}], reason: 修订依据}], glossary_decisions: [{src: 原词, dst: 译名, category: 类别, publicEligible: 布尔值, reason: 依据}], unresolved: [未决问题]}。没有修改时 patches 为空数组。',
-  '关键准则：glossary_decisions 仅用于真正需要全书唯一固定译名的专有名词或单义核心术语；对于普通多义词、代词或随语境自然分译的词汇（如 je/moi/personne/propre/sujet/identité/vérité/vie/modèle/procès 等），直接在具体句子的 patches 中按语境修订即可，严禁将不同语境译法写入 glossary_decisions（会导致跨包冲突），也严禁因多义词随语境分译而写入 unresolved！审校完成的包默认设 status: "pass"、unresolved: []。',
+  '返回结构：{packet: 包编号, status: pass或needs-work, patches: [{blockId: 块编号, edits: [{old: 原译文中唯一命中的片段, new: 修订片段}], reason: 修订依据}], candidate_decisions: [], glossary_decisions: [{src: 原词, dst: 译名, category: 类别, publicEligible: 布尔值, reason: 依据}], source_corrections: [{blockId: 块编号, pages: [页码], source: 完整新原文, translation: 完整新译文, reason: 原页核证依据}], source_notes: [{blockId: 块编号, text: 底本残缺或版面说明}], unresolved: [未决问题]}。没有修改时 patches、candidate_decisions、source_corrections、source_notes 可省略或为空数组。',
+  'JSON 结构铁律（程序门禁强制校验，违者整包拒收）：① patches 每项必须包含 edits 数组（[{old, new}]）与非空 reason，严禁写成扁平 {blockId, old, new}；同一 blockId 在同包 patches 中最多出现一次，同块多处修改须合并放进该块的 edits 数组；② glossary_decisions 每项必须包含非空 src、dst 与 reason（严禁用 info/note 代替 reason，严禁附带 scope 字段）；③ source_corrections 必须给出 pages（整数页码数组）、source（完整新原文块）、translation（应用 patches 后的完整新译文块）与非空 reason，严禁写成 {old, new} 差量；④ source_notes 使用 {blockId, text}（勿用 note 键）；⑤ 仅当输入行实际含 candidate 字段时才填写 candidate_decisions，严禁把 hints/terms 写入 candidate_decisions；⑥ 若编排者运行收尾自检脚本，严禁在脚本中兼容无 edits 的扁平格式、重复 blockId 或缺失 reason 的条目——发现任何字段不合上述规范时，必须先将 results/编号.json 转换重写为标准格式后再结束会话。',
+  '关键准则：① glossary_decisions 仅用于真正需要全书唯一固定译名的专有名词或核心理论概念；对于普通多义词、代词或随语境自然分译的词汇（如 je/moi/personne/propre/sujet/identité/vérité/vie/modèle/procès 等），直接在具体句子的 patches 中按语境修订即可，严禁将不同语境译法写入 glossary_decisions（会导致跨包冲突），也严禁因多义词随语境分译而写入 unresolved！② 【篇名与核心主题概念跨包对齐（防前紧后松/各包分译）】：对文章标题/章名核心概念及其关键派生短语（如 making up people / made up），即使 glossary-snapshot 未完整收录原动名词短语，各包也必须通过 glossary_decisions 申报统一译名并在 patches 中统一校改；编排者汇总时除处理 glossaryConflicts 外，须主动核对标题与核心主题术语（如某包改译了核心词，其余包是否仍保留旧译）确保全篇高度一致！审校完成的包默认设 status: "pass"、unresolved: []。',
   '需要修改的文字才输出补丁；保留脚注、附件及 Markdown 结构。候选修订另用 candidate_decisions 明确接受、拒绝或修订。无法确认时 status=needs-work，不为满足检查补写内容。',
+  `底本转写讹误与物理裁切/残损双轨处置（防死锁）：若怀疑原文有转写讹误（含英文/拉丁文跨页连字符断词在装配时误插空格形成的断词碎片，如 honor able 实为 honorable），或 hints 含 source_defect（提示底本扫描边缘裁切/缺字），可查阅原文同路径 .source-map.json 中的 logicalPages/pdfPages，并直接检视页面图像（${path.join(manager.dir(t.id),'document/ai_convert/page_images/page_NNN.png')} 对应 logicalPages；${path.join(manager.dir(t.id),'probe-pages/page_NNNN.png')} 对应 pdfPages）：① 若原页图像清晰可辨（或行末连字符跨页/跨裁切边导致的断词错误如 honor able→honorable、Krafft-[Eb]ing 误拼为 Kraffting），提交 source_corrections（附已存在的页码 pages、完整新 source 与完整新 translation）及对应 patches，设 status: "pass"、unresolved: []；② 若核对原图确认属于底本 PDF 自身物理扫描裁切/破损缺字（原图边缘本身即缺失字符，无法从原图恢复更多字形），严禁要求从同一残缺原图中“补全完整原文”而将分包设为 status: "needs-work" 或填入 unresolved（这会阻断整书已审校补丁的合并）！正确做法：基于可见原文与上下文稳妥修订译文 patches，将该处底本物理残缺情况记录入顶层 source_notes: [{blockId, text: "底本第X页左/右缘物理裁切..."}]（程序会自动收入审校报告「底本核证说明」），并将本包设为 status: "pass"、unresolved: []。`,
   '版面与页眉核查：特别核查非章首出现的章节名/书名标题（如 ## 章名/书名），若其紧接在未完半句之后，或自身后半段拼接着正文句子，这属于底本从物理页面抓取的活页眉污染。严禁顺着错误标题将其作为正式大标题翻译；遇到此类断句，在 patch 中说明或记录，确保正文语义连贯。',
   '篇章扉页、标题层级与标题形式规范化：审校时必须全面梳理并规范标题结构与形式：① 严禁将空转节星号（如 ## *）、作者署名（如 ## 雅克·德里达）、题献（如 ## 献给某某）、扉页/封底重复书名与副标题、书末丛书广告目录或原书目录页（Table des matières）内部条目保留为 ##/### 标题而污染目录大纲（星号降为普通段落 *，题献/署名降为斜体段，非章节标题降为粗体或斜体段）；② 严禁因原书多行排版将同一标题拆成两个块（如上一块为 ## 标题前半，下一块为普通段落或同级标题后半，或将 ## 第X部分 / ## I 与下一块 ### 标题 拆成两块），必须合并至首块标题并将残留块转为 HTML 注释占位（<!-- ... -->）以保持块序对齐；③ 对照原书目录核查部（Partie）、编（Division）、章（Chapitre）编号序列与位置，修复漏标、跳号或插到上一章注释前的错位标题，统一全书章标题形式（如统一为 ## I. 标题，消除同书内混用分拆标题、斜体无点号与正体带点号）；④ 严格区分章级（##，含部、编、章、序言、导言、结论）与章内小节级（###，含章内分节及 ### 注释），严禁把章内小节标为 ## 与章并列；⑤ 同步更新文首自动目录（[[#...]]）与书末原书目录译文，确保与正文规范化后的标题完全一致。',
   `可选总结写入 ${path.join(auditDir,'summary.md')}，无需任何版本标记。不要改写输入快照、分包、执行状态或正式译文。程序负责计数、版本核对、合并和报告。`
@@ -791,7 +827,7 @@ export async function runAgyReviewAudit(manager,t,options={}){
   prepared.pendingPackets=prepared.pendingPackets.filter(id=>options.packetIds.includes(id))
  }
  t.reviewAudit=prepared
- const prompt=buildAgyReviewPrompt(manager,t,prepared)
+ const prompt=buildAgyReviewPrompt(manager,t,prepared,options)
  await atomic(path.join(auditDir,useHarness?'harness-prompt.txt':'agy-prompt.txt'),prompt)
 
  const countCompleted=async()=>{
@@ -799,7 +835,7 @@ export async function runAgyReviewAudit(manager,t,options={}){
   return files.length
  }
  const candidateCid=options.conversationId??(options.resumeConversation!==false?(t.reviewProgress?.conversationId??null):null)
- const canResumeConversation=!useHarness&&Boolean(candidateCid)&&options.newConversation!==true&&(options.model===t.reviewProgress?.model||!options.model||!t.reviewProgress?.model)
+ const canResumeConversation=!useHarness&&Boolean(candidateCid)&&options.newConversation!==true&&options.force!==true&&(options.model===t.reviewProgress?.model||!options.model||!t.reviewProgress?.model)
  const retainedConversationId=canResumeConversation?candidateCid:null
  const retainedChildren=canResumeConversation?(t.reviewProgress?.childConversations??[]):[]
 
@@ -1012,7 +1048,7 @@ export async function runAgyReviewAudit(manager,t,options={}){
    for(const note of proof.sourceNotes??[])sourceNotes.push(note.text)
    for(const c of proof.sourceCorrections??[])sourceNotes.push('转写更正 '+c.blockId+'：'+c.reason)
   }
-  for(const note of result.source_notes??[])if(note?.text||typeof note==='string')sourceNotes.push(typeof note==='string'?note:note.text)
+   for(const note of [...(result.source_notes??[]),...(result.sourceNotes??[])])if(note?.text||typeof note==='string')sourceNotes.push(typeof note==='string'?note:(note.blockId&&!String(note.text).includes(note.blockId)?`${note.blockId}：${note.text}`:note.text))
   for(const c of [...(result.source_corrections??[]),...(result.sourceCorrections??[])].flatMap(x=>Array.isArray(x?.blockIds)?x.blockIds.map(blockId=>({...x,blockId})):[x]))if(c?.blockId&&c?.reason)sourceNotes.push((c.delete?'剔除空白页透印伪块 ':'转写更正 ')+c.blockId+'：'+c.reason)
  }
  const noteText=sourceNotes.length?'\n\n底本核证说明\n\n'+[...new Set(sourceNotes)].join('\n\n'):''

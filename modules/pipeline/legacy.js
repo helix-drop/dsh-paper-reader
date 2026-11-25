@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { hash } from './markdown.js'
 import { fileStamp } from './storage.js'
+import { DeletedTasksStore } from './hygiene.js'
 const readJson=async(file,fallback=null)=>{try{return JSON.parse(await fs.readFile(file,'utf8'))}catch{return fallback}}
 const names=async(dir)=>fs.readdir(dir,{withFileTypes:true}).catch(()=>[])
 async function files(dir,re,depth=3){const out=[];if(depth<0)return out;for(const e of await names(dir)){if(e.isSymbolicLink()||e.name.startsWith('.'))continue;const p=path.join(dir,e.name);if(e.isDirectory())out.push(...await files(p,re,depth-1));else if(re.test(e.name))out.push(p)}return out}
@@ -11,11 +12,13 @@ export async function fileHash(file){const digest=createHash('sha256');for await
 const uuid=key=>{const h=hash(key);return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`}
 const canonical=text=>text.replace(/\r\n/g,'\n').split('\n').filter(l=>!/^\s*[-*]\s*\[\[#/.test(l)).map(l=>l.replace(/(!\[[^\]]*\]\()([^)]*)(\))/g,'$1ASSET$3')).join('\n').trim()
 async function publicationCatalog(root){const records=[];for(const e of await names(root)){if(e.isSymbolicLink()||!e.isDirectory())continue;const dir=path.join(root,e.name),mds=(await files(dir,/\.md$/i,0)).filter(p=>!/(?:bilingual|对照)/i.test(path.basename(p))),pdfs=await files(dir,/\.pdf$/i,0);for(const md of mds){const text=await fs.readFile(md,'utf8');records.push({path:md,title:path.basename(md,'.md'),canonical:hash(canonical(text)),pdfs})}}return records}
-export async function importLegacyBooks(manager){
+export async function importLegacyBooks(manager,options={}){
  const base=await fs.realpath(path.join(manager.root,'Book')),publications=await publicationCatalog(manager.migration?path.join(manager.root,'publications'):manager.publishRoot),existing=await manager.list(),byKey=new Map(existing.filter(t=>t.legacy).map(t=>[t.legacy.key,t])),results=[],sourceHashes=new Set()
+ const deletedKeys=options.includeDeleted?new Set():await (manager.deletedTasks??new DeletedTasksStore(manager.root)).deletedLegacyKeys()
  const dirs=(await names(base)).filter(e=>e.isDirectory()&&!e.isSymbolicLink()&&!e.name.startsWith('_')&&!e.name.startsWith('.')).sort((a,b)=>a.name.localeCompare(b.name))
  for(const e of dirs){
-  const book=path.join(base,e.name),key='book:'+(manager.legacyIdentityPath?.(book)??book),ai=path.join(book,'ai_convert'),analysis=await readJson(path.join(ai,'book_analysis.json'),{}),chapters=await readJson(path.join(ai,'chapters.json'),[])
+  const book=path.join(base,e.name),key='book:'+(manager.legacyIdentityPath?.(book)??book);if(deletedKeys.has(key))continue
+  const ai=path.join(book,'ai_convert'),analysis=await readJson(path.join(ai,'book_analysis.json'),{}),chapters=await readJson(path.join(ai,'chapters.json'),[])
   const pdfs=(await files(book,/\.pdf$/i,0)).filter(p=>!/(?:目录|\btoc\b)/i.test(path.basename(p))),pdf=pdfs.length===1?pdfs[0]:pdfs.find(p=>path.basename(p,'.pdf')===e.name)??null
   const originals=(await files(path.join(ai,'book'),/-full\.md$/i,2)).filter(p=>!/(?:译文|ZH|bilingual|对照)/i.test(path.relative(path.join(ai,'book'),p))),original=originals.length===1?originals[0]:null
   const targets=await files(path.join(book,'translation/ZH_reading'),/-full\.md$/i,0),fallbackTargets=await files(path.join(book,'translation/ZH'),/-full\.md$/i,0),translation=targets.length===1?targets[0]:fallbackTargets.length===1?fallbackTargets[0]:null
@@ -40,6 +43,6 @@ export async function importLegacyBooks(manager){
   await manager.save(t);results.push({id:t.id,name:t.name,directory:book,caption,reused:!!previous,readable:!!readingPath,library:!!published,progress:legacy.progress})
  }
  // A loose PDF that duplicates a book is an alias, not a second task.
- const loose=[];for(const f of await files(base,/\.pdf$/i,0)){const digest=await fileHash(f);if(sourceHashes.has(digest)){loose.push({path:f,duplicate:true});continue}const key='pdf:'+(manager.legacyIdentityPath?.(f)??f),now=new Date().toISOString();let t=byKey.get(key);if(!t){t={id:uuid(key),documentId:'document:'+uuid(key),schemaVersion:2,name:path.basename(f,'.pdf'),kind:'book',input:{id:hash(f),type:'pdf',fingerprint:digest,name:path.basename(f)},path:f,worker:{provider:'legacy',model:'未开始',timeout:600},state:'imported',stage:'inspect',createdAt:now,stages:{},bookmarks:[],log:[],profile:{confirmed:false},lgUrl:'',legacy:{key,directory:base,caption:'尚未转写',artifacts:{sourcePdf:f},resumeBlocked:true,progress:{},importedAt:now}};await manager.save(t)}loose.push({path:f,id:t.id,duplicate:false});results.push({id:t.id,name:t.name,caption:t.legacy.caption,readable:false,library:false})}
+ const loose=[];for(const f of await files(base,/\.pdf$/i,0)){const digest=await fileHash(f);if(sourceHashes.has(digest)){loose.push({path:f,duplicate:true});continue}const key='pdf:'+(manager.legacyIdentityPath?.(f)??f);if(deletedKeys.has(key))continue;const now=new Date().toISOString();let t=byKey.get(key);if(!t){t={id:uuid(key),documentId:'document:'+uuid(key),schemaVersion:2,name:path.basename(f,'.pdf'),kind:'book',input:{id:hash(f),type:'pdf',fingerprint:digest,name:path.basename(f)},path:f,worker:{provider:'legacy',model:'未开始',timeout:600},state:'imported',stage:'inspect',createdAt:now,stages:{},bookmarks:[],log:[],profile:{confirmed:false},lgUrl:'',legacy:{key,directory:base,caption:'尚未转写',artifacts:{sourcePdf:f},resumeBlocked:true,progress:{},importedAt:now}};await manager.save(t)}loose.push({path:f,id:t.id,duplicate:false});results.push({id:t.id,name:t.name,caption:t.legacy.caption,readable:false,library:false})}
  return {schemaVersion:1,books:results,looseFiles:loose,imported:results.length,library:results.filter(r=>r.library).length,modelCalls:0,originalFilesModified:false}
 }

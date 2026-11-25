@@ -49,8 +49,14 @@ jobs:
             let xml = fs.readFileSync(xmlFile, "utf8");
             if (!xml.includes("usesCleartextTraffic")) {
               xml = xml.replace("<application", "<application android:usesCleartextTraffic=\"true\"");
-              fs.writeFileSync(xmlFile, xml);
             }
+            if (!xml.includes("android.permission.POST_NOTIFICATIONS")) {
+              xml = xml.replace(
+                /<manifest\b([^>]*)>/,
+                "<manifest$1>\n    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />"
+              );
+            }
+            fs.writeFileSync(xmlFile, xml);
 
             const gradleFile = "android/app/build.gradle";
             let gradle = fs.readFileSync(gradleFile, "utf8");

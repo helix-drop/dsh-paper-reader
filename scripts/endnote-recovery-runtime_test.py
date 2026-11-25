@@ -357,6 +357,82 @@ class EndnoteRecoveryTests(unittest.TestCase):
             self.assertEqual(accepted_hashes(book)[1]['001'],
                              hashlib.sha256(notes_path.read_bytes()).hexdigest())
 
+    def test_apply_source_edit_wrapper_handles_trailing_removal_and_remaining_continues(self):
+        import subprocess
+        from bounded_chapter import independent_vision_page
+        from gate_check import accepted_hashes
+
+        apply_script = Path(__file__).resolve().parents[1] / 'runtime' / 'apply_source_edit.py'
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = Path(tmp) / 'document'
+            folder = doc / 'ai_convert/delivery/chapter_005'
+            book = folder / 'selected/book'
+            (book / 'ai_convert/edits/body').mkdir(parents=True)
+            (book / 'ai_convert/edits/notes').mkdir(parents=True)
+            (book / 'ai_convert/page_images').mkdir(parents=True)
+            (doc / 'ai_convert').mkdir(parents=True, exist_ok=True)
+            chapters = [{'id': '005', 'title': 'Ch5', 'start_page': 59, 'end_page': 60}]
+            analysis = {'title': 'Book', 'document_type': 'book', 'language': 'en', 'book_type': 'footnotes', 'note_location': 'per_page_bottom', 'note_numbering': 'per_page'}
+            for base in (doc / 'ai_convert', book / 'ai_convert'):
+                (base / 'chapters.json').write_text(json.dumps(chapters))
+                (base / 'book_analysis.json').write_text(json.dumps(analysis))
+            for page in (59, 60):
+                (book / f'ai_convert/page_images/page_{page:03d}.png').write_bytes(f'img-{page}'.encode())
+            p59 = {'schema_version': 2, 'book_page': 59, 'chapter_id': '005', 'mode': 'vision', 'reason_fallback': None,
+                   'regions': ['body', 'footnote_def'],
+                   'paragraphs': [{'pid': 'p059_1', 'kind': 'body', 'text': 'Body text.[^p059_1]',
+                                   'markers': [{'anchor': '[^p059_1]', 'kind': 'endnote_num', 'raw_glyph': '1'}],
+                                   'continues_from_prev': False, 'continues_to_next': False}],
+                   'notes_definitions': [{'anchor': '[^p059_1]', 'kind': 'endnote_num', 'displayed_number': '1',
+                                          'text': 'Start of note', 'source_page': 59, 'anchor_page': 59}],
+                   'paragraph_summary': {'continues_from_prev': False, 'continues_to_next': False, 'complete_paragraph_count': 1},
+                   'metadata': {'header_removed': '', 'issues': []}}
+            p60 = {'schema_version': 2, 'book_page': 60, 'chapter_id': '005', 'mode': 'vision', 'reason_fallback': None,
+                   'regions': ['body'],
+                   'paragraphs': [
+                       {'pid': 'p060_1', 'kind': 'body', 'text': 'Valid body sentence.', 'markers': [],
+                        'continues_from_prev': False, 'continues_to_next': False},
+                       {'pid': 'p060_2', 'kind': 'body', 'text': 'continuation of note 1.', 'markers': [],
+                        'continues_from_prev': False, 'continues_to_next': False},
+                   ],
+                   'paragraph_summary': {'continues_from_prev': False, 'continues_to_next': False, 'complete_paragraph_count': 2},
+                   'metadata': {'header_removed': '', 'issues': []}}
+            notes = {'schema_version': 2, 'chapter_id': '005',
+                     'definitions': [{'anchor': '[^p059_1]', 'kind': 'endnote_num', 'displayed_number': '1',
+                                      'text': 'Start of note', 'source_page': 59, 'anchor_page': 59}]}
+            raw59 = json.dumps(p59, ensure_ascii=False, indent=2) + '\n'
+            raw60 = json.dumps(p60, ensure_ascii=False, indent=2) + '\n'
+            raw_notes = json.dumps(notes, ensure_ascii=False, indent=2) + '\n'
+            (book / 'ai_convert/edits/body/page_059.json').write_text(raw59)
+            (book / 'ai_convert/edits/body/page_060.json').write_text(raw60)
+            (book / 'ai_convert/edits/notes/chapter_005.json').write_text(raw_notes)
+            (book / 'ai_convert/worker_audit.jsonl').write_text('\n'.join([
+                json.dumps({'task': 'body', 'status': 'ok', 'chapter': '005', 'pages': [59], 'input_policy': 'image_first_no_ocr_v1', 'body_hashes': {'page_059.json': hashlib.sha256(raw59.encode()).hexdigest()}}),
+                json.dumps({'task': 'body', 'status': 'ok', 'chapter': '005', 'pages': [60], 'input_policy': 'image_first_no_ocr_v1', 'body_hashes': {'page_060.json': hashlib.sha256(raw60.encode()).hexdigest()}}),
+                json.dumps({'task': 'notes', 'status': 'ok', 'chapter': '005', 'notes_sha256': hashlib.sha256(raw_notes.encode()).hexdigest()}),
+            ]) + '\n')
+            (folder / 'state.json').write_text(json.dumps({
+                'source': str(doc.resolve()), 'chapter': '005', 'book': str(book.resolve()), 'finished': True, 'attempts': {}, 'source_hashes': {},
+            }))
+            req = Path(tmp) / 'review.json'
+            req.write_text(json.dumps({
+                'anchor': '[^p059_1]', 'source_page': 59, 'continued_on_page': 60,
+                'continuation': 'continuation of note 1.', 'body_pids': ['p060_2'],
+                'remaining_continues_to_next': False, 'basis': 'Checked pages 59 and 60.',
+            }))
+            out = subprocess.check_output([
+                sys.executable, str(apply_script), str(RUNTIME), str(doc),
+                '--chapter', '005', '--mode', 'note_continuation', '--review-file', str(req),
+            ], text=True)
+            res = json.loads(out.strip().splitlines()[-1])
+            self.assertEqual(res['qualityStatus'], 'program_checks_passed', res)
+            self.assertEqual(res['unverifiedPages'], [])
+            self.assertTrue(independent_vision_page(book, 60))
+            self.assertEqual(
+                accepted_hashes(book)[1]['005'],
+                hashlib.sha256((book / 'ai_convert/edits/notes/chapter_005.json').read_bytes()).hexdigest(),
+            )
+
 
 if __name__ == '__main__':
     unittest.main()

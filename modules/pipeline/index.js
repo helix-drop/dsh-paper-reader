@@ -16,6 +16,7 @@ import {executionEvents} from './execution-feed.js'
 import {executeInSession} from './session-execution.js'
 import {evidenceSummary,evidenceFiles,evidenceSearch,taskSummary} from './evidence.js'
 import {transcriptionProgress} from './progress.js'
+import {createNoticeStore} from './notices.js'
 
 import {defaultPipelineWorkspace} from '../../shared/workspace.js'
 export const DEFAULT_PIPELINE_ROOT = defaultPipelineWorkspace()
@@ -110,8 +111,12 @@ export function installPipelineModule(ctx, config) {
   const taskSessionFile = path.join(root, '.pipeline/dsh-task-sessions.json')
   let savedTaskSessions = {}; try { savedTaskSessions = JSON.parse(readFileSync(taskSessionFile, 'utf8')) } catch {}
   const taskSessions = new Map(Object.entries(savedTaskSessions))
+  const replacedSessionFile = path.join(root, '.pipeline/dsh-replaced-sessions.json')
+  let savedReplaced = []; try { savedReplaced = JSON.parse(readFileSync(replacedSessionFile, 'utf8')) } catch {}
+  const replacedSessions = new Set(Array.isArray(savedReplaced) ? savedReplaced.filter(x => typeof x === 'string') : [])
   const authorizationFile=path.join(root,'.pipeline/dsh-task-authorizations.json');let authorizations={};try{authorizations=JSON.parse(readFileSync(authorizationFile,'utf8'))}catch{}
   const manager = new TaskManager(root, readingWorkspace())
+  manager.notices = createNoticeStore(path.join(root, '.pipeline/notices.json'))
   manager.requireExecutionSessions=true
   manager.requireHarnessModels=true
   ctx.inject(['llm','sessionController','attachments'],host=>{
@@ -137,22 +142,28 @@ export function installPipelineModule(ctx, config) {
   })
   const registerTaskSession = async (id, taskId, mode='processing',stage=null) => {
     if (typeof id !== 'string' || !/^[\w-]{8,100}$/.test(id) || inspectSessions.has(id)&&mode!=='inspect') throw new Error('任务会话编号无效或只读会话不能升级')
+    if (replacedSessions.delete(id)) await fs.writeFile(replacedSessionFile, JSON.stringify([...replacedSessions]), {mode:0o600}).catch(()=>{})
     if(stage){if(stage!=='diagnose'&&!STAGES.some(s=>s.id===stage))throw new Error('授权阶段无效');authorizations[id]={taskId,stage};await fs.writeFile(authorizationFile,JSON.stringify(authorizations),{mode:0o600})}
     if(mode==='inspect'){inspectSessions.add(id);await fs.mkdir(path.dirname(stateFile),{recursive:true});await fs.writeFile(stateFile,JSON.stringify([...inspectSessions]),{mode:0o600})}taskSessions.set(id, taskId); await fs.mkdir(path.dirname(taskSessionFile), {recursive:true}); await fs.writeFile(taskSessionFile, JSON.stringify(Object.fromEntries(taskSessions)), {mode:0o600})
   }
   const unregisterTaskSession = async (id) => {
+    if (typeof id === 'string' && id) {
+      replacedSessions.add(id)
+      await fs.mkdir(path.dirname(replacedSessionFile), {recursive:true}).catch(()=>{})
+      await fs.writeFile(replacedSessionFile, JSON.stringify([...replacedSessions]), {mode:0o600}).catch(()=>{})
+    }
     taskSessions.delete(id); delete authorizations[id]; inspectSessions.delete(id)
     await fs.writeFile(taskSessionFile, JSON.stringify(Object.fromEntries(taskSessions)), {mode:0o600}).catch(()=>{})
     await fs.writeFile(authorizationFile, JSON.stringify(authorizations), {mode:0o600}).catch(()=>{})
   }
   ctx.inject(['sessionController','agents','workspaceRegistry','sessions'],host=>{
-    const monitor=new TaskSessions(manager,host,registerTaskSession,unregisterTaskSession)
+    const monitor=new TaskSessions(manager,host,registerTaskSession,unregisterTaskSession,()=>presetReady)
     manager.sessionMonitor=monitor;monitor.start()
     ctx.on('dispose',()=>monitor.close())
   })
   if (guardEnabled) ctx.tools.guard(exec => {
     const id=exec?.agent?.session?.id??exec?.agent?.session?.header?.id,parent=exec?.agent?.session?.header?.parentSession;if(parent){if(taskSessions.has(parent)&&!taskSessions.has(id))taskSessions.set(id,taskSessions.get(parent));if(inspectSessions.has(parent))inspectSessions.add(id)}const taskId=taskSessions.get(id)
-    return sessionGuard(root,exec,{inspect:inspectSessions.has(id),taskDirectory:taskId?manager.dir(taskId):null,authorizedStage:(authorizations[id]??authorizations[parent])?.stage})
+    return sessionGuard(root,exec,{inspect:inspectSessions.has(id),taskDirectory:taskId?manager.dir(taskId):null,replaced:replacedSessions.has(id)||(parent?replacedSessions.has(parent):false),authorizedStage:(authorizations[id]??authorizations[parent])?.stage})
   })
   manager.startBackgroundSync?.()
   ctx.on('dispose',()=>{
@@ -162,13 +173,14 @@ export function installPipelineModule(ctx, config) {
   ctx.tools.register({
     name: 'document_pipeline',
     timeoutMs: 24 * 60 * 60 * 1000,
-    description: `证据工具：evidence 返回实际存在的章节 state、report、selectedBook、actions、similarity、body 和 notes 路径及验收错误摘要，可按 chapterId 筛选。files 分页列出当前任务目录，directory 默认任务根；已有文件名片段时用 query 筛选后分页。search 在指定 file 内查询 query 文本，offset 为零起始行号，结果含从 1 开始的行号与后续 nextOffset。probe_page 或 probe 受控探测指定原页（page 或 pages 数组，最多 8 页），提取文本层并渲染原页高清图至 probe-pages 供 read_image 查验。先定位再 read，禁止猜文件路径；大报告先看摘要再按需读取。统一文档编排：inspect 检查环境，task 读取当前会话绑定任务，run 执行当前任务内的处理、验证与恢复；阶段内可修复当前任务结果；转写、术语分析与翻译、审校与发布三阶段分别需要用户在面板选模型并确认，阶段完成后必须停止，review_prepare / review_assemble / review_apply 执行译后分包审计准备、汇总门禁校验与受控补丁应用。未绑定会话不能运行任务，不能写密钥或发布。工作目录必须为 ${root}。先核验文档来源、正文范围、页面布局和注释体例。扫描件先按原页图像转写；有疑点时用 ocr 指定 page 和 region [左,上,右,下]，坐标为页宽高的 0 到 1 比例，程序截取该区域后调用 PaddleOCR。同一区域复用已有结果或云端任务，不能反复提交。OCR 返回仅为辅助证据。主模型失败后依次尝试最多两个已配置兜底模型，全部失败才 OCR 抄写。已选定的视觉页不会因后续传输失败被替换。单篇扫描论文/章节可直接由已确认配置生成单章结构并过门禁；整书按结构观察切分章节。P3 调 bounded_chapter.py，可修正已有 body/notes，修正后重新验收，不派 P3 子代理。翻译使用 LinguaGacha 官方 CLI 与 MD_V2；任务保存结果和状态，不需要 GUI。检查结果不代表转写或语义验收。sync_profile 在底本物理范围不变时，无损同步 profile.candidate.json/profile.json 到 document_profile.json 与 book_analysis.json，并自动对齐 scope 指纹快照与交付哈希。`,
-    parameters: { type: 'object', properties: { action: { type: 'string', enum: ['inspect', 'task', 'evidence', 'files', 'search', 'probe_page', 'probe', 'ocr', 'run', 'review_prepare', 'review_assemble', 'review_apply', 'reset_transcription', 'sync_profile'] }, page:{type:'integer',minimum:1}, pages:{type:'array',items:{type:'integer',minimum:1},maxItems:8}, region:{type:'array',items:{type:'number',minimum:0,maximum:1},minItems:4,maxItems:4}, reason:{type:'string'}, taskId: {type:'string'}, stage: {type:'string'}, chapterId:{type:'string'}, directory:{type:'string'}, file:{type:'string'}, query:{type:'string'}, offset:{type:'integer',minimum:0}, limit:{type:'integer',minimum:1,maximum:100}, options:{type:'object',properties:{reanalyze:{type:'boolean'},retryErrors:{type:'boolean'},singleStep:{type:'boolean'},cleanChapters:{type:'boolean'},chapterId:{type:'string'},textLimit:{type:'integer',minimum:100,maximum:20000}},additionalProperties:false} }, required: ['action'], additionalProperties: false },
+    description: `证据工具：evidence 返回实际存在的章节 state、report、selectedBook、actions、similarity、body 和 notes 路径及验收错误摘要，可按 chapterId 筛选。files 分页列出当前任务目录，directory 默认任务根；已有文件名片段时用 query 筛选后分页。search 在指定 file 内查询 query 文本，offset 为零起始行号，结果含从 1 开始的行号与后续 nextOffset。probe_page 或 probe 受控探测指定原页（page 或 pages 数组，最多 8 页），提取文本层并渲染原页高清图至 probe-pages 供 read_image 查验。先定位再 read，禁止猜文件路径；大报告先看摘要再按需读取。统一文档编排：inspect 检查环境，task 读取当前会话绑定任务，run 执行当前任务内的处理、验证与恢复；source_edit 与 note_continuation 在目检原页后受控修补章节正文/注号/跨页脚注续段并自动绑定 worker_audit.jsonl 加密回执（严禁用 edit/write 直接手改 paragraphs[].text、paragraph_summary 或 notes definitions）；转写、术语分析与翻译、审校与发布三阶段分别需要用户在面板选模型并确认，阶段完成后必须停止，review_prepare / review_assemble / review_apply 执行译后分包审计准备、汇总门禁校验与受控补丁应用。未绑定会话不能运行任务，不能写密钥或发布。工作目录必须为 ${root}。先核验文档来源、正文范围、页面布局和注释体例。扫描件先按原页图像转写；有疑点时用 ocr 指定 page 和 region [左,上,右,下]，坐标为页宽高的 0 到 1 比例，程序截取该区域后调用 PaddleOCR。同一区域复用已有结果或云端任务，不能反复提交。OCR 返回仅为辅助证据。主模型失败后依次尝试最多两个已配置兜底模型，全部失败才 OCR 抄写。已选定的视觉页不会因后续传输失败被替换。单篇扫描论文/章节可直接由已确认配置生成单章结构并过门禁；整书按结构观察切分章节。P3 调 bounded_chapter.py，不派 P3 子代理。翻译使用 LinguaGacha 官方 CLI 与 MD_V2；任务保存结果和状态，不需要 GUI。检查结果不代表转写或语义验收。sync_profile 在底本物理范围不变时，无损同步 profile.candidate.json/profile.json 到 document_profile.json 与 book_analysis.json，并自动对齐 scope 指纹快照与交付哈希。`,
+    parameters: { type: 'object', properties: { action: { type: 'string', enum: ['inspect', 'task', 'evidence', 'files', 'search', 'probe_page', 'probe', 'ocr', 'run', 'source_edit', 'note_continuation', 'review_prepare', 'review_assemble', 'review_apply', 'reset_transcription', 'sync_profile'] }, page:{type:'integer',minimum:1}, pages:{type:'array',items:{type:'integer',minimum:1},maxItems:8}, region:{type:'array',items:{type:'number',minimum:0,maximum:1},minItems:4,maxItems:4}, reason:{type:'string'}, taskId: {type:'string'}, stage: {type:'string'}, chapterId:{type:'string'}, directory:{type:'string'}, file:{type:'string'}, query:{type:'string'}, offset:{type:'integer',minimum:0}, limit:{type:'integer',minimum:1,maximum:100}, review:{type:'object',additionalProperties:true}, options:{type:'object',properties:{reanalyze:{type:'boolean'},retryErrors:{type:'boolean'},singleStep:{type:'boolean'},cleanChapters:{type:'boolean'},chapterId:{type:'string'},textLimit:{type:'integer',minimum:100,maximum:20000},newConversation:{type:'boolean'},resetOrchestrator:{type:'boolean'},concurrency:{type:'integer',minimum:1,maximum:8},force:{type:'boolean'},note:{type:'string'},runAgy:{type:'boolean'},supplemental:{type:'boolean'}},additionalProperties:false} }, required: ['action'], additionalProperties: false },
     output: { schema: { type: 'object', properties: {}, additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
       const run = async () => {
-        if(args.action==='inspect') return {...await inspectPipeline(root,guardEnabled,manager.modelService),sessionCwd:exec?.agent?.session?.header?.cwd??null}
         const session=exec?.agent?.session, id=session?.id??session?.header?.id, parent=session?.header?.parentSession
+        if(!taskSessions.has(id)&&(replacedSessions.has(id)||(parent&&replacedSessions.has(parent)))) throw new Error('当前编排会话已被新会话接替并归档，请立即停止本轮回复，无需重试任何工具。')
+        if(args.action==='inspect') return {...await inspectPipeline(root,guardEnabled,manager.modelService),sessionCwd:exec?.agent?.session?.header?.cwd??null}
         if(parent&&taskSessions.has(parent)&&!taskSessions.has(id))taskSessions.set(id,taskSessions.get(parent))
         const taskId=args.taskId??taskSessions.get(id)
         if(path.resolve(session?.header?.cwd??'/')!==root||!taskId||taskSessions.get(id)!==taskId) throw new Error('此会话未绑定指定文档任务')
@@ -181,10 +193,15 @@ export function installPipelineModule(ctx, config) {
         if(session.header.origin==='subagent'||(session.header.delegationDepth??0)>0)throw new Error('观察或审校 worker 不能运行处理或汇总阶段')
         if(args.action==='reset_transcription')return manager.resetTranscription(taskId,args.options??{})
         if(args.action==='sync_profile')return manager.syncProfile(taskId)
+        if(args.action==='source_edit'||args.action==='note_continuation'){
+          if(!guardEnabled)throw new Error('角色拦截未安装，不能修改章节交付记录')
+          return manager.applySourceEdit(taskId,{mode:args.action,chapterId:args.chapterId,review:args.review})
+        }
         if(args.action==='ocr'){if(!guardEnabled)throw new Error('角色拦截未安装，不能运行 OCR');return manager.ocrRegion(taskId,args)}
         if(['review_prepare','review_assemble','review_apply'].includes(args.action)){
           if(!guardEnabled)throw new Error('角色拦截未安装，不能运行模型任务')
-          return args.action==='review_prepare'?manager.prepareReviewAudit(taskId):args.action==='review_assemble'?manager.assembleReviewAudit(taskId):manager.applyReviewAudit(taskId)
+          const opts=args.options??(args.force?{force:true}:{})
+          return args.action==='review_prepare'?manager.prepareReviewAudit(taskId,opts):args.action==='review_assemble'?manager.assembleReviewAudit(taskId,opts):manager.applyReviewAudit(taskId,opts)
         }
         if(args.stage==='publish'||args.stage==='delivery')throw new Error('发布需由用户发起')
         if(!guardEnabled)throw new Error('角色拦截未安装，不能运行模型任务');return executeInSession(manager,taskId,args.stage,{...(args.options??{}),...(args.chapterId?{chapterId:args.chapterId}:{}),...(args.stage==='review'?{sessionOrchestrated:true}:{})},exec)
@@ -202,6 +219,11 @@ export function installPipelineModule(ctx, config) {
       res.end(JSON.stringify({bound:true,role,sessionId:m[1],lastTurn:session?.log.findLast(e=>e.type==='turn/start')?.data.turn,task:{id:t.id,name:t.name,state:t.state,stage:t.stage,message:t.message,worker:t.worker,glossaryProgress:t.glossaryProgress,translationProgress:t.translationProgress},sessions:binding?.sessions,syncError:binding?.error,progress:await transcriptionProgress(t,manager.dir(t.id)),...await executionEvents(manager.dir(t.id),url.searchParams.get('cursor'))}))
     }},
     {method:'GET',pattern:/^\/pipeline\/presets$/,handler:async(_req,res)=>{await presetReady;res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({presets:await presetRegistry.list(),readingPreset:readingPreset.id}))}},
+    { method: 'GET', pattern: /^\/pipeline\/notices$/, handler: async (_req, res) => {
+      const notices = await manager.notices?.list?.() ?? []
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ notices }))
+    } },
     { method: 'GET', pattern: /^\/pipeline\/configuration$/, handler: async (_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(await readPipelineConfiguration(root,manager.modelService))) } },
     { method: 'POST', pattern: /^\/pipeline\/ocr-credential$/, handler: async (req, res) => {
       let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 16384) throw new Error('request too large') }

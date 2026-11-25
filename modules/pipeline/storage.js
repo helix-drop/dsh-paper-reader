@@ -22,9 +22,17 @@ export class PipelineIndex {
       CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state);
       CREATE INDEX IF NOT EXISTS item_meta_folder ON item_meta(folder_id);
       CREATE INDEX IF NOT EXISTS item_meta_hidden ON item_meta(hidden);
-      PRAGMA user_version=1;`);return db
+      CREATE TABLE IF NOT EXISTS sync_vault(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`);
+    const ver = db.prepare('PRAGMA user_version').get()?.user_version ?? 0
+    if (ver < 2) {
+      db.exec('UPDATE tasks SET json_stamp=NULL; PRAGMA user_version=2;')
+    }
+    if (ver < 3) {
+      db.exec('CREATE TABLE IF NOT EXISTS sync_vault(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL); PRAGMA user_version=3;')
+    }
+    return db
   })();return this.opening}
-  async put(t,stamp){const db=await this.open();const summary={id:t.id,documentId:t.documentId,name:t.name,documentTitle:t.documentTitle,kind:t.kind,state:t.state,stage:t.stage,updatedAt:t.updatedAt,createdAt:t.createdAt,bookmarks:t.bookmarks??[],paperImport:t.paperImport?{file:t.paperImport.file,metadata:t.paperImport.metadata}:undefined,caption:t.legacy?.caption,legacy:!!t.legacy,review:t.review?{status:t.review.status,semanticVerified:t.review.semanticVerified}:undefined,stages:t.stages,input:{type:t.input.type},profile:{confirmed:t.profile?.confirmed},profileAnalysis:t.profileAnalysis?{status:t.profileAnalysis.status}:undefined,publication:{published:t.publication?.published},inspection:{verdict:t.inspection?.verdict}}
+  async put(t,stamp){const db=await this.open();const summary={id:t.id,documentId:t.documentId,name:t.name,documentTitle:t.documentTitle,kind:t.kind,state:t.state,stage:t.stage,updatedAt:t.updatedAt,createdAt:t.createdAt,bookmarks:t.bookmarks??[],paperImport:t.paperImport?{file:t.paperImport.file,metadata:t.paperImport.metadata}:undefined,caption:t.legacy?.caption,legacy:!!t.legacy,review:t.review?{status:t.review.status,semanticVerified:t.review.semanticVerified}:undefined,stages:t.stages,input:{type:t.input.type},profile:{confirmed:t.profile?.confirmed,cover_page:t.profile?.cover_page},profileAnalysis:t.profileAnalysis?{status:t.profileAnalysis.status}:undefined,publication:{published:t.publication?.published},inspection:{verdict:t.inspection?.verdict},cover:t.cover?{page:t.cover.page??null,none:Boolean(t.cover.none),file:t.cover.file??null,sha256:t.cover.sha256??null}:undefined}
     db.exec('BEGIN IMMEDIATE');try{db.prepare('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET document_id=excluded.document_id,title=excluded.title,state=excluded.state,updated_at=excluded.updated_at,summary=excluded.summary,payload=excluded.payload,library=excluded.library,json_stamp=excluded.json_stamp').run(t.id,t.documentId??null,t.name,t.state,t.updatedAt,JSON.stringify(summary),JSON.stringify(t),t.libraryProof?JSON.stringify(t.libraryProof):null,stamp)
     if(t.documentId){const previous=db.prepare('SELECT artifacts FROM documents WHERE id=?').get(t.documentId),artifacts={...(previous?JSON.parse(previous.artifacts):{}),source:t.path,...(t.legacy?.artifacts??{})};db.prepare('INSERT INTO documents VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,artifacts=excluded.artifacts').run(t.documentId,t.legacy?.key??null,t.documentTitle??t.name,t.kind,JSON.stringify(artifacts))}db.prepare("DELETE FROM documents WHERE id='document:undefined' AND NOT EXISTS(SELECT 1 FROM tasks WHERE document_id='document:undefined')").run();db.exec('COMMIT')}catch(error){db.exec('ROLLBACK');throw error}
   }
@@ -46,5 +54,7 @@ export class PipelineIndex {
   async getAllItemMeta(){const rows=(await this.open()).prepare('SELECT id, folder_id AS folderId, hidden FROM item_meta').all(),out={};for(const r of rows)out[r.id]={folderId:r.folderId,hidden:Boolean(r.hidden)};return out}
   async setItemMeta(id,{folderId,hidden}){const db=await this.open(),now=new Date().toISOString(),prev=await this.getItemMeta(id),nextFolder=folderId!==undefined?folderId:prev.folderId,nextHidden=hidden!==undefined?(hidden?1:0):(prev.hidden?1:0);db.prepare('INSERT INTO item_meta(id, folder_id, hidden, updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET folder_id=excluded.folder_id, hidden=excluded.hidden, updated_at=excluded.updated_at').run(id,nextFolder,nextHidden,now);return {id,folderId:nextFolder,hidden:Boolean(nextHidden)}}
   async removeTask(id){const db=await this.open();db.exec('BEGIN IMMEDIATE');try{db.prepare('DELETE FROM tasks WHERE id=?').run(id);db.prepare('DELETE FROM item_meta WHERE id=?').run(id);db.exec('COMMIT');return {ok:true}}catch(e){db.exec('ROLLBACK');throw e}}
+  async getSyncVault(key = 'primary'){const db=await this.open();const row=db.prepare('SELECT value, updated_at FROM sync_vault WHERE key=?').get(key);if(!row)return null;try{return {...JSON.parse(row.value),updatedAt:row.updated_at}}catch{return null}}
+  async setSyncVault(data, key = 'primary'){const db=await this.open(),now=new Date().toISOString();db.prepare('INSERT INTO sync_vault(key, value, updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(key,JSON.stringify(data??{}),now);return {ok:true,key,updatedAt:now}}
   async close(){if(this.opening)(await this.opening).close();this.opening=null}
 }

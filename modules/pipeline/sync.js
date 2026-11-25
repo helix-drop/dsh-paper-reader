@@ -8,6 +8,7 @@ import { checkMarkdownPair } from './markdown.js'
 import { resolveWorkspaceAsset } from '../../shared/workspace.js'
 import { taskSourcePdf } from './source-map.js'
 import { atomic, exists, json } from './tasks/shared.js'
+import { collectCoverAsset, taskCoverMeta } from './cover.js'
 
 const SYNC_CONFIG_FILE = '.pipeline/cloud-sync.json'
 const PDF_CHUNK_BYTES = 8 * 1024 * 1024
@@ -51,35 +52,55 @@ export function normalizeCloudUrl(url) {
   return parsed.toString().replace(/\/+$/, '')
 }
 
-export async function readCloudSyncConfig(root) {
+export async function readCloudSyncConfig(root, index = null) {
   const file = path.join(root, SYNC_CONFIG_FILE)
   const saved = await json(file, {})
-  const cloudUrl = String(saved.cloudUrl ?? '')
-  const token = String(saved.token ?? '')
+  let dbVault = null
+  if (index?.getSyncVault) {
+    dbVault = await index.getSyncVault('primary').catch(() => null)
+  }
+  const cloudUrl = String(saved.cloudUrl ?? dbVault?.cloudUrl ?? '')
+  const token = String(saved.token ?? dbVault?.rootKey ?? '')
+  const vaultName = String(saved.vaultName ?? dbVault?.vaultName ?? '').trim().slice(0, 80)
   const autoSyncExplicit = Boolean(saved.autoSyncExplicit)
-  return {
+  const cfg = {
     cloudUrl,
     token,
-    deviceName: String(saved.deviceName ?? 'PC DSH 主机'),
+    vaultName,
+    deviceName: String(saved.deviceName ?? dbVault?.deviceName ?? 'PC DSH 主机'),
     includePdf: saved.includePdf !== undefined ? Boolean(saved.includePdf) : true,
     autoSync: autoSyncExplicit
       ? Boolean(saved.autoSync)
       : (saved.autoSync === true || Boolean(cloudUrl && token)),
     autoSyncExplicit,
+    dbBacked: Boolean(dbVault?.rootKey || (index?.setSyncVault && token)),
     lastSyncAt: saved.lastSyncAt ?? null,
     lastResult: saved.lastResult ?? null,
     lastError: saved.lastError ?? null,
   }
+  if (index?.setSyncVault && (cfg.cloudUrl || cfg.token || cfg.vaultName) && !dbVault?.rootKey && cfg.token) {
+    await index.setSyncVault({
+      cloudUrl: cfg.cloudUrl,
+      vaultName: cfg.vaultName,
+      rootKey: cfg.token,
+      deviceName: cfg.deviceName,
+    }, 'primary').catch(() => {})
+  }
+  return cfg
 }
 
-export async function saveCloudSyncConfig(root, patch = {}) {
-  const prev = await readCloudSyncConfig(root)
+export async function saveCloudSyncConfig(root, patch = {}, index = null) {
+  const prev = await readCloudSyncConfig(root, index)
   const cloudUrl = patch.cloudUrl !== undefined
     ? normalizeCloudUrl(patch.cloudUrl)
     : prev.cloudUrl
   let token = prev.token
   if (patch.clearToken === true) token = ''
   else if (typeof patch.token === 'string' && patch.token.trim()) token = patch.token.trim()
+
+  const vaultName = patch.vaultName !== undefined
+    ? String(patch.vaultName ?? '').replace(/[\r\n\0]+/g, ' ').trim().slice(0, 80)
+    : prev.vaultName
 
   const autoSyncExplicit = patch.autoSync !== undefined ? true : prev.autoSyncExplicit
   const autoSync = patch.autoSync !== undefined
@@ -89,6 +110,7 @@ export async function saveCloudSyncConfig(root, patch = {}) {
   const next = {
     cloudUrl,
     token,
+    vaultName,
     deviceName: typeof patch.deviceName === 'string' && patch.deviceName.trim()
       ? patch.deviceName.trim().slice(0, 80)
       : prev.deviceName,
@@ -100,13 +122,31 @@ export async function saveCloudSyncConfig(root, patch = {}) {
     lastError: patch.lastError !== undefined ? patch.lastError : prev.lastError,
   }
   await atomic(path.join(root, SYNC_CONFIG_FILE), next)
-  return publicSyncStatus(next)
+  if (index?.setSyncVault && (next.cloudUrl || next.token || next.vaultName)) {
+    await index.setSyncVault({
+      cloudUrl: next.cloudUrl,
+      vaultName: next.vaultName,
+      rootKey: next.token,
+      deviceName: next.deviceName,
+    }, 'primary').catch(() => {})
+  }
+  return publicSyncStatus({ ...next, dbBacked: Boolean(index?.setSyncVault && next.token) })
+}
+
+function maskSecretHint(secret) {
+  const s = String(secret ?? '').trim()
+  if (!s) return ''
+  if (s.length <= 10) return `${s.slice(0, 2)}***${s.slice(-2)}`
+  return `${s.slice(0, 4)}····${s.slice(-4)}`
 }
 
 export function publicSyncStatus(config) {
   return {
     cloudUrl: config.cloudUrl,
+    vaultName: config.vaultName ?? '',
     hasToken: Boolean(config.token),
+    rootKeyHint: maskSecretHint(config.token),
+    dbBacked: Boolean(config.dbBacked),
     deviceName: config.deviceName,
     includePdf: config.includePdf,
     autoSync: config.autoSync,
@@ -114,6 +154,16 @@ export function publicSyncStatus(config) {
     lastSyncAt: config.lastSyncAt,
     lastResult: config.lastResult,
     lastError: config.lastError,
+  }
+}
+
+export async function readCloudRecoveryRecord(root, index = null) {
+  const cfg = await readCloudSyncConfig(root, index)
+  return {
+    cloudUrl: cfg.cloudUrl,
+    vaultName: cfg.vaultName ?? '',
+    rootKey: cfg.token,
+    dbBacked: Boolean(cfg.dbBacked),
   }
 }
 
@@ -170,6 +220,8 @@ export async function exportSyncBundle(manager, taskId, { includePdfMeta = true 
   const t = await manager.get(taskId)
   const reading = await manager.reading(taskId)
   const assets = await collectReadingAssets(manager, t, reading)
+  const coverAsset = await collectCoverAsset(manager, t, { backfillIfMissing: true })
+  if (coverAsset) assets.push(coverAsset)
   let pdfMeta = { available: false, sha256: null, bytes: 0, filePath: null }
   if (includePdfMeta) {
     const pdfFile = await taskSourcePdf(manager, t).catch(() => null)
@@ -196,6 +248,7 @@ export async function exportSyncBundle(manager, taskId, { includePdfMeta = true 
       name: t.documentTitle ?? t.name,
       kind: t.kind,
       ready: true,
+      ...taskCoverMeta(t),
       updatedAt: t.updatedAt ?? new Date().toISOString(),
       ...(t.paperImport
         ? {
@@ -328,11 +381,13 @@ export async function applyRemoteCorrections(manager, remoteItems = []) {
 }
 
 async function cloudFetch(fetchImpl, cloudUrl, token, route, options = {}) {
+  const { vaultName = '', ...fetchOpts } = options
   const headers = {
-    ...(options.headers ?? {}),
+    ...(fetchOpts.headers ?? {}),
     authorization: `Bearer ${token}`,
+    ...(vaultName ? { 'x-dsh-vault': encodeURIComponent(vaultName) } : {}),
   }
-  const res = await fetchImpl(`${cloudUrl}${route}`, { ...options, headers })
+  const res = await fetchImpl(`${cloudUrl}${route}`, { ...fetchOpts, headers })
   const text = await res.text()
   let data = null
   try {
@@ -351,6 +406,71 @@ async function cloudFetch(fetchImpl, cloudUrl, token, route, options = {}) {
     throw err
   }
   return data
+}
+
+async function requireCloudRoot(root, options = {}) {
+  const cfg = await readCloudSyncConfig(root, options.index ?? null)
+  const cloudUrl = options.cloudUrl ? normalizeCloudUrl(options.cloudUrl) : cfg.cloudUrl
+  const token = options.token || cfg.token
+  if (!cloudUrl || !token) {
+    throw new Error('请先配置云服务器地址与本机恢复密钥 (Root Key)')
+  }
+  return { cfg, cloudUrl, token, fetchImpl: options.fetch ?? fetch }
+}
+
+export async function cloudAuthStatus(root, options = {}) {
+  const { cfg, cloudUrl, token, fetchImpl } = await requireCloudRoot(root, options)
+  const remote = await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/auth/status')
+  if (remote.vaultName && !cfg.vaultName) {
+    await saveCloudSyncConfig(root, { vaultName: remote.vaultName }, options.index ?? null).catch(() => {})
+  }
+  return {
+    ...remote,
+    vaultName: remote.vaultName || cfg.vaultName || '',
+    dbBacked: cfg.dbBacked,
+    rootKeyHint: maskSecretHint(token),
+  }
+}
+
+export async function bindCloudVault(root, vaultName, options = {}) {
+  const clean = String(vaultName ?? '').replace(/[\r\n\0]+/g, ' ').trim().slice(0, 80)
+  if (!clean) throw new Error('请输入要绑定的书库名称')
+  const { cloudUrl, token, fetchImpl } = await requireCloudRoot(root, options)
+  const remote = await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/auth/bind-vault', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ vaultName: clean, force: options.force === true }),
+  })
+  await saveCloudSyncConfig(root, { vaultName: remote.vaultName || clean }, options.index ?? null)
+  return remote
+}
+
+export async function generateCloudPairingCode(root, options = {}) {
+  const { cfg, cloudUrl, token, fetchImpl } = await requireCloudRoot(root, options)
+  const res = await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/auth/pair-code', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ deviceHint: options.deviceHint ?? '' }),
+  })
+  return { ...res, cloudUrl, vaultName: res.vaultName || cfg.vaultName || '' }
+}
+
+export async function revokeCloudDevice(root, deviceId, options = {}) {
+  const { cloudUrl, token, fetchImpl } = await requireCloudRoot(root, options)
+  return cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/auth/revoke-device', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ deviceId }),
+  })
+}
+
+export async function setCloudPairingEnabled(root, enabled, options = {}) {
+  const { cloudUrl, token, fetchImpl } = await requireCloudRoot(root, options)
+  return cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/auth/pairing-toggle', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ enabled: Boolean(enabled) }),
+  })
 }
 
 async function uploadPdfToCloud(fetchImpl, cloudUrl, token, taskId, pdfPath, sha256, bytesTotal, onProgress) {
@@ -435,7 +555,8 @@ async function uploadPdfToCloud(fetchImpl, cloudUrl, token, taskId, pdfPath, sha
 }
 
 export async function syncWithCloud(manager, options = {}) {
-  const config = await readCloudSyncConfig(manager.root)
+  const index = options.index ?? manager.index ?? null
+  const config = await readCloudSyncConfig(manager.root, index)
   const cloudUrl = options.cloudUrl ? normalizeCloudUrl(options.cloudUrl) : config.cloudUrl
   const token = options.token || config.token
   if (!cloudUrl || !token) {
@@ -444,17 +565,21 @@ export async function syncWithCloud(manager, options = {}) {
 
   const fetchImpl = options.fetch ?? manager.fetch ?? fetch
   const includePdf = options.includePdf !== undefined ? Boolean(options.includePdf) : config.includePdf
+  const callCloud = (route, opts = {}) => cloudFetch(fetchImpl, cloudUrl, token, route, {
+    vaultName: config.vaultName,
+    ...opts,
+  })
   const report = patch => {
     try { options.onProgress?.(patch) } catch {}
   }
 
   try {
     if (config.lastError) {
-      await saveCloudSyncConfig(manager.root, { lastError: null }).catch(() => {})
+      await saveCloudSyncConfig(manager.root, { lastError: null }, index).catch(() => {})
     }
     // 1. Pull remote state (progress, bookmarks, corrections, manifest)
     report({ phase: 'pull', detail: '拉取云端进度、书签与勘误...' })
-    const remote = await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/pull-state')
+    const remote = await callCloud('/api/paper-reader/sync/pull-state')
     const progressRes = await manager.progressStore.merge(remote.progress ?? {})
     const bookmarkRes = await manager.bookmarkStore.mergeState(remote.bookmarksState ?? {})
     const correctionRes = await applyRemoteCorrections(manager, remote.revisions ?? [])
@@ -477,11 +602,18 @@ export async function syncWithCloud(manager, options = {}) {
       report({ phase: 'bundles', currentBook: item.name ?? item.id, completedBooks: i, totalBooks: items.length })
       const bundle = await exportSyncBundle(manager, item.id, { includePdfMeta: includePdf })
       const remoteEntry = remoteManifest[item.id]
-      const versionChanged = !remoteEntry || remoteEntry.version !== bundle.reading.version || options.force === true
+      const missingCloudCoverAsset = Boolean(bundle.libraryEntry.hasCover) && remoteEntry?.hasCoverAsset === false
+      const coverChanged = !remoteEntry
+        || !('hasCover' in remoteEntry)
+        || Boolean(remoteEntry.hasCover) !== Boolean(bundle.libraryEntry.hasCover)
+        || (remoteEntry.coverSha256 ?? null) !== (bundle.libraryEntry.coverSha256 ?? null)
+        || (remoteEntry.coverPage ?? null) !== (bundle.libraryEntry.coverPage ?? null)
+        || missingCloudCoverAsset
+      const versionChanged = !remoteEntry || remoteEntry.version !== bundle.reading.version || coverChanged || options.force === true
 
       if (versionChanged) {
         const { _pdfPath, ...payload } = bundle
-        await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/push-bundle', {
+        await callCloud('/api/paper-reader/sync/push-bundle', {
           method: 'POST',
           headers: { 'content-type': 'application/json; charset=utf-8' },
           body: JSON.stringify(payload),
@@ -503,15 +635,20 @@ export async function syncWithCloud(manager, options = {}) {
       }
     }
 
-    // 3. Push merged progress, bookmarksState, folders, and itemMeta immediately before large PDF uploads
-    report({ phase: 'state', currentBook: '', completedBooks: items.length, totalBooks: items.length, detail: '同步进度、书签与分类...' })
-    const [folders, itemMeta, progress, bookmarksState] = await Promise.all([
+    // 3. Push merged progress, bookmarksState, folders, itemMeta, and pending deletions
+    report({ phase: 'state', currentBook: '', completedBooks: items.length, totalBooks: items.length, detail: '同步进度、书签、分类与删除状态...' })
+    const pendingDeleteIds = manager.deletedTasks
+      ? await manager.deletedTasks.pendingCloudDeletions()
+      : []
+    const [folders, itemMeta, progress, bookmarksState, latestLibrary, pipelineNotices] = await Promise.all([
       manager.folders(),
       manager.itemMeta(),
       manager.progressStore.list(),
       manager.bookmarkStore.exportState(),
+      pushedBooks > 0 ? manager.library() : Promise.resolve(library),
+      manager.notices?.list?.() ?? Promise.resolve(null),
     ])
-    await cloudFetch(fetchImpl, cloudUrl, token, '/api/paper-reader/sync/push-state', {
+    const pushStateRes = await callCloud('/api/paper-reader/sync/push-state', {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
@@ -520,13 +657,63 @@ export async function syncWithCloud(manager, options = {}) {
         itemMeta,
         progress,
         bookmarksState,
+        documentsMeta: latestLibrary.map(item => ({
+          id: item.id,
+          documentId: item.documentId,
+          name: item.name,
+          author: item.author,
+          titleSource: item.titleSource,
+          kind: item.kind,
+          legacyPaperFile: item.legacyPaperFile,
+          hasCover: Boolean(item.hasCover),
+          coverPage: item.coverPage ?? null,
+          coverSha256: item.coverSha256 ?? null,
+        })),
+        ...(pendingDeleteIds.length ? { deleteTaskIds: pendingDeleteIds } : {}),
+        ...(Array.isArray(pipelineNotices) ? { pipelineNotices } : {}),
       }),
     })
+    if (pendingDeleteIds.length && Array.isArray(pushStateRes?.deletedTaskIds)) {
+      await manager.deletedTasks.ackCloudDeletions(pushStateRes.deletedTaskIds)
+    }
 
-    // 4. Upload needed PDFs (chunked for large files, resilient per book)
+    // 4. Upload needed PDFs (deduplicating via server-side SHA-256 link when available)
     const pdfErrors = []
+    let deduplicatedPdfs = 0
+    const knownPdfHashes = new Set(
+      (Array.isArray(remote.knownPdfSha256) ? remote.knownPdfSha256 : [])
+        .map(s => String(s).toLowerCase()),
+    )
     for (let i = 0; i < pdfQueue.length; i++) {
       const pdfJob = pdfQueue[i]
+      const digest = String(pdfJob.sha256 || '').toLowerCase()
+      if (digest && knownPdfHashes.has(digest)) {
+        try {
+          report({
+            phase: 'pdfs',
+            currentBook: pdfJob.name,
+            completedBooks: i,
+            totalBooks: pdfQueue.length,
+            detail: '云端已有同指纹 PDF，秒传关联...',
+          })
+          await callCloud(
+            `/api/paper-reader/sync/link-pdf/${encodeURIComponent(pdfJob.id)}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({ sha256: digest }),
+            },
+          )
+          pushedPdfs++
+          deduplicatedPdfs++
+          continue
+        } catch (err) {
+          if (err?.status !== 404) {
+            pdfErrors.push(`${pdfJob.name}: ${String(err?.message ?? err)}`)
+            continue
+          }
+        }
+      }
       report({
         phase: 'pdfs',
         currentBook: pdfJob.name,
@@ -546,6 +733,7 @@ export async function syncWithCloud(manager, options = {}) {
           p => report({ phase: 'pdfs', currentBook: pdfJob.name, completedBooks: i, totalBooks: pdfQueue.length, ...p }),
         )
         pushedPdfs++
+        if (digest) knownPdfHashes.add(digest)
       } catch (err) {
         pdfErrors.push(`${pdfJob.name}: ${String(err?.message ?? err)}`)
       }
@@ -557,6 +745,9 @@ export async function syncWithCloud(manager, options = {}) {
       libraryCount: library.length,
       pushedBooks,
       pushedPdfs,
+      deduplicatedPdfs,
+      renamedBooks: pushStateRes?.renamedBooks ?? 0,
+      deletedCloudBooks: Array.isArray(pushStateRes?.deletedTaskIds) ? pushStateRes.deletedTaskIds.length : 0,
       pulledProgress: progressRes.merged,
       pulledBookmarks: bookmarkRes.merged,
       appliedCorrections: correctionRes.applied,
@@ -567,7 +758,7 @@ export async function syncWithCloud(manager, options = {}) {
       lastSyncAt: summary.syncedAt,
       lastResult: summary,
       lastError: errText,
-    })
+    }, index)
     if (pdfErrors.length) {
       throw new Error(errText)
     }
@@ -575,7 +766,7 @@ export async function syncWithCloud(manager, options = {}) {
   } catch (err) {
     await saveCloudSyncConfig(manager.root, {
       lastError: String(err?.message ?? err),
-    }).catch(() => {})
+    }, index).catch(() => {})
     throw err
   }
 }

@@ -60,6 +60,29 @@ export const nativeBridge = {
       try { await plugin.setKeyCapture({ capturing: false }) } catch {}
     }
   },
+
+  async requestNotifications() {
+    const plugin = getPlugin()
+    if (!plugin?.requestNotifications) return false
+    try {
+      const result = await plugin.requestNotifications()
+      return result?.granted !== false
+    } catch {
+      return false
+    }
+  },
+
+  async notify({ id, title, body } = {}) {
+    const plugin = getPlugin()
+    if (!plugin?.notify) return
+    try {
+      await plugin.notify({
+        id: String(id ?? ''),
+        title: String(title ?? ''),
+        body: String(body ?? ''),
+      })
+    } catch { /* a denied permission or a missing channel just skips this notice */ }
+  },
 }
 
 // Allow Android native activity to invoke window.__readerOnPhysicalKey(direction, keyCode, keyName)

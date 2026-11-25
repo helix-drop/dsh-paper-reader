@@ -44,6 +44,81 @@ function LiveDocumentExecution({executionSessionId,openExecutionSession}) {
     ):null
   )):null)
 }
+function showPipelineNoticeToast(items) {
+  const last = items[items.length - 1]
+  if (!last?.title) return
+  const extra = items.length > 1 ? `（另有 ${items.length - 1} 条）` : ''
+  let el = document.getElementById('paper-reader-pipeline-notice')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'paper-reader-pipeline-notice'
+    el.setAttribute('role', 'status')
+    el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:80;max-width:min(420px,calc(100vw - 32px));padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1c1915);border:1px solid var(--dsw-alias-border-l1,#ddd);box-shadow:0 8px 28px rgba(0,0,0,.16);font-size:13px;line-height:1.45'
+    document.body.appendChild(el)
+  }
+  el.replaceChildren()
+  const title = document.createElement('strong')
+  title.textContent = last.title
+  const body = document.createElement('div')
+  body.textContent = `${last.body ?? ''}${extra}`
+  el.append(title, body)
+  clearTimeout(el._hide)
+  el._hide = setTimeout(() => el.remove(), 8000)
+}
+
+function watchPipelineNotices() {
+  if (window.__paperReaderNoticeWatch) return () => {}
+  window.__paperReaderNoticeWatch = true
+  const storageKey = 'paper-reader-pipeline-notices'
+  let seen = new Set()
+  let primed = false
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}')
+    if (Array.isArray(saved.ids)) seen = new Set(saved.ids.filter(id => typeof id === 'string'))
+    primed = saved.primed === true
+  } catch { /* session storage is optional */ }
+  const remember = () => {
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({ primed, ids: [...seen].slice(-80) }))
+    } catch { /* ignore quota errors */ }
+  }
+  let pending = false
+  const tick = async () => {
+    if (pending) return
+    pending = true
+    try {
+      const response = await fetch('/api/paper-reader/pipeline/notices', { cache: 'no-store' })
+      if (!response.ok) return
+      const data = await response.json()
+      const notices = Array.isArray(data.notices) ? data.notices : []
+      if (!primed) {
+        for (const notice of notices) if (notice?.id) seen.add(notice.id)
+        primed = true
+        remember()
+        return
+      }
+      const fresh = []
+      for (const notice of notices) {
+        if (!notice?.id || seen.has(notice.id)) continue
+        seen.add(notice.id)
+        fresh.push(notice)
+      }
+      if (fresh.length) {
+        remember()
+        showPipelineNoticeToast(fresh)
+      }
+    } catch { /* the host keeps polling */ } finally {
+      pending = false
+    }
+  }
+  void tick()
+  const timer = setInterval(tick, 5000)
+  return () => {
+    clearInterval(timer)
+    window.__paperReaderNoticeWatch = false
+  }
+}
+
 function ReaderIcon({ size = 18, active = false }) { return h('span', { style: { color: active ? 'var(--dsw-alias-brand-primary)' : 'currentColor', display: 'inline-flex' } }, icon('book', size)) }
 return {
   inject: ['slots', 'locale', 'sessions', 'layout', 'remote', 'remote.session', 'workspaces', 'uiWorkspace'],
@@ -167,5 +242,6 @@ return {
     ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'paper-reader', locale: NS, inject: () => face }, ReaderPage))
     ctx.slots.inject('conversation.session.header.utilities',()=>ctx.slots.register({name:'conversation.session.header.utilities',id:'paper-reader-live-execution',order:20,inject:sessionId=>({executionSessionId:sessionId,openExecutionSession:id=>ctx.uiWorkspace.openSession(id)})},LiveDocumentExecution))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'paper-reader', order: 30, locale: NS, label: () => t('panel') }, ReaderIcon))
+    ctx.effect(() => watchPipelineNotices(), 'paper-reader: pipeline notices')
   },
 }

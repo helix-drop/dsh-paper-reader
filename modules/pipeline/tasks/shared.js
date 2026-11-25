@@ -11,6 +11,7 @@ export const WORKER_OBSERVER = fileURLToPath(new URL('../../../runtime/observe_w
 export const ASSEMBLER = fileURLToPath(new URL('../../../runtime/assemble_with_provenance.py', import.meta.url))
 export const RESOLVE_ENDNOTES = fileURLToPath(new URL('../../../runtime/resolve_endnotes.py', import.meta.url))
 export const VERIFY_DELIVERIES = fileURLToPath(new URL('../../../runtime/verify_deliveries.py', import.meta.url))
+export const APPLY_SOURCE_EDIT = fileURLToPath(new URL('../../../runtime/apply_source_edit.py', import.meta.url))
 export const OCR_REGION_SCRIPT = fileURLToPath(new URL('../../../runtime/ocr_region.py', import.meta.url))
 export const PROBE_PAGES_SCRIPT = fileURLToPath(new URL('../../../runtime/probe_pages.py', import.meta.url))
 

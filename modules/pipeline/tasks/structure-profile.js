@@ -4,8 +4,11 @@ import { splitModel } from '../harness-models.js'
 import { mergeProfileAnalysis, normalizeProfileAnalysis, profileReadiness } from '../profile-analysis.js'
 import { assertAcademicPreprocessing } from '../cli.js'
 import { normalizeReviewConfig, isAgyCliModel } from '../review-audit.js'
+import { normalizeGlossaryDomains } from '../glossary-semantics.js'
 import { PHASES, phaseReady, assertPhaseApproved } from '../phases.js'
 import { hash } from '../markdown.js'
+import { ensureTaskCover } from '../cover.js'
+import { taskSourcePdf } from '../source-map.js'
 import {
   VISION,
   TEXT,
@@ -86,6 +89,45 @@ export const structureProfileMethods = {
     })
   },
 
+  async modelPreferences() {
+    const file = path.join(this.root, '.pipeline', 'preferences.json')
+    const saved = await json(file, null)
+    const models = saved?.models && typeof saved.models === 'object' ? saved.models : {}
+    return {
+      schemaVersion: 1,
+      updatedAt: saved?.updatedAt ?? null,
+      models: {
+        transcription: models.transcription ?? {},
+        translation: models.translation ?? {},
+        delivery: models.delivery ?? {},
+      },
+      glossaryDomains: normalizeGlossaryDomains(saved?.glossaryDomains ?? []),
+    }
+  },
+
+  async saveModelPreferences(patch = {}) {
+    return this.locked('preferences', async () => {
+      const current = await this.modelPreferences()
+      const nextModels = { ...current.models }
+      for (const phase of ['transcription', 'translation', 'delivery']) {
+        const incoming = patch?.models?.[phase]
+        if (incoming && typeof incoming === 'object') {
+          nextModels[phase] = { ...nextModels[phase], ...incoming }
+        }
+      }
+      const next = {
+        schemaVersion: 1,
+        updatedAt: new Date().toISOString(),
+        models: nextModels,
+        glossaryDomains: patch.glossaryDomains !== undefined
+          ? normalizeGlossaryDomains(patch.glossaryDomains)
+          : current.glossaryDomains,
+      }
+      await atomic(path.join(this.root, '.pipeline', 'preferences.json'), next)
+      return next
+    })
+  },
+
   async updateReviewConfig(id, config) {
     return this.locked(id, async () => {
       const t = await this.get(id)
@@ -96,7 +138,9 @@ export const structureProfileMethods = {
         await this.requireModel(splitModel(t.reviewConfig.workerModel))
       }
       t.message = '审校模型与分包 Worker 配置已更新'
-      return this.save(t)
+      const saved = await this.save(t)
+      await this.saveModelPreferences({ models: { delivery: t.reviewConfig } }).catch(() => {})
+      return saved
     })
   },
 
@@ -173,6 +217,9 @@ export const structureProfileMethods = {
           translation_model: translationModel.model,
         }
       }
+      if (phase === 'translation' && choices.glossaryDomains !== undefined) {
+        t.glossaryDomains = normalizeGlossaryDomains(choices.glossaryDomains)
+      }
       t.phaseApproval = {
         phase,
         confirmedAt: new Date().toISOString(),
@@ -184,7 +231,30 @@ export const structureProfileMethods = {
         ...(reviewConfig ? { reviewConfig, publishAccepted: false } : {}),
       }
       t.message = `已确认${PHASES.find(p => p.id === phase).name}阶段；其他阶段须另行在面板确认`
-      return this.save(t)
+      const saved = await this.save(t)
+      const prefModels = {}
+      if (phase === 'transcription') {
+        prefModels.transcription = {
+          orchestratorModel: choices.orchestratorModel ?? '',
+          orchestratorEffort,
+          workerId: `${t.worker.provider}:${t.worker.model}`,
+          fallbackIds: (t.worker.fallbacks ?? []).map(f => `${f.provider}:${f.model}`),
+        }
+      } else if (phase === 'translation') {
+        prefModels.translation = {
+          orchestratorModel: choices.orchestratorModel ?? '',
+          orchestratorEffort,
+          ...(choices.translationProfile ? { translationProfile: choices.translationProfile } : {}),
+        }
+      } else if (phase === 'delivery' && reviewConfig) {
+        prefModels.delivery = reviewConfig
+      }
+      const prefPatch = { models: prefModels }
+      if (phase === 'translation' && choices.glossaryDomains !== undefined) {
+        prefPatch.glossaryDomains = t.glossaryDomains
+      }
+      await this.saveModelPreferences(prefPatch).catch(() => {})
+      return saved
     })
   },
 
@@ -263,6 +333,13 @@ export const structureProfileMethods = {
     const preserveSaved = await exists(path.join(this.dir(t.id), 'profile.json'))
     t.profile = mergeProfileAnalysis(t, report, { preserveSaved })
     t.profileAnalysis = { ...report, appliedAt: new Date().toISOString(), preservedUserProfile: preserveSaved }
+    if (t.input?.type === 'pdf' && t.cover?.source !== 'manual') {
+      await ensureTaskCover(this, t, {
+        page: t.profile?.cover_page,
+        force: t.profile?.cover_page !== undefined && t.profile?.cover_page !== t.cover?.page,
+        source: 'profile',
+      }).catch(() => null)
+    }
   },
 
   async updateProfile(id, profile) {
@@ -290,6 +367,13 @@ export const structureProfileMethods = {
       }
       await fs.rename(file, path.join(this.dir(id), 'profile.json'))
       t.profile = profile
+      if (t.input?.type === 'pdf' && profile.cover_page !== undefined) {
+        await ensureTaskCover(this, t, {
+          page: profile.cover_page === null || profile.cover_page === '' ? null : Number(profile.cover_page),
+          force: true,
+          source: 'manual',
+        }).catch(() => null)
+      }
       delete t.stages.translationCheck
       delete t.stages.publish
       return this.save(t)
@@ -369,6 +453,25 @@ export const structureProfileMethods = {
     })
   },
 
+  async ensureTaskCover(t, options = {}) {
+    return ensureTaskCover(this, t, options)
+  },
+
+  async setTaskCoverPage(id, coverPage) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      const hasPdf = t.input?.type === 'pdf' || Boolean(await taskSourcePdf(this, t).catch(() => null))
+      if (!hasPdf) throw new Error('仅支持为含源 PDF 的文献设置封面页')
+      const rawEmpty = coverPage === null || coverPage === '' || coverPage === undefined
+      const page = rawEmpty ? null : Number(coverPage)
+      await ensureTaskCover(this, t, { page, force: true, source: 'manual' })
+      t.message = page ? `已标记第 ${page} 页为封面页并生成静态封面图` : '已标记为无独立封面'
+      const saved = await this.save(t)
+      this.scheduleBackgroundSync?.(4000, 'cover')
+      return saved
+    })
+  },
+
   async autoConfirmProfileAndScope(t) {
     if (t.profile?.confirmed) return t.profile
     if (!t.inspection) throw new Error('先完成输入检查')
@@ -428,6 +531,13 @@ export const structureProfileMethods = {
     }
     await fs.rename(file, path.join(this.dir(t.id), 'profile.json'))
     t.profile = profile
+    if (t.input?.type === 'pdf' && t.cover?.source !== 'manual') {
+      await ensureTaskCover(this, t, {
+        page: profile.cover_page,
+        force: profile.cover_page !== undefined && profile.cover_page !== t.cover?.page,
+        source: 'profile',
+      }).catch(() => null)
+    }
     delete t.stages.translationCheck
     delete t.stages.publish
     t.message = '模型已自动确认文档体例、语言与有效底本范围'

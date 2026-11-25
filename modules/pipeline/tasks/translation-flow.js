@@ -21,7 +21,12 @@ import {
   createTimeoutAbortTracker,
   formatQuotaExhaustedMessage,
 } from '../glossary-transport.js'
-import { recoverTranslationChunks, assembleTranslationChunks } from '../translation-transport.js'
+import {
+  translationChunks,
+  recoverTranslationChunks,
+  assembleTranslationChunks,
+  restorePairVerifiedBlockIds,
+} from '../translation-transport.js'
 import { hash, markdownBlocks, checkMarkdownPair } from '../markdown.js'
 import { exists, atomic, json, walk } from './shared.js'
 
@@ -335,17 +340,59 @@ export const translationFlowMethods = {
     const lastFiles = await exists(lastRaw) ? await walk(lastRaw, /\.md$/, 5) : []
     const lastCandidates = lastFiles.filter(f => !/(?:bilingual|对照)/i.test(path.relative(lastRaw, f)))
 
+    const readRequests = this.translationRequestLog ?? nativeRequests
     if (
       lastReceipt?.key === prep.key
-      && !lastReceipt.reusedBlocks
       && lastReceipt.finishedEvent?.status === 'done'
       && lastCandidates.length === 1
       && !options.reanalyze
     ) {
       try {
+        const sourceText = await fs.readFile(path.join(prep.directory, 'source.md'), 'utf8')
+        const rawCandidate = await fs.readFile(lastCandidates[0], 'utf8')
+        let candidateOutput = rawCandidate
+        if (!lastReceipt.reusedBlocks) {
+          const allChunks = translationChunks(sourceText)
+          if (markdownBlocks(rawCandidate).some(b => !/<!--\s*dsh-block:[a-zA-Z0-9_-]+\s*-->/.test(b.text))) {
+            candidateOutput = restorePairVerifiedBlockIds(allChunks, rawCandidate, await readRequests(), [lastReceipt])
+          }
+        } else {
+          const priorReceipts = []
+          const priorCached = []
+          const runNames = (await fs.readdir(path.join(prep.directory, 'runs')).catch(() => []))
+            .filter(n => /^\d+$/.test(n) && Number(n) < currentAttempt)
+            .sort((a, b) => Number(a) - Number(b))
+          for (const name of runNames) {
+            const pr = await json(path.join(prep.directory, 'runs', name, 'receipt.json'), null)
+            if (!pr) continue
+            priorReceipts.push(pr)
+            if (pr.checkpointFile) {
+              const bytes = await fs.readFile(pr.checkpointFile)
+              if (hash(bytes) !== pr.checkpointSha256) throw new Error('翻译恢复记录变化，请核查原始结果')
+              priorCached.push(...JSON.parse(bytes))
+            }
+          }
+          const reqs = await readRequests()
+          const prior = recoverTranslationChunks(sourceText, priorReceipts, reqs, priorCached)
+          const allById = new Map(translationChunks(sourceText).map(c => [c.blockId, c.text]))
+          const lastInput = await fs.readFile(path.join(lastDir, 'source.md'), 'utf8')
+          const lastInputChunks = translationChunks(lastInput)
+          if (lastInputChunks.some(c => allById.get(c.blockId) !== c.text)) {
+            throw new Error('增量翻译输入与当前原文不一致')
+          }
+          const lastIds = new Set(lastInputChunks.map(c => c.blockId))
+          const markerRe = /<!--\s*dsh-block:([a-zA-Z0-9_-]+)\s*-->/
+          const baseRecovered = prior.recovered.filter(p => {
+            const pid = (String(p.src ?? '').match(markerRe) ?? String(p.dst ?? '').match(markerRe))?.[1]
+            return pid && !lastIds.has(pid)
+          })
+          const repaired = restorePairVerifiedBlockIds(lastInputChunks, rawCandidate, reqs, [lastReceipt])
+          candidateOutput = assembleTranslationChunks(sourceText, baseRecovered, repaired)
+          await atomic(path.join(lastDir, 'assembled.md'), candidateOutput)
+        }
         await fs.mkdir(path.dirname(output), { recursive: true })
         if (await exists(output)) await fs.copyFile(output, `${output}.bak-${Date.now()}`)
-        await this.acceptTranslationOutput(t, await fs.readFile(lastCandidates[0], 'utf8'))
+        await this.acceptTranslationOutput(t, candidateOutput)
         t.translationCli = { ...lastReceipt, status: 'done', outputFingerprint: hash(await fs.readFile(output)) }
         t.translationProgress = { status: 'done', reused: true }
         t.translationModel.connectionVerified = true
@@ -381,7 +428,6 @@ export const translationFlowMethods = {
       }
     }
 
-    const readRequests = this.translationRequestLog ?? nativeRequests
     const recovery = recoverTranslationChunks(source, receipts, receipts.length ? await readRequests() : [], cached)
 
     // 连续失败熔断：同一通道 key 在 30 分钟内、最近一次成功之后连续失败达 10 次才停止；任何成功返回都会刷新计数
@@ -590,7 +636,17 @@ export const translationFlowMethods = {
       if (recovery.pending.length && candidates.length !== 1) {
         throw new Error('CLI 输出 Markdown 数量异常，保留原始输出等待核验')
       }
-      const returned = recovery.pending.length ? await fs.readFile(candidates[0], 'utf8') : ''
+      const rawReturned = recovery.pending.length ? await fs.readFile(candidates[0], 'utf8') : ''
+      const needsMarkerRepair = recovery.pending.length > 0
+        && markdownBlocks(rawReturned).some(b => !/<!--\s*dsh-block:[a-zA-Z0-9_-]+\s*-->/.test(b.text))
+      const returned = needsMarkerRepair
+        ? restorePairVerifiedBlockIds(
+          recovery.pending,
+          rawReturned,
+          await readRequests(),
+          [{ startedAt: t.translationCli.startedAt, endedAt: new Date().toISOString() }],
+        )
+        : rawReturned
       // Keep the legacy full-output receiver (including its narrow ID repair).
       const combined = recovery.recovered.length
         ? assembleTranslationChunks(source, recovery.recovered, returned)

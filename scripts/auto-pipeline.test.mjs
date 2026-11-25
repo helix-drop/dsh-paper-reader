@@ -84,6 +84,14 @@ test('three-confirmation pipeline: auto-chains transcription stage to completion
     assert.match(saved.message, /转写已完成，请在面板选择模型并确认进入术语分析与翻译/)
     assert.equal(saved.profile.confirmed, true)
     assert.equal(saved.structureConfirmed, true)
+
+    // Re-running explicit verify / assemble after fixing edits/body/*.json must execute (never short-circuit as done)
+    executedStages.length = 0
+    await f.manager.start(f.task.id, 'verify')
+    await f.manager.active.get(f.task.id)?.promise
+    await f.manager.start(f.task.id, 'assemble')
+    await f.manager.active.get(f.task.id)?.promise
+    assert.deepEqual(executedStages, ['verify', 'assemble'])
   } finally {
     await f.close()
   }

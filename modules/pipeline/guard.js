@@ -28,10 +28,11 @@ export function observationImagePaths(prompt,base){
 const within=(file,base)=>file===base||file.startsWith(base+path.sep)
 const privatePath=/(?:^|[\\/])(?:\.env(?:\..*)?|\.worker_env|credentials?|private-transports|auth\.json|cookies?|config\.toml|config\.json|golden)(?:[\\/]|$)/i
 // Immutable inputs and program-owned receipts remain readable, but not writable.
-const protectedWrite=/(?:^|\/)(?:task\.json|sessions\.json|execution-events\.jsonl|state\.json|profile\.json|document_profile\.json|profile-analysis|source\.[^/]+|raw_pages[^/]*|translation-cli|translation-input|ocr-regions|ocr-policy\.json|page_images|requests|harness-requests|attempts|worker_audit\.jsonl|actions|similarity_report|budget[^/]*|audit\.jsonl|\.kimi-code|AGENTS\.md)(?:\/|$)|(?:^|\/)output\/(?:report\.json|structured)(?:\/|$)|(?:^|\/)review\/audit\/(?:runs\/[a-f0-9-]+\/)?(?:snapshots\.json|current\.json|applied\.json|source\.md|translation\.md|glossary-snapshot\.json|review-issues-snapshot\.json|glossary\.json|issues\.json|old-revisions\.json|packets|manifest\.json|validation\.json|report\.json|receipt[^/]*)(?:\/|$)/i
-export function sessionGuard(root,exec,{inspect=false,taskDirectory=null}={}){
+const protectedWrite=/(?:^|\/)(?:task\.json|sessions\.json|execution-events\.jsonl|state\.json|profile\.json|document_profile\.json|profile-analysis|source\.[^/]+|raw_pages[^/]*|translation-cli|translation-input|ocr-regions|ocr-policy\.json|page_images|requests|harness-requests|attempts|worker_audit\.jsonl|actions|similarity_report|budget[^/]*|audit\.jsonl|\.kimi-code|AGENTS\.md)(?:\/|$)|(?:^|\/)glossary\/(?:analysis|consolidation|pipeline-receipt\.json|checkpoint\.json)(?:\/|$)|(?:^|\/)output\/(?:report\.json|structured)(?:\/|$)|(?:^|\/)review\/audit\/(?:runs\/[a-f0-9-]+\/)?(?:snapshots\.json|current\.json|applied\.json|source\.md|translation\.md|glossary-snapshot\.json|review-issues-snapshot\.json|glossary\.json|issues\.json|old-revisions\.json|packets|manifest\.json|validation\.json|report\.json|receipt[^/]*)(?:\/|$)/i
+export function sessionGuard(root,exec,{inspect=false,taskDirectory=null,replaced=false}={}){
   const name=String(exec.name),args=exec.arguments??{},header=exec.agent?.session?.header??{}
   const reading=header.agentPreset==='reading-document'
+  if(replaced&&!taskDirectory&&!inspect)return '当前编排会话已被新会话接替并归档，请立即停止本轮回复，无需重试任何工具。'
   // Sharing the runtime working directory does not enroll an ordinary session.
   if(!taskDirectory&&!inspect)return reading?'文档会话必须先绑定任务。':undefined
   const cwd=path.resolve(header.cwd??root),base=canonical(taskDirectory??root)

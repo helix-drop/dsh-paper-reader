@@ -10,10 +10,14 @@ import { readPipelineConfiguration } from './configuration.js'
 import { hash, markdownBlocks } from './markdown.js'
 import { BookmarkStore } from './bookmarks.js'
 import { ReadingProgressStore } from './reading-progress.js'
+import { DeletedTasksStore, pruneTaskCaches, pruneTrash } from './hygiene.js'
+import { hygieneMethods } from './tasks/hygiene-methods.js'
 import { cliStatus, LINGUAGACHA_CLI } from './cli.js'
 import { analyseBookGlossary } from './glossary.js'
 import { commitPublication } from './publication.js'
-import { assertPhaseApproved } from './phases.js'
+import { taskCoverMeta } from './cover.js'
+import { assertPhaseApproved, transcriptionComplete } from './phases.js'
+import { publishTaskNotice } from './notices.js'
 import {
   STAGES,
   validId,
@@ -64,6 +68,7 @@ export class TaskManager {
     this.python = options.python ?? '/opt/homebrew/bin/python3'
     this.bookmarkStore = new BookmarkStore(path.join(root, '.pipeline/bookmarks-v1.json'))
     this.progressStore = new ReadingProgressStore(path.join(root, '.pipeline/reading-progress-v1.json'))
+    this.deletedTasks = new DeletedTasksStore(root)
     this.cliExecutable = options.cliExecutable ?? LINGUAGACHA_CLI
     this.cliStatus = options.cliStatus ?? (() => cliStatus(this.root))
     this.fetch = options.fetch ?? fetch
@@ -184,6 +189,7 @@ export class TaskManager {
           await this.refreshLibraryProof(t)
           await this.index.put(t, currentStamp)
         }
+        void this.runStartupHygiene?.()
       })()
     }
     return this.indexReady
@@ -224,12 +230,12 @@ export class TaskManager {
     return this.index.setItemMeta(id, meta)
   }
 
-  async importLegacy() {
-    return this.locked('legacy-import', () => importLegacyBooks(this))
+  async importLegacy(options = {}) {
+    return this.locked('legacy-import', () => importLegacyBooks(this, options))
   }
 
-  async importPapers() {
-    return this.locked('paper-import', () => importLegacyPapers(this))
+  async importPapers(options = {}) {
+    return this.locked('paper-import', () => importLegacyPapers(this, options))
   }
 
   async adoptLegacy(id) {
@@ -443,6 +449,7 @@ export class TaskManager {
         name: t.documentTitle ?? t.name,
         kind: t.kind,
         ready: true,
+        ...taskCoverMeta(t),
         ...(t.paperImport
           ? {
             author: t.paperImport.metadata.author?.zh ?? t.paperImport.metadata.author?.source,
@@ -459,8 +466,10 @@ export class TaskManager {
     return this.locked(id, async () => {
       if (this.active.has(id)) throw new Error('任务正在运行，不能删除')
       await this.ensureIndex()
-      await this.index.removeTask(id)
       const taskDir = this.dir(id)
+      const existingTask = await json(path.join(taskDir, 'task.json'), null)
+      await this.deletedTasks.recordDeleted(existingTask ?? { id })
+      await this.index.removeTask(id)
       const trashDir = path.join(this.root, '.pipeline/trash', id)
       try {
         await fs.mkdir(path.dirname(trashDir), { recursive: true })
@@ -468,6 +477,7 @@ export class TaskManager {
       } catch {
         try { await fs.rm(taskDir, { recursive: true, force: true }) } catch {}
       }
+      void pruneTrash(this.root).catch(() => {})
       return { ok: true }
     })
   }
@@ -489,6 +499,14 @@ export class TaskManager {
       if (t.stages[s]?.state !== 'done') {
         throw new Error(`先完成${STAGES.find(x => x.id === s)?.name ?? s}`)
       }
+    }
+  }
+
+  async publishPipelineNotice(task, meta = {}) {
+    try {
+      return await publishTaskNotice(this, task, meta)
+    } catch {
+      return null
     }
   }
 
@@ -530,7 +548,7 @@ export class TaskManager {
 
       if (!steps && !STAGES.some(s => s.id === stage)) throw new Error('处理入口无效')
 
-      const isChain = stage !== 'verify' && !options.singleStep && Boolean(macroPhase)
+      const isChain = !['verify', 'assemble'].includes(stage) && !options.singleStep && Boolean(macroPhase)
       const executionChain = isChain ? steps : [stage]
 
       let startIndex = 0
@@ -587,6 +605,7 @@ export class TaskManager {
       this.active.set(id, active)
       await this.save(t)
 
+      let noticeMeta = { userStop: false, timedOut: false }
       active.promise = (async () => {
         for (let i = startIndex; i < executionChain.length; i++) {
           const currentStage = executionChain[i]
@@ -598,11 +617,13 @@ export class TaskManager {
             break
           }
 
+          const explicitRevalidate = !isChain && ['verify', 'assemble'].includes(stage) && currentStage === stage
           const skipCompleted = (
-            t.stages[currentStage]?.state === 'done'
+            !explicitRevalidate
+            && t.stages[currentStage]?.state === 'done'
             && !options.reanalyze
             && !options.retryErrors
-            && !(currentStage === 'review' && (options.runAgy === true || options.sessionOrchestrated === true))
+            && !(currentStage === 'review' && (options.runAgy === true || options.sessionOrchestrated === true || options.force === true))
           )
           if (skipCompleted) continue
 
@@ -633,6 +654,10 @@ export class TaskManager {
             }
           }
 
+          if (currentStage === 'review' && t.publication && !t.publication.published) {
+            delete t.publication
+            if (t.stages?.publish?.state !== 'done') delete t.stages.publish
+          }
           t.stage = currentStage
           t.stages[currentStage] = { state: 'running' }
           t.message = `正在执行${STAGES.find(s => s.id === currentStage)?.name ?? currentStage}`
@@ -694,7 +719,9 @@ export class TaskManager {
         }
       })().catch(e => {
         const failed = t.stage
-        const paused = active.cancel || ['AGY_IDLE_TIMEOUT', 'REVIEW_IDLE_TIMEOUT'].includes(e.code)
+        const timedOut = ['AGY_IDLE_TIMEOUT', 'REVIEW_IDLE_TIMEOUT'].includes(e.code)
+        const paused = active.cancel || timedOut
+        noticeMeta = { userStop: Boolean(active.cancel), timedOut }
         t.stages[failed] = { state: paused ? 'stopped' : 'blocked' }
         t.state = paused ? 'paused' : 'blocked'
         t.message = active.cancel && ['paddle', 'mineru'].includes(failed)
@@ -708,6 +735,17 @@ export class TaskManager {
           await this.save(t)
         } finally {
           this.active.delete(id)
+          if (t.state === 'idle' && ['assemble', 'translate', 'translationCheck', 'review', 'publish'].includes(t.stage)) {
+            await pruneTaskCaches(this, t, { mode: 'safe' }).catch(() => {})
+          }
+          await this.publishPipelineNotice(t, {
+            phase: macroPhase,
+            userStop: noticeMeta.userStop,
+            timedOut: noticeMeta.timedOut,
+            phaseComplete: macroPhase === 'transcription'
+              ? transcriptionComplete(t)
+              : macroPhase === 'translation' && t.stages?.translationCheck?.state === 'done',
+          })
         }
       })
 
@@ -781,4 +819,5 @@ Object.assign(
   transcriptionFlowMethods,
   translationFlowMethods,
   readingPublicationMethods,
+  hygieneMethods,
 )

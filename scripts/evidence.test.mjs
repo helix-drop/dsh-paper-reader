@@ -88,3 +88,25 @@ test('file name filtering precedes pagination and never returns private files or
   await assert.rejects(evidenceFiles(f.dir,{query:4}),/文件名筛选/)
  }finally{await f.close()}
 })
+test('evidenceSummary exposes definedChapters and pendingChapterIds and replaced sessions receive explicit stop error',async()=>{
+ const f=await fixture(),disposers=[];try{
+  await fs.writeFile(path.join(f.ai,'chapters.json'),JSON.stringify([
+   {id:'001',title:'Front matter',start_page:1,end_page:5},
+   {id:'002',title:'Chapter 1',start_page:6,end_page:20},
+   {id:'003',title:'Chapter 2',start_page:21,end_page:35},
+  ]))
+  const summary=await evidenceSummary(f.manager,f.task)
+  assert.equal(summary.totalChapters,1)
+  assert.equal(summary.definedChapters,3)
+  assert.deepEqual(summary.pendingChapterIds,['002','003'])
+  assert.match(sessionGuard(f.root,{name:'document_pipeline',arguments:{action:'task'},agent:{session:{header:{cwd:f.root,agentPreset:'reading-document'}}}},{replaced:true}),/已被新会话接替/)
+  const {installPipelineModule}=await import('../modules/pipeline/index.js')
+  let definition;const ctx={inject:()=>{},on:(event,fn)=>{if(event==='dispose')disposers.push(fn)},tools:{guard:()=>{},register:d=>{definition=d}}}
+  await fs.mkdir(path.join(f.root,'.pipeline'),{recursive:true})
+  await fs.writeFile(path.join(f.root,'.pipeline/dsh-replaced-sessions.json'),JSON.stringify(['session-old-orch']))
+  installPipelineModule(ctx,{pipelineWorkspace:f.root})
+  assert.ok(definition.parameters.properties.options.properties.newConversation)
+  assert.ok(definition.parameters.properties.options.properties.concurrency)
+  await assert.rejects(definition.execute({action:'task'},{agent:{session:{id:'session-old-orch',header:{cwd:f.root,agentPreset:'reading-document'}}}}),/已被新会话接替/)
+ }finally{for(const d of disposers)await d();await f.close()}
+})

@@ -42,19 +42,86 @@ export class BookmarkStore {
   async read(){try{const value=JSON.parse(await fs.readFile(this.file,'utf8'));if(value.schemaVersion!==1||!Array.isArray(value.bookmarks))throw new Error();return value}catch(e){if(e.code==='ENOENT')return{schemaVersion:1,documents:{},bookmarks:[],highlights:[],deleted:[]};throw new Error('书签数据格式异常，保留原文件')}}
   async change(fn){const job=this.queue.catch(()=>{}).then(async()=>{const state=await this.read(),value=await fn(state);await fs.mkdir(path.dirname(this.file),{recursive:true});const temp=this.file+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,JSON.stringify(state,null,2)+'\n',{mode:0o600,flag:'wx'});await fs.rename(temp,this.file)}finally{await fs.unlink(temp).catch(()=>{})}return value});this.queue=job;return job}
   async add(document,args){return this.change(state=>{
-    const located=locateSelection(document,args.selection??{}),now=new Date().toISOString(),mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,comment:String(args.comment??'').slice(0,8000),tags:Array.isArray(args.tags)?args.tags.filter(x=>typeof x==='string').map(x=>x.slice(0,80)).slice(0,30):[],selector:located.selector,createdAt:now,updatedAt:now}
+    const located=locateSelection(document,args.selection??{}),now=new Date().toISOString()
+    const style=['highlight','wave','line'].includes(args.style)?args.style:'highlight'
+    const color=['gold','blue','green','pink','purple'].includes(args.color)?args.color:'gold'
+    const mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,comment:String(args.comment??'').slice(0,8000),tags:Array.isArray(args.tags)?args.tags.filter(x=>typeof x==='string').map(x=>x.slice(0,80)).slice(0,30):[],style,color,selector:located.selector,createdAt:now,updatedAt:now}
     if(Array.isArray(state.highlights))state.highlights=state.highlights.filter(h=>!sameSpan(h,located,document.id))
     state.documents[document.id]={id:document.id,title:document.title,kind:document.kind,source:document.source,updatedAt:now};state.bookmarks.push(mark);return mark
   })}
   async addHighlight(document,args){return this.change(state=>{
     const located=locateSelection(document,args.selection??{})
+    const style=['highlight','wave','line'].includes(args.style)?args.style:'highlight'
+    const color=['gold','blue','green','pink','purple'].includes(args.color)?args.color:'gold'
+    const now=new Date().toISOString()
     const bookmark=state.bookmarks.find(b=>b.selector?.type==='TextQuoteSelector'&&b.highlight!==false&&sameSpan(b,located,document.id))
-    if(bookmark)return {...bookmark,already:true,kind:'bookmark'}
+    if(bookmark){
+      if(args.style||args.color){bookmark.style=style;bookmark.color=color;bookmark.updatedAt=now}
+      return {...bookmark,already:true,kind:'bookmark'}
+    }
     if(!Array.isArray(state.highlights))state.highlights=[]
     const existing=state.highlights.find(h=>sameSpan(h,located,document.id))
-    if(existing)return {...existing,already:true,kind:'highlight'}
-    const now=new Date().toISOString(),mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,selector:located.selector,createdAt:now,updatedAt:now}
+    if(existing){
+      if(args.style||args.color){existing.style=style;existing.color=color;existing.updatedAt=now}
+      return {...existing,already:true,kind:'highlight'}
+    }
+    const mark={id:randomUUID(),documentId:document.id,source:document.source,documentVersion:document.version,quote:located.exact,style,color,selector:located.selector,createdAt:now,updatedAt:now}
     state.highlights.push(mark);return mark
+  })}
+  async update(id,patch={}){return this.change(state=>{
+    const now=new Date().toISOString()
+    const style=patch.style&&['highlight','wave','line'].includes(patch.style)?patch.style:undefined
+    const color=patch.color&&['gold','blue','green','pink','purple'].includes(patch.color)?patch.color:undefined
+    const bm=state.bookmarks.find(b=>b.id===id)
+    if(bm){
+      if(typeof patch.comment==='string')bm.comment=patch.comment.slice(0,8000)
+      if(Array.isArray(patch.tags))bm.tags=patch.tags.filter(x=>typeof x==='string').map(x=>x.slice(0,80)).slice(0,30)
+      if(style)bm.style=style
+      if(color)bm.color=color
+      bm.highlight=true;bm.updatedAt=now;return {...bm,kind:'bookmark'}
+    }
+    const rows=Array.isArray(state.highlights)?state.highlights:[]
+    const hlIdx=rows.findIndex(h=>h.id===id)
+    if(hlIdx<0)throw new Error('划线或书签不存在')
+    const hl=rows[hlIdx]
+    if(style)hl.style=style
+    if(color)hl.color=color
+    hl.updatedAt=now
+    if(typeof patch.comment==='string'&&patch.comment.trim()){
+      rows.splice(hlIdx,1);state.highlights=rows
+      const promoted={...hl,comment:patch.comment.slice(0,8000),tags:Array.isArray(patch.tags)?patch.tags.filter(x=>typeof x==='string').map(x=>x.slice(0,80)).slice(0,30):[],highlight:true,updatedAt:now}
+      state.bookmarks.push(promoted);return {...promoted,kind:'bookmark'}
+    }
+    return {...hl,kind:'highlight'}
+  })}
+  async updateDocumentCitation(documentId,citation={}){return this.change(state=>{
+    if(!documentId)throw new Error('缺少文献标识')
+    const now=new Date().toISOString()
+    const clean=v=>String(v??'').trim().slice(0,400)
+    const validKinds=['book','paper','collection','incollection']
+    const nextKind=validKinds.includes(citation.kind)?citation.kind:'book'
+    const prev=state.documents[documentId]??{id:documentId,title:clean(citation.title)||documentId,kind:nextKind==='paper'?'paper':'book'}
+    const nextCitation={
+      kind:nextKind,
+      title:clean(citation.title),
+      subtitle:clean(citation.subtitle),
+      originalTitle:clean(citation.originalTitle),
+      authors:clean(citation.authors),
+      editors:clean(citation.editors),
+      translators:clean(citation.translators),
+      bookTitle:clean(citation.bookTitle),
+      originalBookTitle:clean(citation.originalBookTitle),
+      publisher:clean(citation.publisher),
+      journal:clean(citation.journal),
+      year:clean(citation.year).slice(0,16),
+      volume:clean(citation.volume).slice(0,40),
+      issue:clean(citation.issue).slice(0,40),
+      pages:clean(citation.pages).slice(0,40),
+      isbn:clean(citation.isbn).slice(0,60),
+      doi:clean(citation.doi).slice(0,160),
+    }
+    state.documents[documentId]={...prev,citation:nextCitation,updatedAt:now}
+    return {documentId,citation:nextCitation,updatedAt:now}
   })}
   async removeHighlight(id){return this.change(state=>{const rows=Array.isArray(state.highlights)?state.highlights:[];const next=rows.filter(h=>h.id!==id);if(Array.isArray(state.highlights))state.highlights=next;const removed=next.length!==rows.length;if(removed){state.deleted=Array.isArray(state.deleted)?state.deleted.filter(d=>d.id!==id):[];state.deleted.push({id,kind:'highlight',deletedAt:new Date().toISOString()})}return{removed}})}
   async muteHighlight(id){return this.change(state=>{const hit=state.bookmarks.find(b=>b.id===id);if(!hit)return{muted:false};hit.highlight=false;hit.updatedAt=new Date().toISOString();return{muted:true}})}

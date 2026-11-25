@@ -14,11 +14,18 @@ export function responseText(value){if(typeof value==='string')return value;if(v
 
 /** Host-owned sessions; no fake model replies and no extra model call per progress event. */
 export class TaskSessions {
-  constructor(manager,host,register,unregister=null){this.manager=manager;this.host=host;this.register=register;this.unregister=unregister;this.queues=new Map();this.errors=new Map();this.pending=new Set();this.disposed=false}
+  constructor(manager,host,register,unregister=null,presetReady=null){this.manager=manager;this.host=host;this.register=register;this.unregister=unregister;this.presetReady=presetReady;this.queues=new Map();this.errors=new Map();this.pending=new Set();this.disposed=false}
   file(id){return path.join(this.manager.dir(id),'sessions.json')}
   serial(id,fn){const next=(this.queues.get(id)??Promise.resolve()).catch(()=>{}).then(fn);this.queues.set(id,next);return next.finally(()=>{if(this.queues.get(id)===next)this.queues.delete(id)})}
   async write(file,value){await fs.mkdir(path.dirname(file),{recursive:true});const tmp=file+'.'+randomUUID()+'.tmp';await fs.writeFile(tmp,JSON.stringify(value,null,2),{mode:0o600});await fs.rename(tmp,file)}
+  async abortSession(id){
+    if(!id)return
+    try{await this.host.agents?.get?.(id)?.abort?.()}catch{}
+    try{await this.host.sessionController?.abort?.({sessionId:id})}catch{}
+    try{await this.host.sessionController?.stop?.({sessionId:id})}catch{}
+  }
   async attach(sessionId,request){
+    await this.presetReady?.()
     if(this.host.agents.get(sessionId))return
     // create() only reuses a blank session. A session that already has a turn
     // is left untouched and a new id is minted, so resume the stored id first.
@@ -107,6 +114,7 @@ export class TaskSessions {
       const previous={...(data.previousSessions??{}),...(data.sessions??{})}
       for(const [role,id] of Object.entries(data.sessions??{})){
         if(id){
+          await this.abortSession(id)
           try{await this.host.workspaceRegistry?.archiveSession?.(id)}catch{}
           try{await this.host.sessionController?.delete?.({sessionId:id})}catch{}
           if(typeof this.unregister==='function'){try{await this.unregister(id)}catch{}}
@@ -124,6 +132,7 @@ export class TaskSessions {
       const data=await read(this.file(t.id),{sessions:{}})
       const oldId=data.sessions?.orchestrator
       if(oldId){
+        await this.abortSession(oldId)
         data.previousSessions={...(data.previousSessions??{}),orchestrator:oldId}
         data.previousOrchestrator=oldId
         data.previousOrchestrators=[...new Set([...(data.previousOrchestrators??[]),oldId])]

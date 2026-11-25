@@ -57,6 +57,9 @@ function renderPipelineWorkspace(ctx) {
     read,
     setPdfModal,
     openSystemPdf,
+    startSupplementalReview,
+    act,
+    api,
   } = ctx
 
   const activeTasks = filteredTasks.filter(t => !isReadableTask(t))
@@ -483,6 +486,12 @@ function renderPipelineWorkspace(ctx) {
                 'div',
                 { style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 } },
                 button(h(React.Fragment, null, icon('play', 14), h('span', null, nextAction.label)), advance, 'rr-nextStepBtn', { disabled: busy }),
+                !task.legacy && task.state !== 'running' && reviewDone && !deliveryDone
+                  ? button('补充重审', startSupplementalReview, 'rr-detailActionBtn', {
+                      disabled: busy,
+                      title: '基于当前最新原文与译文创建全新审校运行并重审（可填写本次重点核查说明），完成后重新生成发布清单',
+                    })
+                  : null,
                 !task.legacy &&
                   task.state !== 'running' &&
                   translationDone &&
@@ -581,7 +590,47 @@ function renderPipelineWorkspace(ctx) {
                 { className: 'rr-factCell' },
                 h('small', null, '范围'),
                 h('span', null, task.input.type === 'markdown' ? (task.inspection?.blocks ?? '—') + ' 块' : task.profile?.confirmed ? `${task.profile.start_page}–${task.profile.end_page} 页` : '待确认')
-              )
+              ),
+              task.input.type === 'pdf'
+                ? h(
+                    'div',
+                    { className: 'rr-factCell' },
+                    h('small', null, '封面页'),
+                    h(
+                      'span',
+                      { style: { display: 'inline-flex', alignItems: 'center', gap: 6 } },
+                      task.cover?.none
+                        ? '无独立封面'
+                        : task.cover?.page
+                          ? `第 ${task.cover.page} 页`
+                          : task.cover?.file && !task.cover?.none
+                            ? '静态封面图'
+                            : task.profile?.cover_page
+                              ? `第 ${task.profile.cover_page} 页`
+                              : '待提取',
+                      button(
+                        '设定',
+                        () => {
+                          const cur = task.cover?.page ?? task.profile?.cover_page ?? ''
+                          const raw = window.prompt('输入作为书架封面的 PDF 页码（留空或填 0 表示无独立封面）：', cur ? String(cur) : '')
+                          if (raw === null) return
+                          const trimmed = raw.trim()
+                          const coverPage = trimmed === '' || trimmed === '0' ? null : Number(trimmed)
+                          if (coverPage !== null && (!Number.isInteger(coverPage) || coverPage < 1)) {
+                            setMessage('封面页码须为正整数，或留空表示无封面')
+                            return
+                          }
+                          act(async () => {
+                            await api('/tasks/' + selected + '/cover', 'POST', { coverPage })
+                            setMessage(coverPage ? `已将第 ${coverPage} 页标记为封面并生成静态封面图` : '已标记为无独立封面')
+                          })
+                        },
+                        'rr-buttonQuiet',
+                        { disabled: busy, style: { padding: '2px 7px', fontSize: 11 } }
+                      )
+                    )
+                  )
+                : null
             ),
             h(
               'div',

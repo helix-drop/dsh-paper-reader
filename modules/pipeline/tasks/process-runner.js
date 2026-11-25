@@ -36,13 +36,21 @@ function extractCommandDiagnostic(output) {
   for (const line of output.trim().split('\n').reverse()) {
     try {
       const diagnostic = JSON.parse(line)
-      if (typeof diagnostic.error === 'string') {
+      if (diagnostic?.type === 'paper-reader-worker') {
+        if (diagnostic.event === 'request_failed' && typeof diagnostic.errorMessage === 'string') {
+          return modelFailure({ message: diagnostic.errorMessage }).message
+        }
+        continue
+      }
+      if (typeof diagnostic?.error === 'string') {
         return modelFailure({ message: diagnostic.error }).message
       }
     } catch {}
   }
 
-  const lines = output.split('\n').map(l => l.trim()).filter(Boolean)
+  const lines = output.split('\n').map(l => l.trim()).filter(
+    l => Boolean(l) && !l.includes('"type":"paper-reader-worker"') && !l.includes('"type": "paper-reader-worker"'),
+  )
   const blocked = lines.filter(l => /^(?:[✗xX*!]\s*)?BLOCKED:|^Error:|^ValueError:/i.test(l))
   let diag = ''
   if (blocked.length) {
@@ -141,7 +149,10 @@ export const processRunnerMethods = {
 
   async rawCommand(t, cmd, args, io = {}) {
     t.log ??= []
-    const commandName = path.basename(args[0]?.startsWith('--') ? cmd : args[0] ?? cmd)
+    const firstArg = args[0] && path.basename(args[0]) === path.basename(WORKER_OBSERVER) && args[1]
+      ? args[1]
+      : args[0]
+    const commandName = path.basename(firstArg?.startsWith('--') ? cmd : firstArg ?? cmd)
     const entry = { stage: t.stage, startedAt: new Date().toISOString(), command: commandName }
     t.log.push(entry)
     await this.save(t)
@@ -281,7 +292,7 @@ export const processRunnerMethods = {
         entry.exitCode = code
         entry.signal = signal
         entry.endedAt = new Date().toISOString()
-        if (code !== 0 && !entry.timedOut) {
+        if (code !== 0 && !entry.timedOut && !active?.cancel) {
           const diag = extractCommandDiagnostic(output)
           if (diag) entry.diagnostic = diag
         }

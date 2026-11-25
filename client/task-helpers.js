@@ -1,11 +1,11 @@
-const profileLabels={document_type:'文档类型',language:'原文语言',book_type:'注释体例',note_location:'注释位置',note_numbering:'编号方式',layout:'页面布局',start_page:'处理起始页',end_page:'处理结束页',note_start_page:'尾注起始页',note_end_page:'尾注结束页',regions:'逐页裁切与阅读顺序',title:'标题'}
+const profileLabels={document_type:'文档类型',language:'原文语言',book_type:'注释体例',note_location:'注释位置',note_numbering:'编号方式',layout:'页面布局',start_page:'处理起始页',end_page:'处理结束页',note_start_page:'尾注起始页',note_end_page:'尾注结束页',cover_page:'封面页',regions:'逐页裁切与阅读顺序',title:'标题'}
 const profileValues={book:'整本书',paper:'论文',chapter:'章节节选',collection:'文章合集',en:'英语',fr:'法语',de:'德语',zh:'中文',ja:'日语',es:'西班牙语',it:'意大利语',footnote_only:'页底脚注',endnote_only:'尾注',mixed:'混合体例',no_notes:'无注释',per_page:'每页重置',per_chapter:'每章重置',continuous:'全文连续',per_page_bottom:'所在页底',chapter_end_notes:'章节末尾',book_end_notes:'整书末尾',none:'无注释',single:'单页单栏',spread:'左右双页',columns:'多栏排版'}
 function ProfileAnalysis({task,onAnalyze}){
   const report=task.profileAnalysis,pending=task.profile?.confirmed?[]:(task.profileReadiness?.missing??report?.unresolved??[]),running=task.state==='running',locked=task.stages.normalize?.state==='done'||task.stages.lgProject?.state==='done'
   return h('div',{className:'rr-profileAnalysis'},h('p',{className:'rr-pipelineNote',role:'status'},running?'正在分析文档，完成后自动填写。':!report?'尚未自动分析文档。':report.status==='model_failed'?'模型分析未完成，已保留程序检查结果。可重试分析，或展开配置核对。':report.preservedUserProfile&&task.profile?.confirmed?'分析完成，已有人工保存的配置继续保留。':pending.length?'模型已返回分析结果，仍有必填信息待核验，尚不能继续处理。':'已自动填写分析结果，处理范围默认保留全文。'),
     !locked?button(report?'重新分析文档':'自动分析文档',onAnalyze,'rr-buttonQuiet',{disabled:running}):null,
     report?h(React.Fragment,null,h('p',{className:'rr-pipelineNote'},['language','document_type','layout','book_type','note_numbering'].map(key=>profileValues[task.profile?.[key]]??'').filter(Boolean).join(' · ')),pending.length?h('p',{className:'rr-taskWarning'},'待核对：'+pending.map(key=>profileLabels[key]??key).join('、')):null,
-      h('details',null,h('summary',null,'查看分析依据'),h('p',{className:'rr-pipelineNote'},'采样页：'+report.samplePages.join('、')),h('table',{className:'rr-taskTable'},h('tbody',null,Object.entries(report.fields).map(([key,field])=>h('tr',{key},h('th',null,profileLabels[key]??key),h('td',null,profileValues[field.value]??String(field.value)),h('td',null,(field.confidence==='high'?'较高置信度 · ':'中等置信度 · ')+field.reason+(field.pages.length?' · PDF页 '+field.pages.join('、'):'')))))))):null)
+      h('details',null,h('summary',null,'查看分析依据'),h('p',{className:'rr-pipelineNote'},'采样页：'+report.samplePages.join('、')),h('table',{className:'rr-taskTable'},h('tbody',null,Object.entries(report.fields).map(([key,field])=>h('tr',{key},h('th',null,profileLabels[key]??key),h('td',null,field.value===null&&key==='cover_page'?'无独立封面':(profileValues[field.value]??String(field.value))),h('td',null,(field.confidence==='high'?'较高置信度 · ':'中等置信度 · ')+field.reason+(field.pages.length?' · PDF页 '+field.pages.join('、'):'')))))))):null)
 }
 function isReadableTask(task) {
   return task.publication?.published === true || task.readingReady === true || Boolean(task.libraryProof)
@@ -56,8 +56,8 @@ function resolveNextAction(task,{stageName='当前阶段',transcriptionDone=fals
     return {label:'核对章节结构',title:'章节结构待确认',note:task.message||'自动提取的章节存在冲突，请在面板核对确认章节。',kind:'chapters'}
   }
   if(task.state==='blocked'&&task.stage!=='review'){
-    if(!transcriptionDone)return {label:'确认配置并继续转写',title:'转写受阻 · 待确认后继续',note:'确认模型配置后从断点接续转写，已完成的页面与章节全部保留。',kind:'run',stage:task.stage||'transcribe',options:{}}
-    if(!translationDone)return {label:'重试未完成翻译项',title:'术语或翻译受阻',note:'将仅重试失败或未完成的段落块，已完成块自动复用。',kind:'run',stage:task.stage||'translate',options:{}}
+    if(!transcriptionDone)return {label:'确认配置并继续转写',title:'转写受阻 · 待确认后继续',note:'确认模型配置后从断点接续转写，已完成的页面与章节全部保留。',kind:'run',stage:'transcribe',options:{}}
+    if(!translationDone)return {label:'重试未完成翻译项',title:'术语或翻译受阻',note:'将仅重试失败或未完成的术语分片或段落块，已完成部分自动复用。',kind:'run',stage:'translate',options:{retryErrors:true}}
     return {label:'重试当前阶段',title:'处理遇到阻断',note:task.message||'请核对阻断原因后重试。',kind:'run',stage:task.stage||'review',options:{}}
   }
   if(!transcriptionDone){
@@ -66,7 +66,7 @@ function resolveNextAction(task,{stageName='当前阶段',transcriptionDone=fals
   }
   if(!translationDone){
     const paused=['paused','interrupted','stopped'].includes(task.state)
-    return {label:paused?'继续术语分析与翻译':'选择模型并开始翻译',title:paused?'翻译已暂停':'第二阶段：术语分析与翻译',note:paused?'从断点接续术语分析或段落翻译，已完成块自动复用。':'转写与原文装配已完成。确认模型后依次完成术语分析、翻译与译文校验，随后等待审校确认。',kind:'run',stage:'translate',options:{}}
+    return {label:paused?'继续术语分析与翻译':'选择模型并开始翻译',title:paused?'翻译已暂停':'第二阶段：术语分析与翻译',note:paused?'从断点接续术语分析或段落翻译，已完成块自动复用。':'转写与原文装配已完成。确认模型后依次完成术语分析、翻译与译文校验，随后等待审校确认。',kind:'run',stage:'translate',options:paused?{retryErrors:true}:{}}
   }
   if(!rev.approvedForDelivery){
     return {label:'选择模型并开始审校',title:'第三阶段：确认审校模型',note:'双语映射与译文结构已检验通过。确认审校模型后将自动开启独立的 0 上下文审校会话，完成后单独核对发布清单。',kind:'run',stage:'review',options:{}}

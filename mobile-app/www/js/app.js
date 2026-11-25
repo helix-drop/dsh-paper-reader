@@ -2,6 +2,7 @@ import { escapeHtml, WEREAD_THEMES, WEREAD_FONTS, resolveFontStack, renderBookCo
 import { offlineDb } from './offline-db.js'
 import { readerApi } from './api.js'
 import { nativeBridge } from './native-bridge.js'
+import { startPipelineNoticeWatch } from './pipeline-notices.js'
 import { ReaderController } from './reader-controller.js'
 import { renderConnectionCardHtml, bindConnectionCard } from './connection-panel.js'
 
@@ -134,9 +135,12 @@ function applyThemeAttributes(settings) {
   void nativeBridge.setAppearance({ bgColor: bg, dark: Boolean(found?.dark) })
 }
 
+let pipelineNotices = { kick() {} }
+
 async function updateSettings(patch) {
   state.settings = await offlineDb.saveSettings(patch)
   applyThemeAttributes(state.settings)
+  pipelineNotices.kick()
   return state.settings
 }
 
@@ -905,6 +909,14 @@ nativeBridge.setBackHandler(() => {
 async function bootstrap() {
   state.settings = await offlineDb.getSettings()
   applyThemeAttributes(state.settings)
+  pipelineNotices = startPipelineNoticeWatch({
+    getSettings: () => state.settings,
+    pull: settings => readerApi.pullPipelineNotices(settings),
+    notify: payload => nativeBridge.notify(payload),
+    ensurePermission: () => nativeBridge.requestNotifications(),
+    isNative: () => nativeBridge.isNative(),
+    onUnavailable: () => showToast('通知权限未开启，转写和翻译结果无法推送到这台手机'),
+  })
   await refreshLocalState()
   render()
   // Silent background sync if configured or served from sync-server

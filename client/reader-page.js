@@ -24,6 +24,8 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   const [serverProgress, setServerProgress] = useState({})
   const [cloudSyncOpen, setCloudSyncOpen] = useState(false)
   const [cloudSyncStatus, setCloudSyncStatus] = useState(null)
+  const [librarySearch, setLibrarySearch] = useState({ loading: false, query: '', data: null, error: '' })
+  const [expandedLibGroups, setExpandedLibGroups] = useState({ titles: true, passages: true })
   const lastCloudSyncAtRef = useRef(null)
   const exitPipelineReadingRef = useRef(null)
 
@@ -144,9 +146,32 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
     }
   }, [view])
   useEffect(() => { setOffset(0) }, [query, category, selectedFolder, showHidden, documents?.length, sortMode])
+  useEffect(() => {
+    const q = query.trim()
+    if (view !== 'library' || !q) {
+      setLibrarySearch({ loading: false, query: '', data: null, error: '' })
+      return
+    }
+    const ctrl = new AbortController()
+    setLibrarySearch(prev => ({ ...prev, loading: true, query: q, error: '' }))
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          '/api/paper-reader/pipeline/search?q=' + encodeURIComponent(q) + (showHidden ? '&includeHidden=1' : '') + '&limitBooks=25&maxMatches=6',
+          { signal: ctrl.signal },
+        )
+        const v = await res.json()
+        if (!res.ok) throw new Error(v.error ?? '全库检索失败')
+        if (!ctrl.signal.aborted) setLibrarySearch({ loading: false, query: q, data: v, error: '' })
+      } catch (e) {
+        if (!ctrl.signal.aborted) setLibrarySearch({ loading: false, query: q, data: null, error: e.message || '全库检索失败' })
+      }
+    }, 220)
+    return () => { clearTimeout(timer); ctrl.abort() }
+  }, [query, view, showHidden, readingTick])
 
-  const openDocument = (id, blockId = '', readingView = '') => {
-    setReadingTarget({ id, blockId, view: readingView })
+  const openDocument = (id, blockId = '', readingView = '', searchQuery = '') => {
+    setReadingTarget({ id, blockId, view: readingView, searchQuery })
     setView('reader')
   }
   const closeReading = () => {
@@ -440,7 +465,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
   if (view === 'processing') {
     content = h(PipelinePanel, { ...props, mode: 'processing', onReadingChange: setProcessingReading, exitReadingRef: exitPipelineReadingRef })
   } else if (view === 'reader' && readingTarget) {
-    content = h(PipelinePanel, { ...props, mode: 'reader', initialTaskId: readingTarget.id, initialBlockId: readingTarget.blockId, initialView: readingTarget.view, onCloseReading: closeReading, onReadingChange: setReaderMeta })
+    content = h(PipelinePanel, { ...props, mode: 'reader', initialTaskId: readingTarget.id, initialBlockId: readingTarget.blockId, initialView: readingTarget.view, initialSearchQuery: readingTarget.searchQuery ?? '', onCloseReading: closeReading, onReadingChange: setReaderMeta })
   } else if (view === 'bookmarks') {
     content = h(BookmarkLibrary, { onOpenPaper: openPaper, onOpenTask: openDocument })
   } else {
@@ -587,7 +612,7 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                 className: 'rr-librarySearchInput',
                 value: query,
                 onChange: e => setQuery(e.target.value),
-                placeholder: '搜索文献标题或作者...',
+                placeholder: '全库搜索书名、作者或正文（原文/译文）...',
                 'aria-label': '搜索文献'
               })
             ),
@@ -615,21 +640,109 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
             )
           ),
 
-          // Category Filter Pills
-          h('div', { className: 'rr-categoryFilterRow' },
+          // In-place WeRead-Style Search View when query is active; otherwise Category Pills + Bookshelf
+          !query.trim() ? h('div', { className: 'rr-categoryFilterRow' },
             CATEGORIES.map(cat => h('button', {
               key: cat.id,
               type: 'button',
               className: `rr-categoryPill ${category === cat.id ? 'rr-categoryPillActive' : ''}`,
               onClick: () => setCategory(cat.id)
             }, `${cat.label} (${categoryCounts[cat.id] || 0})`))
-          ),
+          ) : null,
+
+          query.trim() ? h('section', { className: 'rr-libSearchSection', 'aria-label': '全库搜索结果' },
+            h('div', { className: 'rr-libSearchHead' },
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+                h('button', {
+                  type: 'button',
+                  className: 'rr-sidebarAddBtn',
+                  onClick: () => setQuery('')
+                }, '← 返回书架'),
+                h('strong', null, `搜索 “${query.trim()}”`),
+                h('span', { className: 'rr-pipelineNote', style: { margin: 0 } },
+                  librarySearch.loading
+                    ? '正在检索全库原文与译文…'
+                    : librarySearch.error
+                      ? librarySearch.error
+                      : `书名/作者 ${shown.length} 部 · 正文 ${librarySearch.data?.totalMatches || 0} 处匹配`
+                )
+              )
+            ),
+            h('div', { className: 'rr-libSearchGroup' },
+              h('div', { className: 'rr-libSearchGroupHead' },
+                h('span', null, `书名 / 作者命中 (${shown.length})`),
+                shown.length > 0 ? h('button', {
+                  type: 'button',
+                  className: 'rr-button rr-buttonQuiet rr-buttonCompact',
+                  onClick: () => setExpandedLibGroups(g => ({ ...g, titles: !g.titles }))
+                }, expandedLibGroups.titles ? '收起 ▴' : '展开 ▾') : null
+              ),
+              expandedLibGroups.titles && shown.length > 0 ? h('div', { className: 'rr-libTitleMatchesGrid' },
+                shown.slice(0, 24).map(d => {
+                  const progress = progressMap[d.id]
+                  const pct = (progress && typeof progress.percent === 'number' && progress.percent > 0) ? progress.percent : 0
+                  return h('div', {
+                    key: 'tm-' + d.id,
+                    className: 'rr-libSearchBookCard rr-libTitleMatchCard',
+                    onClick: () => openDocument(d.id, progress?.blockId, progress?.view, query.trim()),
+                    style: { cursor: 'pointer', flexDirection: 'row', alignItems: 'center', gap: 10 }
+                  },
+                    renderDesktopBookCover(d, 'normal'),
+                    h('div', { style: { minWidth: 0, flex: 1 } },
+                      h('div', { className: 'rr-libSearchBookTitle', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, d.name),
+                      h('div', { className: 'rr-pipelineNote', style: { margin: '2px 0 0' } }, [d.author, pct > 0 ? `已读 ${pct}%` : '未读'].filter(Boolean).join(' · '))
+                    )
+                  )
+                })
+              ) : (expandedLibGroups.titles ? h('p', { className: 'rr-pipelineNote', style: { margin: '2px 0 0' } }, '无匹配的书名或作者') : null)
+            ),
+            h('div', { className: 'rr-libSearchGroup' },
+              h('div', { className: 'rr-libSearchGroupHead' },
+                h('span', null, `全库正文检索 (${librarySearch.data?.totalMatches || 0})`),
+                (librarySearch.data?.results?.length || 0) > 0 ? h('button', {
+                  type: 'button',
+                  className: 'rr-button rr-buttonQuiet rr-buttonCompact',
+                  onClick: () => setExpandedLibGroups(g => ({ ...g, passages: !g.passages }))
+                }, expandedLibGroups.passages ? '收起 ▴' : '展开 ▾') : null
+              ),
+              expandedLibGroups.passages ? (
+                librarySearch.data && !librarySearch.data.results?.length && !librarySearch.loading
+                  ? h('p', { className: 'rr-pipelineNote', style: { margin: '4px 0 0' } }, '全库正文中暂无匹配的段落，可尝试更换关键词。')
+                  : (librarySearch.data?.results ?? []).filter(r => r.matches?.length > 0).map(book =>
+                      h('div', { key: 'sr-' + book.id, className: 'rr-libSearchBookCard' },
+                        h('div', { className: 'rr-libSearchBookTop' },
+                          h('div', { style: { minWidth: 0 } },
+                            h('span', { className: 'rr-libSearchBookTitle', onClick: () => openDocument(book.id, book.matches[0]?.blockId, book.matches[0]?.view, query.trim()) }, book.name),
+                            book.author ? h('span', { className: 'rr-pipelineNote', style: { marginLeft: 8 } }, book.author) : null
+                          ),
+                          h('span', { className: 'rr-libraryFilterBadge' }, `${book.totalMatches} 处匹配`)
+                        ),
+                        h('div', { className: 'rr-libSearchHits' },
+                          book.matches.map((hit, idx) => {
+                            const [b, mid, a] = splitSearchSnippetParts(hit.snippet, hit.matchOffset, hit.matchLen)
+                            return h('button', {
+                              key: `${hit.view}:${hit.blockId}:${idx}`,
+                              type: 'button',
+                              className: 'rr-libSearchSnippetBtn',
+                              onClick: () => openDocument(book.id, hit.blockId, hit.view, query.trim()),
+                            },
+                              h('span', { className: 'rr-wrSearchBadge' }, hit.view === 'original' ? '原文' : '译文'),
+                              hit.chapterLabel ? h('span', { className: 'rr-libSearchChapter' }, hit.chapterLabel) : null,
+                              h('span', { className: 'rr-libSearchSnippetText' }, b, mid ? h('mark', { className: 'rr-searchHit' }, mid) : null, a)
+                            )
+                          })
+                        )
+                      )
+                    )
+              ) : null
+            )
+          ) : null,
 
           failure ? h('div', { className: 'rr-stateCard', role: 'alert' }, failure, button('重试', loadLibrary)) : null,
           documents === null ? h('p', { style: { color: '#71717a', fontSize: 13, padding: '20px 0' } }, '正在加载文献库...') : null,
 
-          // Documents Card Container (List vs WeRead Cover Grid)
-          shelfLayout === 'grid' && documents !== null && shown.length > 0 ? (
+          // Documents Card Container (hidden while in active WeRead-style search view)
+          !query.trim() && shelfLayout === 'grid' && documents !== null && shown.length > 0 ? (
             h('div', { className: 'rr-wrBookGrid' },
               shown.slice(offset, offset + 40).map(d => {
                 const meta = itemMeta[d.id] ?? {}
@@ -672,11 +785,11 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                 )
               })
             )
-          ) : (
+          ) : (!query.trim() ? (
             h('div', { className: 'rr-documentsCardContainer' },
               documents !== null && shown.length === 0 ? (
                 h('div', { style: { padding: '40px 20px', textAlign: 'center', color: '#a1a1aa', fontSize: 13 } },
-                  query || category !== 'all' || selectedFolder !== 'all'
+                  category !== 'all' || selectedFolder !== 'all'
                     ? '暂无匹配文献'
                     : '文献库中暂无文档'
                 )
@@ -776,10 +889,10 @@ function ReaderPage({ t, onClose, sessionForPaper, promptSession, listModels, se
                 })
               )
             )
-          ),
+          ) : null),
 
           // Pagination
-          shown.length > 40 ? h('div', { className: 'rr-rowActions', style: { justifyContent: 'center', marginTop: 12 } },
+          !query.trim() && shown.length > 40 ? h('div', { className: 'rr-rowActions', style: { justifyContent: 'center', marginTop: 12 } },
             button('上一页', () => setOffset(Math.max(0, offset - 40)), 'rr-buttonQuiet', { disabled: offset === 0 }),
             h('span', { style: { fontSize: 12, color: '#71717a' } }, (Math.floor(offset / 40) + 1) + ' / ' + Math.ceil(shown.length / 40)),
             button('下一页', () => setOffset(offset + 40), 'rr-buttonQuiet', { disabled: offset + 40 >= shown.length })

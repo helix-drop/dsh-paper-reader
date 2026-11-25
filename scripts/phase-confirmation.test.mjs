@@ -136,3 +136,36 @@ test('resume confirms a new worker and reasoning effort while skipping completed
   assert.deepEqual(calls,['transcribe','verify','assemble'])
  }finally{await reloaded?.index.close();await f.close()}
 })
+
+test('confirmPhase persists model preferences and glossaryDomains across tasks and exposes HTTP preferences routes',async()=>{
+ const f=await fixture();let reloaded;try{
+  const approved=await f.manager.confirmPhase(f.task.id,{
+   phase:'transcription',
+   orchestratorModel:'fixture/orch-1',
+   orchestratorEffort:'high',
+   workerId:'fixture:vision-2',
+   fallbackIds:['fixture:vision'],
+  })
+  assert.equal(approved.phaseApproval.orchestratorModel,'fixture/orch-1')
+  const prefs=await f.manager.modelPreferences()
+  assert.equal(prefs.models.transcription.orchestratorModel,'fixture/orch-1')
+  assert.equal(prefs.models.transcription.orchestratorEffort,'high')
+  assert.equal(prefs.models.transcription.workerId,'fixture:vision-2')
+  assert.deepEqual(prefs.models.transcription.fallbackIds,['fixture:vision'])
+
+  f.task=await f.manager.get(f.task.id)
+  f.task.stages.assemble={state:'done'}
+  await f.manager.save(f.task)
+  const trApproved=await f.manager.confirmPhase(f.task.id,{
+   phase:'translation',
+   orchestratorModel:'fixture/orch-tr',
+   orchestratorEffort:'',
+   glossaryDomains:['continental-philosophy','chinese-medicine-history'],
+  })
+  assert.deepEqual(trApproved.glossaryDomains,['continental-philosophy','chinese-medicine-history'])
+  reloaded=new TaskManager(f.root,path.join(f.root,'reading'))
+  const persisted=await reloaded.modelPreferences()
+  assert.equal(persisted.models.translation.orchestratorModel,'fixture/orch-tr')
+  assert.deepEqual(persisted.glossaryDomains,['continental-philosophy','chinese-medicine-history'])
+ }finally{await reloaded?.index.close();await f.close()}
+})

@@ -70,6 +70,7 @@
 
 > [!IMPORTANT]
 > - 外部脚本执行进度（转写、翻译）属于“程序数据”，会自动沉淀至 `worker` 或 `linguagacha` 会话中，不污染 `orchestrator` 的上下文；
+> - 当用户在面板勾选“开启新会话”或首次进入 `review` 阶段时，`rotateOrchestrator` 会自动主动中止旧 `orchestrator` 会话的活跃推理轮次并保留 `worker`/`linguagacha` 日志会话；已被接替归档的旧会话若仍有残余调用，会被门禁立即返回终止提示而不再空转重试；
 > - 编排者绝不能伪造 Worker 的返回，必须基于实际落盘的证据文件开展判断。
 
 ---
@@ -92,6 +93,7 @@
 ```mermaid
 flowchart TD
     Req[工具调用请求] --> Guard{sessionGuard 校验}
+    Guard -- 已归档接替的旧编排会话 --> Deny0[拦截: 会话已被新会话接替，立即停止]
     Guard -- 包含敏感词 (.env/credentials/auth.json/golden) --> Deny1[拦截: 凭证与参考不属于任务数据]
     Guard -- 目标不在当前任务目录下 --> Deny2[拦截: 只能读取/修改当前任务]
     Guard -- 写操作命中了受保护模式 --> Deny3[拦截: 原始输入/程序/日志由系统维护，禁止改写]
@@ -106,9 +108,9 @@ flowchart TD
   - 任务核心生命周期文件：`task.json`、`sessions.json`、`execution-events.jsonl`、`state.json`、`profile.json`、`document_profile.json`；
   - 原始底本与批处理源：`source.*`、`raw_pages*`、`page_images/`、`ocr-regions/`、`requests/`、`attempts/`；
   - 审校门禁快照：`review/audit/snapshots.json`、`manifest.json`、`validation.json`。
-- **允许 Agent 修复的文件**：
+- **允许 Agent 修复的文件（受审计指纹回执严格约束）**：
   - 章节结构草稿：`chapters.json`、`toc.json`、`profile.candidate.json`；
-  - 章节内容与注释局部修正：`delivery/<ch>/selected/book/ai_convert/edits/body/`、`edits/notes/`；
+  - 章节标志位与豁免声明：`delivery/<ch>/selected/book/ai_convert/edits/body/page_NNN.json` 仅允许用 `edit` 修改 `metadata.issues` 豁免项及段落 `continues_from_prev` / `continues_to_next` / `kind` 标志（**严禁手改 `paragraph_summary`**，`verify` 会自动复算并绑定回执；**严禁用 `edit`/`write` 直接改写 `paragraphs[].text`、增删段落、改写页内 `notes_definitions` 或改写 `edits/notes/chapter_NNN.json` 的 `definitions`**——无加密回执的手改必触发 `content/notes hash differs` 阻断，必须调用 `document_pipeline` 的 `source_edit` 或 `note_continuation`）；
   - 术语分析初稿与对账建议。
 
 ---
@@ -123,15 +125,22 @@ flowchart TD
 | `notes hash differs`，当前文件缺少已验收定义 | 对照 `worker_audit.jsonl` 的有效验收记录与 `attempts/` 内对应快照，确认验收快照已包含缺项，并核对其他内容差异。记录和快照只读。 | 若能确定对应的已验收原文件，可将其全文恢复至当前章 `selected/book/ai_convert/edits/notes/chapter_NNN.json`，由 verify 复算哈希。恢复必须保留其他已确认修正；存在无法解释的差异或无法确认有效快照时停止这一恢复操作，报告具体差异，不猜写定义、不改审计哈希。 |
 | 页级有定义，章级未收录，且已验收章级快照也缺项 | verify 的现有机械修复会从有有效出处的页级结果采纳逐字相同的定义，并由程序产生回执。 | 先 verify 一次；若仍阻断，报告实际拒绝原因。不要把当前文件缺少已验收定义误判成必须重新生成脚注，也不要直接按所有页级定义覆盖整章 notes。 |
 | 篇名扉页与正文开篇重复 H2 | 目检对应原页，区分扉页题名与正文标题。 | 保留全部文字，将扉页题名改为普通文本类型，保留正文标题用于导航；verify 重新组装并检查。不得以去重为由删去原文。 |
+| 文档首尾纯出版/宣传副文本页误报 `paratext` 阻断 | 目检对应原页：扫描封面/封底、半扉页/纯书名扉页、版权/ISBN/CIP 页、作者其他著作表（*Du même auteur / Also by*）、出版社丛书介绍与目录、期刊/出版方简介与下载平台封皮允许在文档首尾或前/后附材章以 `regions: ["paratext"]`、`paragraphs: []`、`metadata.issues: ["paratext_omitted: ..."]` 跳过；若位于正文中间被安全护栏阻断，须核对原图确认是否误标。 | 若确为实质正文/前言/致谢/目录/索引/参考文献，重新转写该页；若经原图核实确属插在非边界处的纯出版宣传页，在该页 `metadata.issues` 补充 `paratext_waived: <原图依据>` 后重跑 `verify`。 |
+| 跨页段落连续性标志不一致（`continuity mismatch at page X→Y`） | 目检第 X、Y 页原图或核对首尾句语义，确认正文无缺漏、仅为 `continues_to_next` / `continues_from_prev` 布尔标志不配对。 | 用 `edit` 仅修正对应段落的 `continues_from_prev` 或 `continues_to_next` 布尔值（**切勿手改 `paragraph_summary`**），随后运行 `run(stage="verify", options={"chapterId": "NNN"})`，程序会自动复算 `paragraph_summary` 并绑定 `deterministic_summary_v1` 回执。 |
+| 跨页脚注续段误入下页正文末尾或注释截断 | 目检上下两页原图（`page_X.png` 与 `page_X+1.png`），确认下页底部小字号无编号续段被误收为下页末尾正文段（或粘连在正文段末）。**切勿在转写阶段无故拆改已通过 `program_checks_passed` 且仅带 `WARNING` 的章节**；对阻断章或确需修复处，严禁用 `edit`/`write` 直接改 `paragraphs[].text` 或 `notes/chapter_NNN.json`。 | ① 若续段位于下页末尾独立段落（如 `p149_3`）：调用 `document_pipeline(action="note_continuation", chapterId="NNN", review={"anchor":"[^p148_2]","source_page":148,"continued_on_page":149,"continuation":"续段全文","body_pids":["p149_3"],"remaining_continues_to_next":true,"basis":"原图核证说明"})`；② 若需修补单段正文文字或章级注释文本：调用 `document_pipeline(action="source_edit", chapterId="NNN", review={"type":"body_text_patch"|"patch"|"marker_correction", ...})` 自动生成 `worker_audit.jsonl` 加密回执。 |
+| 英文/拉丁文无 OCR 跨页断词残留空格（如 `honor able` 实为 `honorable`） | 目检跨页原图与上下页 `edits/body/page_NNN.json`，确认属于单页转写去连字符后在跨页拼接处插入了空格。 | 若仍在转写阶段（尚未进入术语分析与翻译）：通过 `document_pipeline(action="source_edit", chapterId="NNN", review={"type":"body_text_patch", ...})` 修补对应段文字后执行 `run(stage="verify")` 与 `run(stage="assemble")`；若已进入审校阶段，则直接通过 `source_corrections` 一并修正。 |
+| 章节某页报 `缺少独立视觉或受控 OCR 降级的文件指纹回执`（`unverified_pages` 非空 / `models_exhausted`） | 查看 `evidence` 返回的 `pageBudgets` 与该章 `state.json`：区分「用户刚在面板切换了尚未尝试的新模型」与「当前主/备视觉模型均已尝试失败」。 | ① 若当前任务 `worker`（或 `fallbacks`）包含该页尚未尝试过的新模型：直接调用一次 `run(stage="transcribe")`（程序会自动重开该页预算并仅重跑该页，同时继续跑完后续未启动章节）；② 若当前配置的全部模型均已在该页失败耗尽：**禁止**同模型反复调用 `retryErrors: true`，**严禁**调用 `ocr` 后用 `write` 手造 `page_NNN.json`；应直接停机向用户汇报具体章节、页码与失败原因，引导用户在面板使用「卡住页重试」或「更换转写模型」。 |
+| 已通过验收章节（`qualityStatus: "program_checks_passed"`）存在非阻断 `WARNING` | `WARNING`（如单段长页提示、短引文注释提示、疑似未闭合注释提示）不阻断 `transcribe` / `verify` / `assemble`。 | **严禁在转写阶段擅自用 `edit`/`write` 拆改已通过 `program_checks_passed` 章节的正文或注释**（极易破坏已有审计回执）。保持已通过状态直接推进；若确有实质漏字或错位，统一留待 `review`（译后联合审校）阶段通过 `source_corrections` 安全闭环（或仅在确有必要时使用受控 `source_edit` / `note_continuation`）。 |
 | `actions` 或 `similarity_report` 尚未清空 | 这些是程序维护的未解决问题记录。 | 修正实际问题后运行 verify，由程序更新或清除；禁止手删记录来通过校验。 |
 | `GLOSSARY_RESULT_INVALID` 或术语单元模型输出 JSON 语法残缺（如末尾括号多余、引号未转义、漏冒号或缺少字段） | 核查 `receipt.json` 与 `runs/.../output/`。只要绝大部分单元已成功落盘，且 `providerRetryCount < providerRetryLimit`（上限 3 次）。 | **编排者自主调用断点恢复**：直接执行 `document_pipeline run, stage="translate", options={"retryErrors": true}`。底层 `recoverGlossaryCheckpoint` 会自动将已验证的有效单元冻结入 `checkpoint.json` 予以 100% 复用，仅将残缺或异常的单元提交增量重试（通常仅需数秒）。耗时极短且不属于重复全量计费，**编排者应当自行处理并接续后续流程，不必中断停机向用户请示**。只有 3 次重试耗尽仍失败、或底本哈希变化时才停机报告。 |
 | `GLOSSARY_BATCH_INCOMPLETE`（术语批次部分单元超时、截断或跳过；含 CLI 连续 20 分钟无新增完成单元被看门狗停止，`receipt.cliTimedOut=true`，此时退出码可能为 0 且 events 最后一条仍为 running） | 核查 `receipt.cliStats`、`receipt.partialUnitsCaptured` 与 `events.jsonl`，确认部分单元已完成且无致命权限错误；`providerRetryCount < 3`。`receipt.resumeAvailable=true` 即可断点恢复。注意 `partialResumeSupported` 只表示**本次运行**是否从检查点起步（首轮必为 false），不能据此判断下一次 `retryErrors:true` 会全量重跑。 | **编排者自主调用断点恢复**：执行 `document_pipeline run, stage="translate", options={"retryErrors": true}`。程序会自动提取增量未完成单元继续执行，不得误判为全书失败。 |
 | `GLOSSARY_PROVIDER_RETRY`（供应商瞬时超时、输出长度截断或内容安全重试） | 核查 `glossaryFailure` 错误原因（`timeout` / `output_limit` / `content_filter`）；`providerRetryCount < 3`。 | 属于受控供应商容错范围。编排者自主执行 `options={"retryErrors": true}` 断点重试，底层自动复用已完成单元，仅重跑受阻部分。 |
 | `GLOSSARY_PROVIDER_QUOTA` / `TRANSLATION_PROVIDER_QUOTA`（供应商额度或速率配额耗尽） | 持续命中 `"code":"RATE_LIMIT"`（`rate_limit_error` / `usage limit` / `quota`）且连续 3 分钟无新增完成单元时，程序自动快速中止并保留全部已完成单元（`status: "quota-exhausted"`），**不增加 `providerRetryCount` 重试计数，也不自动切换兜底模型**。 | **立即停止自动重试并向用户原样汇报额度耗尽提示与重置时间线索**。待额度恢复后执行 `run stage="translate", options={"retryErrors": true}` 仅续跑未完成单元；若用户希望更换模型，引导用户在阅读面板重新选择并确认翻译阶段模型。 |
+| 审校分包遇到底本转写讹误或 PDF 物理扫描裁切/破损（如 `hints` 含 `source_defect`、边缘缺字或行末断词跨裁切边误拼） | 查阅原文旁 `.source-map.json` 的 `logicalPages`/`pdfPages`，检视 `document/ai_convert/page_images/page_NNN.png` 或调用 `probe_page` 查看原页图像，严格区分「上游转写错误」与「底本图像自身物理残损」。 | ① **原图清晰或可据原图与学界定本确证的转写错误**（如行末 `Krafft-` 跨左缘裁切与 `ing` 误拼为 `Kraffting`）：在对应 `results/编号.json` 顶层写入 `source_corrections: [{"blockId": "Bxxxx", "pages": [页码], "source": "修正后完整原文", "translation": "对应完整译文", "reason": "原图核证依据"}]`；② **底本 PDF 图像自身物理裁切/残损缺字**：严禁将分包挂起为 `status: "needs-work"` 或写入 `unresolved` 要求从残损原图凭空补字（会阻断整书补丁合并）！应基于可见字形与语境稳妥修订译文 `patches`，并在顶层写入 `source_notes: [{"blockId": "Bxxxx", "text": "底本第X页左缘物理裁切说明..."}]`（自动记入审校报告「底本核证说明」），同时设 `status: "pass"`、`unresolved: []`。 |
 
 章节转写完成并写出待核查稿时，程序保留该章阻断，继续处理同一授权阶段内尚未启动的独立章节，全部执行结束后集中报告；未通过章节仍禁止进入整书交付与翻译。底本变更、执行环境故障、缺少出处凭证或用户停止仍终止领取新章节。此机制不增加模型轮次。
 
-`retryErrors:true` 是显式恢复请求，不等于重置预算。在转写阶段，程序仅向已完成但验收待定的章节传入剩余预算页范围，执行器再筛选仍有问题的页；已通过页、达到两轮上限的页及 `models_exhausted=true` 的页不会因此重派。章节仍未通过、且页预算已标 `models_exhausted` 时，现有续跑没有第二次模型入口。报告仍将该页标为 BLOCKED、且最近一次尝试已被拒绝（`used>=2`，结果未选定）时，同样不能靠续跑再调用模型。用户在面板从 DSH 目录另选一个模型后，程序只重开这些页并调用该模型，不改任务主模型和其余页。章节已通过程序验收、但该页正文仍是 OCR 兜底（`fallback_applied` 为 `ocr_layout_cleaned`）时，该页同样出现在这个入口；已通过且正文来自视觉选定的页不进入。编排者不自行挑选或切换模型。`used=1` 不能单独证明仍可自动重试：主模型与全部兜底耗尽后还受后者限制。在术语分析（`glossary`）阶段，`retryErrors:true` 是纯增量断点恢复指令：底层 `recoverGlossaryCheckpoint` 会自动从已落盘的模型返回中提纯所有合法单元并冻结为检查点（`checkpoint.json`），仅将残缺或未完成的单元重新提交，不重复消耗已完成单元的模型调用。当编排者因个别单元 JSON 解析错误（`GLOSSARY_RESULT_INVALID`）或批次未完成（`GLOSSARY_BATCH_INCOMPLETE`）受阻且 `providerRetryCount < providerRetryLimit` 时，编排者应自主调用 `run stage="translate", options={"retryErrors":true}` 执行断点接续，严禁将其误判为需要用户重新授权或重置全书。`retryErrors:false` 保持复用已有结果。视觉请求失败不等于原页为空白；OCR 透印噪声不得仅删除脚注后放行正文，应保留待核查状态。
+`retryErrors:true` 是显式恢复请求，不等于重置预算。在转写阶段，程序仅向已完成但验收待定的章节传入剩余预算页范围，执行器再筛选仍有问题的页；已通过页、达到两轮上限的页及同模型下 `models_exhausted=true` 的页不会因此重派。报告仍将该页标为 BLOCKED、且最近一次尝试已被拒绝（`used>=2`，结果未选定）时，同样不能靠同模型续跑再调用模型。用户在面板通过「卡住页重试」单选模型重试，或通过「更换转写模型」将任务切换至该页尚未尝试过的新视觉模型后，程序会自动重开这些失败/缺回执页并调用新模型（不影响已通过页）。章节已通过程序验收、但该页正文仍是 OCR 兜底（`fallback_applied` 为 `ocr_layout_cleaned`）时，同样支持在面板用新模型替换；已通过且正文来自视觉选定的页不进入。编排者不自行挑选或切换模型。`used=1` 不能单独证明仍可自动重试：主模型与全部兜底耗尽后还受后者限制。在术语分析（`glossary`）阶段，`retryErrors:true` 是纯增量断点恢复指令：底层 `recoverGlossaryCheckpoint` 会自动从已落盘的模型返回中提纯所有合法单元并冻结为检查点（`checkpoint.json`），仅将残缺或未完成的单元重新提交，不重复消耗已完成单元的模型调用。当编排者因个别单元 JSON 解析错误（`GLOSSARY_RESULT_INVALID`）或批次未完成（`GLOSSARY_BATCH_INCOMPLETE`）受阻且 `providerRetryCount < providerRetryLimit` 时，编排者应自主调用 `run stage="translate", options={"retryErrors":true}` 执行断点接续，严禁将其误判为需要用户重新授权或重置全书。`retryErrors:false` 保持复用已有结果。视觉请求失败不等于原页为空白；OCR 透印噪声不得仅删除脚注后放行正文，应保留待核查状态。
 
 验收须覆盖章节组装；前一个错误消失后可能出现此前未执行的 Markdown 检查。只有实际内容、证据或程序发生变化时才重复 verify；结果无变化时继续运行相同校验不能修复问题。`retryErrors:false` 不禁止上述不调用模型的修复。额外模型轮次仍遵守原预算与补救条件，不能作为确定性恢复的默认替代方案。
 
@@ -154,6 +163,8 @@ flowchart TD
 | **`files`** | 编排者/观察者 | 受控分页浏览任务目录下的物理文件（防路径穿越与凭证泄露）。 | `directory`（相对路径）、`limit`、`offset` |
 | **`search`** | 编排者/观察者 | 在任务文本文件中基于关键字查找匹配行与行号（带游标）。 | `file`、`query`、`limit`、`offset` |
 | **`ocr`** | 编排者 | 针对指定页面的局部坐标区域调用 PaddleOCR 识别疑点。 | `page`、`region: [l,t,r,b]`、`reason` |
+| **`source_edit`** | 仅限编排者 | 目检原页后受控修补章节正文文字（`body_text_patch`）、注号（`marker_correction`）或注释定义（`patch`/`replace_definition`/`merge_definition`），自动绑定 `worker_audit.jsonl` 回执。 | `chapterId`、`review` |
+| **`note_continuation`** | 仅限编排者 | 目检跨页原图后将下页末尾误入正文的无编号脚注续段移回对应注释定义，自动重算 `paragraph_summary` 并绑定加密回执。 | `chapterId`、`review` |
 | **`run`** | 仅限编排者 | 启动或接续执行当前阶段（受面板确认状态约束）。 | `stage`、`options` |
 | **`review_prepare`** | 仅限编排者 | 准备译后分包审计目录与清单（审校阶段）。 | 无 |
 | **`review_assemble`**| 仅限编排者 | 汇总并校验分包审计结果、术语合规与注释完整性。 | 无 |
@@ -206,15 +217,83 @@ flowchart TD
 - **特性**：
   - 自动识别底本阶段：若已完成 `normalize` 阶段则基于 `source.pdf` 截取；若在 `normalize` 之前调用，则自动使用原始上传底本，绝不报阶段死锁错误。
 
+#### `action: "source_edit"` 与 `action: "note_continuation"`
+用于在目检对应原页图像（`page_images/page_NNN.png` 或 `probe-pages/page_NNNN.png`）后，对章节 `selected/book/ai_convert/edits/` 下的正文文字、注号或注释定义执行**受控原子修补**，由程序校验原页图像哈希、自动重算 `paragraph_summary`、写入 `worker_audit.jsonl` 加密回执并刷新该章 `output/report.json`（若该章随即全部通过，自动完成章节交付登记）。
+
+- **何时用 `note_continuation`**（下页末尾独立正文段实为上页脚注的无编号续段）：
+  ```json
+  {
+    "action": "note_continuation",
+    "chapterId": "009",
+    "review": {
+      "anchor": "[^p148_2]",
+      "source_page": 148,
+      "continued_on_page": 149,
+      "continuation": "there is and remains an eternal, essential, qualitative difference...",
+      "body_pids": ["p149_3"],
+      "remaining_continues_to_next": true,
+      "basis": "目检 page_148.png 与 page_149.png：p149_3 为页底小字号无编号续段，归入 [^p148_2]；剩余末段 p149_2 跨页续至第 150 页。"
+    }
+  }
+  ```
+  - `body_pids`：必须匹配 `continued_on_page` 末尾连续的无注号段落 ID 列表，且段落拼接文本与 `continuation` 完全一致。
+  - `remaining_continues_to_next`（可选 `boolean`）：移走末尾误入段后，新的末段是否跨页续接下页。
+
+- **何时用 `source_edit`**（单段正文文字修补、漏标/错标脚注符号修正、章级注释文本修补或合并）：
+  1. **`type: "body_text_patch"`**（修补某段正文文字，可选同时更新连续标志或移除同页末尾误入的无注号段落）：
+     ```json
+     {
+       "action": "source_edit",
+       "chapterId": "005",
+       "review": {
+         "type": "body_text_patch",
+         "page": 60,
+         "source_page": 60,
+         "pid": "p060_2",
+         "old": "capturing the eternal being,” but pure being...",
+         "new": "capturing the eternal",
+         "continues_to_next": true,
+         "remove_trailing_pids": ["p060_3"],
+         "basis": "目检 page_060.png：正文止于 capturing the eternal，下方小字号为 [^p059_3] 续段。"
+       }
+     }
+     ```
+  2. **`type: "patch"` 或 `"replace_definition"`**（修补或替换章级 `edits/notes/chapter_NNN.json` 中某条定义，切勿手改页内 `notes_definitions`）：
+     ```json
+     {
+       "action": "source_edit",
+       "chapterId": "005",
+       "review": {
+         "type": "replace_definition",
+         "anchor": "[^p059_3]",
+         "source_page": 59,
+         "continued_on_page": 60,
+         "old": "原截断定义全文",
+         "new": "拼接第 60 页续段后的完整定义全文",
+         "basis": "目检 page_059.png 与 page_060.png 补全跨页脚注定义。"
+       }
+     }
+     ```
+  3. **`type: "marker_correction"`**（修正或补入正文段落中的脚注锚点与 `markers[]`）：
+     - 替换已有错标锚点：`{ "type": "marker_correction", "page": 217, "source_page": 217, "pid": "p217_2", "old": "word[^4]", "new": "word[^41]", "old_anchor": "[^4]", "old_raw_glyph": "⁴", "new_anchor": "[^41]", "new_raw_glyph": "⁴¹", "basis": "..." }`
+     - 补入漏标锚点：`old_anchor: null, old_raw_glyph: null`，额外提供 `new_kind: "endnote_num" | "page_footnote_num" | "editor_symbol"`。
+  4. **其余受控类型**：
+     - `type: "merge_definition"`：将相邻页（`source_pages: [33, 34]`）页内 `notes_definitions` 中的同名分段定义合并写入章级注释（可选 `old`、`merged_text_patch`、`page_patch`）；
+     - `type: "remove_page_definition"`：移除 `page` 页内未被正文引用的重复续段定义（`{ "type": "remove_page_definition", "anchor": "[^7]", "source_page": 423, "continued_on_page": 424, "page": 424, "text": "重复文本", "basis": "..." }`）；
+     - `type: "adopt_page"`：当局部段落补丁无法表达整页结构重排时，经原图核实后传入完整合规的 `page_after` 对象替换该页并绑定父哈希（`{ "type": "adopt_page", "page": 60, "source_page": 60, "page_after": {...}, "basis": "..." }`）。
+
 #### `action: "run"`
 用于启动或接续当前阶段。
 
 - **入参**：
-  - `stage` (`string`): 请求执行的目标阶段（如 `inspect`、`transcribe`、`verify`、`assemble` 等）。
+  - `stage` (`string`): 请求执行的目标阶段（如 `inspect`、`transcribe`、`verify`、`assemble`、`translate`、`review` 等）。
   - `options` (`object`):
     - `reanalyze` (`boolean`): 是否在分析阶段强制重新运行采样分析。
-    - `retryErrors` (`boolean`): 转写阶段是否针对前次失败页面重试。
-    - `chapterId` (`string`): 仅针对单章进行处理。
+    - `retryErrors` (`boolean`): 转写阶段针对剩余预算失败页重试，或术语/翻译阶段执行增量断点恢复。
+    - `singleStep` (`boolean`): 仅执行当前单个子阶段而不自动串联后续同阶段步骤。
+    - `chapterId` (`string`): 仅针对指定单章（如 `"001"`）执行 `transcribe` 或 `verify`。
+    - `concurrency` (`integer`, `1`–`8`): 章节级并发度覆盖（转写阶段上限为 `3`）。
+    - `force` (`boolean`) / `note` (`string`): 审校阶段创建补充重审运行目录及重审重点说明。
 
 ---
 
@@ -280,28 +359,30 @@ stateDiagram-v2
    - 根据确认的 `start_page` 与 `end_page` 裁剪出纯净的 `document/source.pdf`，建立规范化逻辑页码映射表 `document_profile.json`。
 3. **`images`（整页图像导出）**：
    - 调用 `extract_page_images.py` 将 `source.pdf` 全部按高分辨率导出为 PNG 图片。
-4. **`paddle` / `mineru`（可选云 OCR）**：
-   - 纯扫描件或乱码文字层按需调用的底层文字层备份，原生文字层直接跳过。
-5. **`prepare`（章节划分准备）**：
+4. **`paddle`（可选云端 PaddleOCR 参考）**：
+   - 扫描件或乱码文字层在需要全书 OCR 参考时的可选阶段；默认视觉转写采用按需局部区域 `ocr`（`on-demand-regions`），无需前置全书云 OCR。
+5. **`mineru`（可选云端 MinerU 参考）**：
+   - 与 `paddle` 同属可选双引擎云 OCR 备份阶段，可靠原生文字层直接跳过。
+6. **`prepare`（章节划分准备）**：
    - 单篇论文直接生成单章直通结构；整书根据目录生成 `chapters.json`。
-6. **`transcribe`（视觉主模型转写）**：
+7. **`transcribe`（视觉主模型转写）**：
    - 调度 `bounded_chapter.py` 执行。坚持**首轮视觉盲读优先**（不注入 OCR 文本以避免幻觉带偏）。
-   - 若主模型失败，按面板配置依次尝试至多 2 个兜底模型，全失败才启动 OCR 兜底。
-7. **`verify`（转写结果严密校验）**：
-   - 执行 `verify_page_json`，校验字符覆盖率、段落连续性、脚注标号完整性。
-8. **`assemble`（原文 Markdown 装配）**：
+   - 若主模型失败，按面板配置依次尝试至多 2 个兜底模型，全失败才启动受控 OCR 兜底；单章待核查不阻塞后续独立章节继续执行。
+8. **`verify`（转写结果严密校验）**：
+   - 对未完成整章验收的交付运行 `verify_deliveries.py`（自动复算 `paragraph_summary`、采纳逐字一致的页级注释定义并校验审计回执链），全章通过后运行 `gate_check` 与 `verify_page_json --all`。
+9. **`assemble`（原文 Markdown 装配）**：
    - 装配整章与整书 Markdown，并注入带块级指纹的来源映射（Source Map）。
-9. **`glossary`（术语分析与对账）**：
-   - 调用 LinguaGacha 引擎提取全文候选术语，过滤命中公共术语库，清洗译名冲突，形成本书专用术语表。
-10. **`lgProject`（翻译项目准备）**：
+10. **`glossary`（术语分析与对账）**：
+    - 调用 LinguaGacha 引擎提取全文候选术语，过滤命中公共术语库，清洗译名冲突，形成本书专用术语表。
+11. **`lgProject`（翻译项目准备）**：
     - 绑定段落映射与待翻译正文，生成标准翻译清单。
-11. **`translate`（CLI 官方翻译）**：
+12. **`translate`（CLI 官方翻译）**：
     - 调度官方 LinguaGacha CLI 执行批量处理，输出保留块标记（`MD_V2`）。
-12. **`translationCheck`（译文结构校验）**：
+13. **`translationCheck`（译文结构校验）**：
     - 校验译文与原文块对应关系、注号对应及特殊标记完整性。
-13. **`review`（分包审校与对账审计）**：
+14. **`review`（分包审校与对账审计）**：
     - 将长章节分包为审计小包，多维度审校术语统一性、错译、漏译，生成修改补丁。
-14. **`publish`（双语精读库发布）**：
+15. **`publish`（双语精读库发布）**：
     - 生成块级并排对照数据，挂载跨版本书签，导出至 Obsidian 库与文献目录。
 
 ---
@@ -389,6 +470,11 @@ stateDiagram-v2
 ```
 流水线校验 `profile.candidate.json` 合规后，自动重命名覆盖 `profile.json`，阶段顺利推进至 `normalize` 与 `images`。
 
+- **无注释文献（`no_notes`）与双页/多栏区域（`regions`）精确规范**：
+  1. **无注释文献（`book_type: "no_notes"`）**：当确认全篇无脚注与尾注时，设 `"book_type": "no_notes"`、`"note_location": "none"`；`"note_numbering"` 可省略、填 `"none"` 或 `"per_chapter"`（底层校验器会自动归一化）。
+  2. **双页（`spread`）与多栏（`columns`）的 `regions`  schema**：当 `layout` 为 `"spread"` 或 `"columns"` 时，`regions` 必须为对象数组，每项格式严格为 `{"page": 页码整数, "rect": [left, top, right, bottom]}`（取值 `0`–`1` 归一化坐标，按 `page` 单调递增且同页区域不重叠）。
+     - **双页扫描件首末页边界裁剪技巧**：若第 1 页左半页属于前一篇文献末尾、右半页才是本文开篇，或末页右半页属于下一篇文献开篇，直接在 `regions` 中仅保留本文所属半页（例如第 1 页仅写 `{"page": 1, "rect": [0.5, 0, 1, 1]}`，中间页写左右两半 `[0, 0, 0.5, 1]` 与 `[0.5, 0, 1, 1]`），即可在 `normalize` 阶段从物理底本上彻底剔除相邻文献污染。
+
 ### 6.2 Prepare 阶段：整书切章与目录结构【三重交叉多重验证 SOP】
 
 在 `prepare` 阶段，专著/合集（`kind` 为 `book` 或 `collection`）**严禁全书作为一个单章整本转写**（400+ 页单章会超出处理上限）。门禁 `gate_check.py --phase 2` 强制要求规范的 `chapters.json` 与 `toc.json`。
@@ -460,7 +546,7 @@ stateDiagram-v2
 ### 6.3 Transcribe 阶段：底本快照冻结与页下注免热补原则
 
 1. **底本输入依赖冻结（Input Snapshot Immutability）**：
-   - 章节一旦启动转写并生成 `delivery/chapter_NNN/state.json`，底层脚本（`bounded_chapter.py`）会将当时任务的 `ai_convert/book_analysis.json`、`chapters.json` 等输入文件计算 **SHA256 输入快照** 并记录于 `state.json` 的 `inputs` 字段；
+   - 章节一旦启动转写并生成 `delivery/chapter_NNN/state.json`，底层脚本（`bounded_chapter.py`）会将当时任务的 `ai_convert/book_analysis.json`、`chapters.json` 及页面图像计算 **SHA256 输入快照** 并记录于 `state.json` 的 `source_hashes` 字段；
    - **严禁在此之后手动修改 `book_analysis.json`**！否则后续调用任何脚本或校验程序均会立即抛出硬门禁阻断：
      `BLOCKED: source changed since this run's input snapshot (ai_convert/book_analysis.json)`；
    - 若确实需要变更章节划分或输入体例，必须重置该章或全书重置，绝不可在转写中途对外部元数据做“热修补”。
@@ -476,7 +562,11 @@ stateDiagram-v2
    - 一旦 `normalize` 已经跑完，正文 `source.pdf` 与逻辑页映射 `document_profile.json` 已经生成并哈希锁定，底本元数据自动冻结，不再支持中途无序覆盖。
 
 4. **严禁手写空白页（Zero Hand-written Fake Body）**：
-   - 空白衬页必须有程序或模型的 `worker_audit.jsonl` 出生记录，绝不能直接在 `edits/body/` 伪造空内容，否则会被判定为缺少出生凭证阻断。
+   - 空白衬页与无字深色布面书衣必须有程序或模型的 `worker_audit.jsonl` 出生记录，绝不能直接在 `edits/body/` 伪造空内容，否则会被判定为缺少出生凭证阻断。
+
+5. **审计指纹回执铁律与进度判读**：
+   - `evidence` 返回中，`totalChapters` 表示当前**已创建 `delivery/chapter_NNN` 目录**的章节数，`definedChapters` 才是 `chapters.json` 定义的全书总章数，`pendingChapterIds` 列出尚未启动的章节编号——切勿把尚未跑完时的 `totalChapters` 误读为全书只切了少数几章。
+   - 原生 `edit` 仅允许修改 `edits/body/page_NNN.json` 的 `metadata.issues` 豁免项及段落 `continues_from_prev` / `continues_to_next` / `kind`（改完勿碰 `paragraph_summary`，直接跑 `verify` 自动复算绑定）；任何涉及正文文字、段落增删、注号或 `edits/notes/chapter_NNN.json` 定义文本的修改，**必须**通过 `source_edit` 或 `note_continuation` 执行。
 
 ### 6.4 底本快照指纹一致性与体例死锁解除 SOP
 
@@ -541,6 +631,11 @@ if (t.scope.profileFingerprint !== hash(document_profile.json))
 为了彻底消除编排者在黑盒中盲猜的问题，系统在底层做了两层透传增强：
 - **执行错误自动捕获**：当外部 Python 脚本（`gate_check.py`、`bounded_chapter.py` 等）退出码非 0 且未输出 JSON 时，宿主自动抓取 stderr/stdout 中匹配 `BLOCKED:` 或最后有效错误行作为 `diagnostic`；
 - **回显到工具与状态**：该 `diagnostic` 直接注入任务错误消息 `task.message`、工具抛错提示以及 `evidence` 动作返回的 `failureDiagnostic` 中，Agent 可以直接看到具体的门禁阻断原因。
+
+### 6.6 Glossary / Translate 阶段：增量分片恢复与缓存保护铁律
+
+- **程序级 SHA256 缓存保护**：`glossary/analysis/`、`glossary/consolidation/`、`glossary/pipeline-receipt.json` 以及 `translation-cli/` 下的所有 `records.json`、`receipt.json`、`recovered.json` 均受 SHA256 摘要与沙箱写保护约束。**严禁**手改上述文件，也**严禁**派发 `subagent` 逐行比对超大 `records.json`、`cleaning-inventory.json` 或 `recovered.json`。
+- **异常分片与漏标块单次增量恢复**：当 `glossary` 或 `translate` 因个别归并分片异常（如 `遗漏、重复`）、译文返回漏掉 `<!--dsh-block:ID-->` 块标识、`GLOSSARY_BATCH_INCOMPLETE` 或瞬时超时而挂起在 `blocked` 时，编排者只需调用一次 `document_pipeline({ action: "run", stage: "translate", options: { retryErrors: true } })`——系统会自动依据原生请求对账补回 1:1 漏标块标识、保留全部已合格分片与已译段落，仅向模型补发仍缺失的个别块，并在完成后自动串联进入 `translationCheck`。若单次增量重试后仍报阻断或额度/熔断上限，应立即停止并原样汇报给用户。
 
 ---
 

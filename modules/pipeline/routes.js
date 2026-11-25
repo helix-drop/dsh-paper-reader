@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { profileReadiness } from './profile-analysis.js'
 import { deliveryState } from './task-list.js'
@@ -9,6 +10,16 @@ import { exportBookmarks } from './bookmarks.js'
 import { resolveWorkspaceAsset } from '../../shared/workspace.js'
 import { taskSourcePdf, loadSourceMap } from './source-map.js'
 import { renderPdfPage } from './pdf-location.js'
+import { taskCoverFile, COVER_ASSET_REF } from './cover.js'
+import {
+  cloudAuthStatus,
+  bindCloudVault,
+  generateCloudPairingCode,
+  revokeCloudDevice,
+  setCloudPairingEnabled,
+  readCloudRecoveryRecord,
+} from './sync.js'
+import { streamFileSha256 } from './hygiene.js'
 import { hash } from './markdown.js'
 import { TaskManager, STAGES } from './tasks.js'
 import { openLinguaGacha, adapterStatus, startSubscriptionAdapter } from './linguagacha.js'
@@ -123,6 +134,18 @@ export function taskRoutes(manager, registerSession) {
     },
     {
       method: 'GET',
+      pattern: /^\/pipeline\/search$/,
+      handler: async (_req, res, url) => send(res, await manager.searchLibrary({
+        q: url.searchParams.get('q') ?? '',
+        taskId: url.searchParams.get('taskId') ?? '',
+        view: url.searchParams.get('view') ?? 'all',
+        includeHidden: url.searchParams.get('includeHidden') === '1',
+        limitBooks: Number(url.searchParams.get('limitBooks') ?? 30) || 30,
+        maxMatchesPerBook: Number(url.searchParams.get('maxMatches') ?? 6) || 6,
+      })),
+    },
+    {
+      method: 'GET',
       pattern: /^\/pipeline\/catalog$/,
       handler: async (_req, res) => send(res, {
         sources: await manager.catalog(),
@@ -224,6 +247,48 @@ export function taskRoutes(manager, registerSession) {
         return send(res, await manager.syncCloud(args))
       },
     },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/sync\/auth\/status$/,
+      handler: async (_req, res) => send(res, await cloudAuthStatus(manager.root, { index: manager.index, fetch: manager.fetch })),
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/sync\/recovery-key$/,
+      handler: async (_req, res) => send(res, await readCloudRecoveryRecord(manager.root, manager.index)),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/auth\/bind-vault$/,
+      handler: async (req, res) => {
+        const b = await payload(req)
+        send(res, await bindCloudVault(manager.root, b.vaultName, { force: b.force === true, index: manager.index, fetch: manager.fetch }))
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/auth\/pair-code$/,
+      handler: async (req, res) => {
+        const b = await payload(req).catch(() => ({}))
+        send(res, await generateCloudPairingCode(manager.root, { deviceHint: b.deviceHint, index: manager.index, fetch: manager.fetch }))
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/auth\/revoke-device$/,
+      handler: async (req, res) => {
+        const b = await payload(req)
+        send(res, await revokeCloudDevice(manager.root, b.deviceId, { index: manager.index, fetch: manager.fetch }))
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/sync\/auth\/pairing-toggle$/,
+      handler: async (req, res) => {
+        const b = await payload(req)
+        send(res, await setCloudPairingEnabled(manager.root, b.enabled, { index: manager.index, fetch: manager.fetch }))
+      },
+    },
 
     // --- Models, adapters & LinguaGacha service ---
     {
@@ -269,6 +334,16 @@ export function taskRoutes(manager, registerSession) {
       method: 'GET',
       pattern: /^\/pipeline\/models$/,
       handler: async (_req, res) => send(res, await manager.modelCatalog()),
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/preferences$/,
+      handler: async (_req, res) => send(res, await manager.modelPreferences()),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/preferences$/,
+      handler: async (req, res) => send(res, await manager.saveModelPreferences(await payload(req))),
     },
 
     // --- Task CRUD, sessions & execution ---
@@ -319,12 +394,20 @@ export function taskRoutes(manager, registerSession) {
     {
       method: 'DELETE',
       pattern: /^\/pipeline\/tasks\/([^/]+)$/,
-      handler: async (_req, res, _url, m) => send(res, await manager.deleteTask(m[1])),
+      handler: async (_req, res, _url, m) => {
+        const out = await manager.deleteTask(m[1])
+        manager.scheduleBackgroundSync?.(2000, 'delete-task')
+        send(res, out)
+      },
     },
     {
       method: 'POST',
       pattern: /^\/pipeline\/tasks\/([^/]+)\/name$/,
-      handler: async (req, res, _url, m) => send(res, await manager.rename(m[1], (await payload(req)).name)),
+      handler: async (req, res, _url, m) => {
+        const out = await manager.rename(m[1], (await payload(req)).name)
+        manager.scheduleBackgroundSync?.(2000, 'rename')
+        send(res, out)
+      },
     },
     {
       method: 'POST',
@@ -500,19 +583,52 @@ export function taskRoutes(manager, registerSession) {
     {
       method: 'GET',
       pattern: /^\/pipeline\/tasks\/([^/]+)\/source$/,
-      handler: async (_req, res, _url, m) => {
+      handler: async (req, res, _url, m) => {
         const t = await manager.get(m[1])
         const source = await taskSourcePdf(manager, t)
         if (!source) throw new Error('此任务没有源PDF')
-        const bytes = await fs.readFile(source)
-        if (!t.legacy && t.input.fingerprint && hash(bytes) !== t.input.fingerprint) {
+        const st = await fs.stat(source).catch(() => null)
+        if (!st?.isFile()) throw new Error('原 PDF 文件不存在或不可读取')
+        if (
+          !t.legacy
+          && t.input?.type === 'pdf'
+          && t.input.fingerprint
+          && t.path
+          && path.resolve(source) === path.resolve(t.path)
+          && await streamFileSha256(source) !== t.input.fingerprint
+        ) {
           throw new Error('源文件已变化，重新检查后再预览')
+        }
+        const total = st.size
+        const range = String(req.headers.range ?? '')
+        if (range.startsWith('bytes=')) {
+          const [rawStart, rawEnd] = range.slice(6).split('-')
+          const start = rawStart ? Number(rawStart) : Math.max(0, total - Number(rawEnd || 0))
+          const end = rawStart && rawEnd ? Math.min(total - 1, Number(rawEnd)) : total - 1
+          if (
+            !Number.isInteger(start) || !Number.isInteger(end)
+            || start < 0 || end < start || start >= total
+          ) {
+            res.writeHead(416, { 'content-range': `bytes */${total}` })
+            return res.end()
+          }
+          res.writeHead(206, {
+            'content-type': 'application/pdf',
+            'accept-ranges': 'bytes',
+            'content-range': `bytes ${start}-${end}/${total}`,
+            'content-length': String(end - start + 1),
+            'x-content-type-options': 'nosniff',
+          })
+          createReadStream(source, { start, end }).pipe(res)
+          return
         }
         res.writeHead(200, {
           'content-type': 'application/pdf',
+          'accept-ranges': 'bytes',
+          'content-length': String(total),
           'x-content-type-options': 'nosniff',
         })
-        res.end(bytes)
+        createReadStream(source).pipe(res)
       },
     },
     {
@@ -642,11 +758,72 @@ export function taskRoutes(manager, registerSession) {
       method: 'GET',
       pattern: /^\/pipeline\/tasks\/([^/]+)\/download$/,
       handler: async (_req, res, url, m) => {
-        res.writeHead(200, {
-          'content-type': 'text/markdown; charset=utf-8',
-          'content-disposition': 'attachment; filename="document.md"',
+        const exp = await manager.readingDownloadExport(m[1], {
+          kind: url.searchParams.get('kind') ?? 'translation',
+          format: url.searchParams.get('format') ?? 'md',
+          typography: {
+            fontSize: url.searchParams.get('fontSize'),
+            lineHeight: url.searchParams.get('lineHeight'),
+            fontFamily: url.searchParams.get('fontFamily'),
+            letterSpacing: url.searchParams.get('letterSpacing'),
+            paraSpacing: url.searchParams.get('paraSpacing'),
+          },
         })
-        res.end(await manager.readingDownload(m[1], url.searchParams.get('kind')))
+        res.writeHead(200, {
+          'content-type': exp.mimeType,
+          'content-disposition': exp.disposition,
+        })
+        res.end(exp.bytes)
+      },
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/storage\/audit$/,
+      handler: async (_req, res, url) => send(
+        res,
+        await manager.auditStorage({ dedupe: url.searchParams.get('dedupe') === 'true' }),
+      ),
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/storage\/prune$/,
+      handler: async (req, res) => send(res, await manager.pruneStorage(await payload(req).catch(() => ({})))),
+    },
+    {
+      method: 'GET',
+      pattern: /^\/pipeline\/tasks\/([^/]+)\/cover$/,
+      handler: async (_req, res, _url, m) => {
+        const t = await manager.get(m[1])
+        if (!t.cover?.file || t.cover?.none) {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+          return res.end(JSON.stringify({ error: '该文献未设置静态封面' }))
+        }
+        const docRoot = await fs.realpath(manager.docDir(t))
+        const coverPath = await fs.realpath(taskCoverFile(manager, t)).catch(() => null)
+        if (!coverPath || (!coverPath.startsWith(docRoot + path.sep) && coverPath !== path.join(docRoot, 'cover.jpg'))) {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+          return res.end(JSON.stringify({ error: '静态封面文件不存在' }))
+        }
+        const bytes = await fs.readFile(coverPath).catch(() => null)
+        if (!bytes?.length) {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+          return res.end(JSON.stringify({ error: '静态封面文件不存在' }))
+        }
+        res.writeHead(200, {
+          'content-type': 'image/jpeg',
+          'cache-control': 'private, max-age=86400',
+          ...(t.cover.sha256 ? { etag: `"${t.cover.sha256}"` } : {}),
+          'x-content-type-options': 'nosniff',
+        })
+        res.end(bytes)
+      },
+    },
+    {
+      method: 'POST',
+      pattern: /^\/pipeline\/tasks\/([^/]+)\/cover$/,
+      handler: async (req, res, _url, m) => {
+        const b = await payload(req)
+        send(res, await manager.setTaskCoverPage(m[1], b.coverPage ?? null))
       },
     },
     {
@@ -654,11 +831,29 @@ export function taskRoutes(manager, registerSession) {
       pattern: /^\/pipeline\/tasks\/([^/]+)\/asset$/,
       handler: async (_req, res, url, m) => {
         const t = await manager.get(m[1])
+        const assetParam = url.searchParams.get('path')
+        if (assetParam === COVER_ASSET_REF) {
+          if (!t.cover?.file || t.cover?.none) {
+            res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+            return res.end(JSON.stringify({ error: '静态封面不存在' }))
+          }
+          const bytes = await fs.readFile(taskCoverFile(manager, t)).catch(() => null)
+          if (!bytes?.length) {
+            res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+            return res.end(JSON.stringify({ error: '静态封面不存在' }))
+          }
+          res.writeHead(200, {
+            'content-type': 'image/jpeg',
+            'cache-control': 'private, max-age=86400',
+            'x-content-type-options': 'nosniff',
+          })
+          return res.end(bytes)
+        }
         const original = t.legacy && url.searchParams.get('kind') !== 'original'
           ? t.legacy.artifacts.readingPath
           : await manager.original(t)
         const base = await fs.realpath(path.dirname(original))
-        const wanted = resolveWorkspaceAsset(manager.root, base, url.searchParams.get('path'))
+        const wanted = resolveWorkspaceAsset(manager.root, base, assetParam)
         const real = await fs.realpath(wanted)
         const allowedRoots = [manager.root, manager.readingRoot, manager.publishRoot]
         if (!allowedRoots.some(root => real.startsWith(root + path.sep)) || !/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(real)) {

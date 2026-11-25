@@ -58,6 +58,7 @@ function renderPipelineTaskDrawers(ctx) {
     catalog,
     translationRef,
     resumeWithAntigravity,
+    startSupplementalReview,
     translationDone,
     reviewDone,
     deliveryDone,
@@ -241,6 +242,9 @@ function renderPipelineTaskDrawers(ctx) {
             : null,
           task.input.type === 'pdf' && ['endnote_only', 'mixed'].includes(profileValue.book_type)
             ? h('label', null, '尾注结束 PDF 页（可选）', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.note_end_page ?? '', placeholder: '可选', onChange: e => { const v = e.target.value; editProfile('note_end_page', v === '' ? undefined : Number(v)) } }))
+            : null,
+          task.input.type === 'pdf'
+            ? h('label', null, '封面 PDF 页（可选，留空无封面）', h('input', { type: 'number', min: 1, max: task.inspection?.pages, value: profileValue.cover_page ?? '', placeholder: '无独立封面', onChange: e => { const v = e.target.value; editProfile('cover_page', v === '' ? null : Number(v)) } }))
             : null
         ),
         profileValue.layout === 'spread'
@@ -801,6 +805,12 @@ function renderPipelineTaskDrawers(ctx) {
         h('h3', null, '审校配置 · DSH / CLI'),
         h('p', { className: 'rr-pipelineNote' }, '更换审校模型或上下文过长时，先停止当前审校，确认新模型后将以全新会话接续，已通过校验的分包全部保留。'),
         button('更换模型并新会话续审', resumeWithAntigravity, 'rr-buttonQuiet', { disabled: busy || task.state === 'running' || !translationDone || reviewDone || deliveryDone || !!task.legacy }),
+        reviewDone && !deliveryDone && !task.legacy
+          ? button('补充重审', startSupplementalReview, 'rr-buttonQuiet', {
+              disabled: busy || task.state === 'running',
+              title: '基于当前最新原文与译文开启新一轮审校（可选重点核查说明），完成后重新生成发布清单',
+            })
+          : null,
         h('p', { className: 'rr-currentModel' }, '当前分包 Worker：' + (task?.reviewConfig?.workerModel === 'inherit' ? '继承审校编排模型' : task?.reviewConfig?.workerModel ?? '未选择')),
         h(
           'label',

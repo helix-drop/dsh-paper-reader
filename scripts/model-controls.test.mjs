@@ -91,3 +91,52 @@ test('resolveNextAction distinguishes DSH current-session vs new-session review 
  const a4=resolveNextAction(unconfirmed,flags)
  assert.equal(a4.label,'选择模型并开始审校')
 })
+
+test('startSupplementalReview opens delivery confirmation with force and forwards focus note to executeStage',async()=>{
+ assert.ok(source.includes("button('补充重审', startSupplementalReview"))
+ let request,executedOpts
+ const saved={id:'task',phaseApproval:{phase:'delivery'}}
+ const context={task:{id:'task',state:'idle',legacy:false},phaseRequest:null,selected:'task',models:[],modelKey:'',orchestratorEffort:'',workerChoice:'',fallback1:'',fallback2:'',translationProfile:'',reviewOrchestratorChoice:'agy/gemini-3-flash',reviewWorkerChoice:'inherit',reviewEffortChoice:'',reviewFocus:'修正 honor able 并统一核心词',act:fn=>fn(),api:async()=>saved,setTask(){},setMessage(){},setReviewFocus(){},setPhaseRequest:v=>{request=v},executeStage:async(_t,_s,opts)=>{executedOpts=opts}}
+ compile('      const confirmAndRun=','      const retryStuckPages=',context,'startSupplementalReview')()
+ assert.equal(request.phase,'delivery')
+ assert.equal(request.stage,'review')
+ assert.deepEqual(plain(request.options),{runAgy:true,newConversation:true,force:true,supplemental:true})
+
+ await compile('      const confirmAndRun=','      const resumeWithAntigravity=',{...context,phaseRequest:request},'confirmAndRun')()
+ assert.equal(executedOpts.force,true)
+ assert.equal(executedOpts.supplemental,true)
+ assert.equal(executedOpts.note,'修正 honor able 并统一核心词')
+})
+
+test('one-click create-and-start uses remembered transcription models without opening a second confirmation dialog',async()=>{
+ assert.ok(source.includes("button('创建并开始转写',()=>create(true)"))
+ assert.ok(source.includes('/preferences'))
+ const apiCalls=[]
+ let executed=null,openedDialog=null
+ const ctx={
+  form:{sourceId:'s1',kind:'paper',name:'Paper A',workerId:'fixture:vis',fallback1:'fixture:fb',fallback2:'',forceNew:false},
+  modelPrefs:{models:{transcription:{orchestratorModel:'fixture/orch',orchestratorEffort:'high',workerId:'fixture:vis',fallbackIds:['fixture:fb']}},glossaryDomains:[]},
+  models:[{key:'fixture/orch',name:'Orch'}],
+  harnessModels:[{id:'fixture:vis',name:'Vis'},{id:'fixture:fb',name:'FB'}],
+  catalogDefault:'fixture:vis',
+  newTaskOrch:'fixture/orch',
+  newTaskEffort:'high',
+  act:fn=>fn(),
+  api:async(route,method,body)=>{
+   apiCalls.push([route,method,plain(body)])
+   if(route==='/tasks')return {id:'t-new',reused:false,input:{type:'pdf'},worker:{provider:'fixture',model:'vis'}}
+   if(route.endsWith('/confirm-phase'))return {id:'t-new',reused:false,input:{type:'pdf'},worker:{provider:'fixture',model:'vis'},phaseApproval:{phase:'transcription',orchestratorModel:'fixture/orch'}}
+   return {}
+  },
+  setSelected(){},setDetailTab(){},setPhase(){},setNewForm(){},setTask(){},setWorkerChoice(){},setFallback1(){},setFallback2(){},setModelKey(){},setOrchestratorEffort(){},setMessage(){},
+  setPhaseRequest:v=>{openedDialog=v},
+  rememberPrefs(){},
+  executeStage:async(t,stage,opts)=>{executed={id:t.id,stage,opts}}
+ }
+ const create=compile('  const create=(startNow=false)=>','  const executeStage=async',ctx,'create')
+ await create(true)
+ assert.equal(openedDialog,null,'must not open second confirmation modal when remembered models are present')
+ assert.equal(executed?.id,'t-new')
+ assert.equal(executed?.stage,'transcribe')
+ assert.ok(apiCalls.some(([r])=>r==='/tasks/t-new/confirm-phase'))
+})

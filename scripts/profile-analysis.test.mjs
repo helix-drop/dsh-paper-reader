@@ -116,6 +116,10 @@ test('unknown language is never defaulted to English and Markdown requires no PD
  const {profileReadiness}=await import('../modules/pipeline/profile-analysis.js')
  assert.equal(profileReadiness({...task,profile:{language:'fr'}}).ready,true)
  assert.deepEqual(profileReadiness({input:{type:'pdf'},profile:{language:'fr',book_type:'footnote_only',note_numbering:'per_page',note_location:'per_page_bottom',layout:'columns'}}).missing,['regions'])
+ assert.equal(profileReadiness({input:{type:'pdf'},profile:{language:'en',book_type:'no_notes',note_location:'none',layout:'single'}}).ready,true)
+ assert.equal(profileReadiness({input:{type:'pdf'},profile:{language:'en',book_type:'no_notes',note_location:'none',note_numbering:'none',layout:'single'}}).ready,true)
+ const noNotesReport={...report('abc'),fields:{...report('abc').fields,book_type:field('no_notes'),note_location:field('none')}}
+ assert.equal(mergeProfileAnalysis({kind:'paper',inspection:{fingerprint:'abc'}},noNotesReport).note_numbering,'per_chapter')
 })
 test('document validator error survives subprocess exit into task diagnostics and monitor',async()=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'profile-diagnostic-'))
@@ -141,4 +145,92 @@ test('orchestrator summaries retain missing required fields despite analysis com
  assert.equal(summary.status,'complete');assert.equal(summary.ready,false);assert.deepEqual(summary.missing,['book_type','note_numbering','note_location'])
  await TaskSessions.prototype.observe.call({record:async(_t,_role,_key,text)=>records.push(text)},task)
  assert.match(records[0],/"ready":false/);assert.match(records[0],/注释体例、注释编号方式、注释位置/)
+})
+
+test('cover_page detection metadata survives profile merge and static cover extraction avoids runtime rendering',async()=>{
+  const {ensureTaskCover,taskCoverMeta}=await import('../modules/pipeline/cover.js')
+  const {mergeProfileAnalysis}=await import('../modules/pipeline/profile-analysis.js')
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'cover-extract-'))
+  try{
+    const noCoverProfile=mergeProfileAnalysis(
+      {kind:'paper',inspection:{fingerprint:'fp1'},profile:{}},
+      {schemaVersion:1,fingerprint:'fp1',fields:{language:field('en'),cover_page:{value:null,confidence:'high',pages:[1],reason:'paper starts immediately',source:'model'}},unresolved:[]}
+    )
+    assert.equal(noCoverProfile.cover_page,null)
+
+    const id=randomUUID(),manager=new TaskManager(root,root)
+    const task={id,kind:'book',name:'cover-test',input:{type:'pdf'},inspection:{fingerprint:'fp2',pages:10},profile:{cover_page:3},stages:{},log:[]}
+    const docDir=manager.docDir(task),aiDir=manager.aiDir(task)
+    await fs.mkdir(path.join(aiDir,'page_images'),{recursive:true})
+    await fs.writeFile(path.join(docDir,'document_profile.json'),JSON.stringify({source_page_map:[{source_page:3,logical_page:2}]}))
+    const png1x1=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=','base64')
+    await fs.writeFile(path.join(aiDir,'page_images','page_002.png'),png1x1)
+
+    manager.save=async x=>x;manager.get=async()=>task
+    const cover=await ensureTaskCover(manager,task)
+    assert.equal(cover.page,3)
+    assert.equal(cover.none,false)
+    assert.equal(cover.file,'cover.jpg')
+    assert.ok(cover.sha256)
+    assert.deepEqual(taskCoverMeta(task),{hasCover:true,coverPage:3,coverSha256:cover.sha256})
+    const diskBytes=await fs.readFile(path.join(docDir,'cover.jpg'))
+    assert.ok(diskBytes.length>10)
+
+    // SQLite PipelineIndex retains cover metadata across manager.library() reload
+    const {atomic:atomicWrite}=await import('../modules/pipeline/tasks/shared.js'),{fileStamp}=await import('../modules/pipeline/storage.js')
+    const realManager=new TaskManager(root,root),readMd=path.join(root,'read.md')
+    await fs.writeFile(readMd,'# Title\nBody')
+    task.documentId='document:cover-test';task.state='idle';task.legacy={key:'legacy:cov',caption:'fixture',artifacts:{readingPath:readMd}};task.publication={published:true};task.stages={...task.stages,publish:{state:'done'}};task.libraryProof={kind:'legacy',readingPath:readMd,readingStamp:await fileStamp(readMd)}
+    await atomicWrite(path.join(realManager.dir(id),'task.json'),task)
+    await realManager.save(task)
+    const freshManager=new TaskManager(root,root)
+    const libEntries=await freshManager.library()
+    assert.equal(libEntries.length,1)
+    assert.deepEqual({hasCover:libEntries[0].hasCover,coverPage:libEntries[0].coverPage,coverSha256:libEntries[0].coverSha256},{hasCover:true,coverPage:3,coverSha256:cover.sha256})
+
+    await manager.setTaskCoverPage(id,null)
+    assert.equal(task.cover.none,true)
+    assert.equal(task.cover.page,null)
+    assert.deepEqual(taskCoverMeta(task),{hasCover:false,coverPage:null,coverSha256:null})
+    await assert.rejects(fs.access(path.join(docDir,'cover.jpg')),{code:'ENOENT'})
+
+    // Heuristic skips JSTOR wrapper page 1 and dense prose, selecting real title/cover page 2
+    const pdfBook=path.join(root,'sample-book.pdf'),pdfPaper=path.join(root,'sample-paper.pdf')
+    const {detectPdfCoverPage}=await import('../modules/pipeline/cover.js')
+    const {execFileSync}=await import('node:child_process')
+    let hasFitz=true
+    try{
+      execFileSync(manager.python,['-c',`
+import pymupdf as fitz
+doc = fitz.open()
+p1 = doc.new_page()
+p1.insert_text((72, 120), "Downloaded from https://www.jstor.org/stable/12345\\nAll use subject to JSTOR terms.", fontsize=12)
+p2 = doc.new_page()
+p2.draw_rect(fitz.Rect(60, 80, 500, 680), color=(0.15, 0.3, 0.6), fill=(0.2, 0.35, 0.65))
+p2.insert_text((100, 300), "Critique of Historical Reason", fontsize=26, color=(1, 1, 1))
+p3 = doc.new_page()
+p3.insert_textbox(fitz.Rect(72, 72, 520, 760), "Body prose. " * 140, fontsize=11)
+doc.save(${JSON.stringify(pdfBook)})
+paper = fitz.open()
+pp = paper.new_page()
+pp.insert_textbox(fitz.Rect(72, 72, 520, 760), "Academic journal paper first page. " * 55, fontsize=10.5)
+paper.save(${JSON.stringify(pdfPaper)})
+`],{stdio:'ignore'})
+    }catch{hasFitz=false}
+    if(hasFitz){
+      const detectedBook=await detectPdfCoverPage(pdfBook,{kind:'book',pythonBin:manager.python})
+      assert.equal(detectedBook?.page,2)
+      const detectedPaper=await detectPdfCoverPage(pdfPaper,{kind:'paper',pythonBin:manager.python})
+      assert.equal(detectedPaper?.page,null)
+    }
+  }finally{await fs.rm(root,{recursive:true,force:true})}
+})
+
+test('bibliography extracted during profile analysis merges cleanly into task.profile without blocking readiness',()=>{
+  const bib={kind:'paper',title:'再议基础设施权力',original_title:'Infrastructural Power Revisited',authors:'Michael Mann',journal:'Studies in Comparative International Development',year:'2008',doi:'10.1007/s12116-008-9027-7'}
+  const merged=mergeProfileAnalysis(
+    {kind:'paper',name:'再议基础设施权力',inspection:{fingerprint:'fp-bib'},profile:{}},
+    {schemaVersion:1,fingerprint:'fp-bib',fields:{language:field('en'),book_type:field('footnote_only'),note_numbering:field('continuous'),note_location:field('per_page_bottom'),layout:field('single'),bibliography:field(bib)},unresolved:[]},
+  )
+  assert.deepEqual(merged.bibliography,bib)
 })

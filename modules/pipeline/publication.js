@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { hash, markdownBlocks, imageReferences } from './markdown.js'
+import { cloneOrCopyFile, streamFileSha256 } from './hygiene.js'
 import {loadSourceMap,sourceMapPath,taskSourcePdf,translationMapMatches} from './source-map.js'
 export function bilingualMarkdown(source,target,withParts=false){
   const src=markdownBlocks(source),dst=markdownBlocks(target),headings=new Map()
@@ -34,8 +35,9 @@ export async function buildPublication(manager,t){
       const asset=await fs.realpath(path.resolve(path.dirname(file),decoded)).catch(async()=>{if(file===targetPath)return fs.realpath(path.resolve(path.dirname(sourcePath),decoded)).catch(async()=>{if(t.sourceRevision?.baseSource)return fs.realpath(path.resolve(path.dirname(t.sourceRevision.baseSource),decoded));throw new Error('阅读附件缺失')});if(t.sourceRevision?.baseSource)return fs.realpath(path.resolve(path.dirname(t.sourceRevision.baseSource),decoded)).catch(()=>{throw new Error('阅读附件缺失')});throw new Error('阅读附件缺失')})
       const roots=[manager.root,manager.readingRoot]
       if(!roots.some(root=>asset.startsWith(root+path.sep))||!(/\.(png|jpe?g|gif|webp|pdf)$/i.test(asset)))throw new Error('附件必须位于项目内且为图片或PDF')
-      const bytes=await fs.readFile(asset),digest=hash(bytes),name='assets/'+digest.slice(0,20)+path.extname(asset).toLowerCase()
-      assets.set(name,{bytes,source:asset});result=result.replace(m.text,m.text.replace(rel,name))
+      const digest = await streamFileSha256(asset)
+      const name='assets/'+digest.slice(0,20)+path.extname(asset).toLowerCase()
+      assets.set(name,{filePath:asset,source:asset});result=result.replace(m.text,m.text.replace(rel,name))
     }
     return result
   }
@@ -43,8 +45,8 @@ export async function buildPublication(manager,t){
   const bilingual=bilingualMarkdown(original,translation,true)
   const files=[{name:'原文.md',bytes:Buffer.from(original),source:sourcePath},{name:'译文.md',bytes:Buffer.from(translation),source:targetPath},{name:'双语.md',bytes:Buffer.from(bilingual.text),source:'generated-bilingual'}]
   const pdf=await taskSourcePdf(manager,t)
-  if(pdf)files.push({name:'原始PDF.pdf',bytes:await fs.readFile(pdf),source:pdf})
-  if(t.input.type==='pdf'){const normalized=path.join(manager.docDir(t),'source.pdf');files.push({name:'阅读底本.pdf',bytes:await fs.readFile(normalized),source:normalized})}
+  if(pdf)files.push({name:'原始PDF.pdf',filePath:pdf,source:pdf})
+  if(t.input.type==='pdf'){const normalized=path.join(manager.docDir(t),'source.pdf');files.push({name:'阅读底本.pdf',filePath:normalized,source:normalized})}
   if(sourceMap){
     // The published Markdown may rewrite attachment paths. Recompute its block hashes
     // while retaining source identities and original-PDF page ranges.
@@ -70,7 +72,14 @@ export async function buildPublication(manager,t){
   const bundle=path.join(manager.dir(t.id),'publication');await fs.mkdir(bundle,{recursive:true})
   const title=t.name.replace(/[\/\\:\0]/g,'_').replace(/^\.+/,'').trim();if(!title)throw new Error('发布目录名称无效')
   const destination=path.join(manager.publishRoot,title),manifest=[],prevPublished=t.publishedFiles??t.publication?.publishedFiles??{}
-  for(const f of files){const output=path.join(bundle,f.name);await fs.mkdir(path.dirname(output),{recursive:true});await fs.writeFile(output,f.bytes);const old=await fs.readFile(path.join(destination,f.name)).catch(()=>null),oldHash=old?hash(old):null,newHash=hash(f.bytes);manifest.push({name:f.name,sha256:newHash,source:f.source,bytes:f.bytes.length,conflict:!!oldHash&&oldHash!==newHash&&oldHash!==prevPublished[f.name]})}
+  for(const f of files){
+    const output=path.join(bundle,f.name);await fs.mkdir(path.dirname(output),{recursive:true})
+    let newHash,byteCount
+    if(f.filePath){await cloneOrCopyFile(f.filePath,output,0o644);newHash=await streamFileSha256(f.filePath);byteCount=(await fs.stat(f.filePath)).size}
+    else{await fs.writeFile(output,f.bytes);newHash=hash(f.bytes);byteCount=f.bytes.length}
+    const oldHash=await streamFileSha256(path.join(destination,f.name)).catch(()=>null)
+    manifest.push({name:f.name,sha256:newHash,source:f.source,bytes:byteCount,conflict:!!oldHash&&oldHash!==newHash&&oldHash!==prevPublished[f.name]})
+  }
   return {files:manifest,destination,bundle,validated:true,semanticVerified:false,published:false,publishedFiles:prevPublished,message:'阅读成品清单已生成；人工修改的同名文件不会覆盖'}
 }
 export async function commitPublication(manager,t,accepted){
@@ -82,7 +91,21 @@ export async function commitPublication(manager,t,accepted){
   const destination=path.resolve(fresh.destination),realRoot=await fs.realpath(manager.publishRoot).catch(async()=>{await fs.mkdir(manager.publishRoot,{recursive:true});return fs.realpath(manager.publishRoot)})
   await fs.mkdir(destination,{recursive:true});const realDest=await fs.realpath(destination);if(!realDest.startsWith(realRoot+path.sep))throw new Error('发布目标不能指向库外目录')
   const publishedFiles={...prevPublished}
-  for(const f of fresh.files){const output=path.join(realDest,f.name);await fs.mkdir(path.dirname(output),{recursive:true});const parent=await fs.realpath(path.dirname(output));if(!parent.startsWith(realDest+path.sep)&&parent!==realDest)throw new Error('附件目录不能指向目标外部');const bytes=await fs.readFile(path.join(fresh.bundle,f.name));try{await fs.writeFile(output,bytes,{flag:'wx'})}catch(e){if(e.code!=='EEXIST')throw e;const existingHash=hash(await fs.readFile(output));if(existingHash!==f.sha256&&existingHash!==prevPublished[f.name])throw new Error('目标文件发生变化，停止发布且保留已有内容');if(existingHash!==f.sha256)await fs.writeFile(output,bytes)}if(hash(await fs.readFile(output))!==f.sha256)throw new Error('发布后文件核验失败');publishedFiles[f.name]=f.sha256}
+  for(const f of fresh.files){
+    const output=path.join(realDest,f.name);await fs.mkdir(path.dirname(output),{recursive:true})
+    const parent=await fs.realpath(path.dirname(output));if(!parent.startsWith(realDest+path.sep)&&parent!==realDest)throw new Error('附件目录不能指向目标外部')
+    const bundleFile=path.join(fresh.bundle,f.name),st=await fs.lstat(output).catch(()=>null)
+    if(st){
+      const existingHash=await streamFileSha256(output).catch(()=>null)
+      if(existingHash!==f.sha256&&existingHash!==prevPublished[f.name])throw new Error('目标文件发生变化，停止发布且保留已有内容')
+      if(existingHash!==f.sha256)await cloneOrCopyFile(bundleFile,output,0o644)
+    }else{
+      await cloneOrCopyFile(bundleFile,output,0o644)
+    }
+    if(await streamFileSha256(output)!==f.sha256)throw new Error('发布后文件核验失败')
+    publishedFiles[f.name]=f.sha256
+  }
   t.publishedFiles=publishedFiles
+  await fs.rm(fresh.bundle,{recursive:true,force:true}).catch(()=>{})
   return {...fresh,published:true,acceptedByUser:true,publishedAt:new Date().toISOString(),publishedFiles}
 }

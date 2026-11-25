@@ -105,6 +105,18 @@ class AnalysisTest(unittest.TestCase):
         self.assertNotIn('book_type', fields)
         self.assertNotIn('note_location', fields)
 
+    def test_full_sampled_no_notes_accepts_none_or_omitted_note_numbering(self):
+        evidence = {'pages': 2, 'samples': [{'page': 1}, {'page': 2}], 'outlines': [], 'type': 'pdf'}
+        raw = {'fields': {'book_type': self.field('no_notes', [1, 2]), 'note_location': self.field('none', [1, 2]), 'note_numbering': self.field('none', [1, 2])}}
+        fields, issues = a.validate_fields(raw, evidence)
+        self.assertEqual(fields['book_type']['value'], 'no_notes')
+        self.assertEqual(fields['note_numbering']['value'], 'per_chapter')
+        self.assertNotIn('note_numbering', issues)
+        raw_omitted = {'fields': {'book_type': self.field('no_notes', [1, 2]), 'note_location': self.field('none', [1, 2])}}
+        fields2, issues2 = a.validate_fields(raw_omitted, evidence)
+        self.assertEqual(fields2['note_numbering']['value'], 'per_chapter')
+        self.assertNotIn('note_numbering', issues2)
+
     def test_tail_note_range_requires_both_boundaries_and_tail_notes(self):
         raw = {'fields': {'book_type': self.field('footnote_only'), 'note_start_page': self.field(1)}}
         self.assertNotIn('note_start_page', a.validate_fields(raw, self.evidence())[0])
@@ -130,6 +142,72 @@ class AnalysisTest(unittest.TestCase):
             self.assertNotIn('confirmed', report['fields'])
             self.assertEqual(report['fields']['end_page']['value'], 20)
             self.assertEqual(before, source.read_bytes())
+
+    def test_bibliography_extraction_from_pdf_and_model_validation(self):
+        import pymupdf as fitz
+        raw = {
+            'fields': {
+                'document_type': self.field('book', [1]),
+                'bibliography': self.field({
+                    'kind': 'book',
+                    'title': '青年福柯',
+                    'original_title': 'Young Foucault',
+                    'authors': ['Elisabetta Basso'],
+                    'publisher': 'Columbia University Press',
+                    'year': '2022',
+                    'isbn': '9780231205849',
+                }, [1]),
+            },
+        }
+        fields, issues = a.validate_fields(raw, self.evidence())
+        self.assertIn('bibliography', fields)
+        self.assertNotIn('bibliography', issues)
+        self.assertEqual(fields['bibliography']['value']['authors'], 'Elisabetta Basso')
+        self.assertEqual(fields['bibliography']['value']['year'], '2022')
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'book.pdf'
+            doc = fitz.open()
+            doc.set_metadata({'title': 'Test Monograph', 'author': 'Jane Doe'})
+            p1 = doc.new_page()
+            p1.insert_text((72, 100), 'Test Monograph\nJane Doe\nColumbia University Press')
+            p2 = doc.new_page()
+            p2.insert_text((72, 100), 'Copyright © 2021 Columbia University Press\nISBN 978-0-231-20584-9\nDOI: 10.1000/xyz123')
+            doc.save(source); doc.close()
+            report = a.analyze(source, root / 'analysis', root, 'unused', 'unused', 'book', local_only=True)
+            bib = report['fields']['bibliography']['value']
+            self.assertEqual(bib['authors'], 'Jane Doe')
+            self.assertEqual(bib['publisher'], 'Columbia University Press')
+            self.assertEqual(bib['year'], '2021')
+            self.assertEqual(bib['isbn'], '978-0-231-20584-9')
+            self.assertEqual(bib['doi'], '10.1000/xyz123')
+
+    def test_collection_and_incollection_bibliography_preserved(self):
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'edited.pdf'
+            doc = fitz.open()
+            p1 = doc.new_page()
+            p1.insert_text((72, 100), 'Heidegger und die Psychiatrie\nHerausgegeben von Alfred Denker und Holger Zaborowski\nVerlag Karl Alber')
+            p2 = doc.new_page()
+            p2.insert_text((72, 100), 'Copyright © 2023 Verlag Karl Alber\nISBN 978-3-495-99557-0')
+            doc.save(source); doc.close()
+            report = a.analyze(source, root / 'analysis', root, 'unused', 'unused', 'book', local_only=True)
+            bib = report['fields']['bibliography']['value']
+            self.assertEqual(bib['kind'], 'collection')
+            self.assertEqual(bib['editors'], 'Alfred Denker; Holger Zaborowski')
+            self.assertEqual(bib['publisher'], 'Verlag Karl Alber')
+            self.assertEqual(bib['year'], '2023')
+            self.assertEqual(bib['isbn'], '978-3-495-99557-0')
+
+            chapter_bib = a.normalize_bibliography({'title': 'Making Up People', 'book_title': 'Historical Ontology', 'authors': 'Ian Hacking'}, default_kind='chapter')
+            self.assertEqual(chapter_bib['kind'], 'incollection')
+            self.assertEqual(chapter_bib['book_title'], 'Historical Ontology')
 
 if __name__ == '__main__':
     unittest.main()

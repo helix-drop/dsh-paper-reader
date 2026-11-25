@@ -267,3 +267,72 @@ test('source snapshot mismatch in a produced report is a fatal rather than chapt
   await assert.rejects(f.manager.acceptTranscriptionDelivery(f.t,'001'),e=>e.code!=='CHAPTER_VALIDATION_PENDING'&&/输入快照/.test(e.message))
  }finally{await f.close()}
 })
+
+test('unverified_pages in one chapter stays chapter-local and drains remaining chapters while naming chapter and page',async()=>{
+ const f=await fixture();try{
+  f.t.inspection={verdict:'SCANNED'};f.t.stages={prepare:{state:'done'},images:{state:'done'}};f.t.worker={provider:'fake',model:'fake',timeout:1};f.t.phaseApproval={phase:'transcription',workerId:'fake:fake'}
+  const folder=path.join(f.manager.aiDir(f.t),'delivery/chapter_001');await fs.mkdir(path.join(folder,'output'),{recursive:true})
+  await fs.writeFile(path.join(folder,'state.json'),JSON.stringify({finished:true,attempts:{1:{used:1,last_failed:true,models_exhausted:true}}}))
+  await fs.writeFile(path.join(folder,'output/report.json'),JSON.stringify({quality_status:'pending',input_protocol:{required:true,unverified_pages:[1]},errors:['BLOCKED: body page 1 missing']}))
+  f.manager.chapters=async()=>[{id:'001'},{id:'002'},{id:'003'},{id:'004'}]
+  const started=[],accepted=[],accept=f.manager.acceptTranscriptionDelivery.bind(f.manager)
+  f.manager.py=async(_t,script,args)=>{if(script.endsWith('bounded_chapter.py'))started.push(args[args.indexOf('--chapter')+1])}
+  f.manager.acceptTranscriptionDelivery=async(t,id)=>{if(id==='001')return accept(t,id);accepted.push(id)}
+  await assert.rejects(f.manager.perform(f.t,'transcribe',{concurrency:2}),e=>e.code==='CHAPTER_VALIDATION_PENDING'&&/章节 001（第 1 页）/.test(e.message))
+  assert.deepEqual(started.sort(),['001','002','003','004']);assert.deepEqual(accepted.sort(),['002','003','004'])
+ }finally{await f.close()}
+})
+
+test('switching worker model reopens exhausted failed pages in finished pending chapters even without retryErrors',async()=>{
+ const f=await fixture();try{
+  f.t.inspection={verdict:'SCANNED'};f.t.stages={prepare:{state:'done'},images:{state:'done'}}
+  f.t.worker={provider:'opencode-go',model:'muse-spark-1.3-contributor',timeout:1}
+  f.t.phaseApproval={phase:'transcription',workerId:'opencode-go:muse-spark-1.3-contributor'}
+  f.manager.chapters=async()=>[{id:'001'}];f.manager.acceptTranscriptionDelivery=async()=>{};const calls=[]
+  f.manager.py=async(_t,script,args)=>{if(script.endsWith('bounded_chapter.py'))calls.push(args)}
+  const folder=path.join(f.manager.aiDir(f.t),'delivery/chapter_001');await fs.mkdir(path.join(folder,'output'),{recursive:true})
+  await fs.mkdir(path.join(folder,'attempts/page_001_round_2'),{recursive:true})
+  await fs.writeFile(path.join(folder,'state.json'),JSON.stringify({
+   finished:true,
+   attempts:{
+    1:{used:1,last_failed:true,models_exhausted:true,history:[{round:1,state:'failed',calls:[{provider:'deepseek-official',model:'deepseek-flash',state:'failed'}]}]},
+    2:{used:1,last_failed:false,history:[{round:1,state:'selected',provider:'deepseek-official',model:'deepseek-flash'}]}
+   }
+  }))
+  await fs.writeFile(path.join(folder,'output/report.json'),JSON.stringify({quality_status:'pending',input_protocol:{required:true,unverified_pages:[1]}}))
+  await f.manager.perform(f.t,'transcribe',{retryErrors:false})
+  assert.equal(calls.length,1)
+  assert.equal(calls[0][calls[0].indexOf('--pages')+1],'1')
+  const updated=JSON.parse(await fs.readFile(path.join(folder,'state.json'),'utf8'))
+  assert.equal(updated.attempts['1'].models_exhausted,false)
+  const attemptDirs=await fs.readdir(path.join(folder,'attempts'))
+  assert.ok(attemptDirs.some(name=>name.startsWith('page_001_round_2.previous-')))
+ }finally{await f.close()}
+})
+
+test('hasUntriedVisionModel ignores local authorized_ocr_fallback_sources_missing precheck failure and applySourceEdit binds audited repairs',async()=>{
+ const f=await fixture();try{
+  f.t.inspection={verdict:'SCANNED'};f.t.stages={prepare:{state:'done'},images:{state:'done'}}
+  f.t.worker={provider:'opencode-go',model:'muse-spark-1.3-contributor',timeout:1}
+  f.t.phaseApproval={phase:'transcription',workerId:'opencode-go:muse-spark-1.3-contributor'}
+  f.manager.chapters=async()=>[{id:'001'}];f.manager.acceptTranscriptionDelivery=async()=>{};const calls=[]
+  f.manager.py=async(_t,script,args)=>{if(script.endsWith('bounded_chapter.py'))calls.push(args)}
+  const folder=path.join(f.manager.aiDir(f.t),'delivery/chapter_001');await fs.mkdir(path.join(folder,'output'),{recursive:true})
+  await fs.writeFile(path.join(folder,'state.json'),JSON.stringify({
+   finished:true,
+   attempts:{
+    1:{used:2,last_failed:true,models_exhausted:true,history:[
+     {round:1,state:'failed',error_message:'vision_unreadable:dark cover',calls:[{provider:'deepseek-official',model:'deepseek-flash',state:'failed'}]},
+     {round:2,state:'failed',error_message:'authorized_ocr_fallback_sources_missing',calls:[{provider:'opencode-go',model:'muse-spark-1.3-contributor',state:'failed'}],model_failures:[{provider:'opencode-go',model:'muse-spark-1.3-contributor',error_message:'authorized_ocr_fallback_sources_missing'}]}
+    ]}
+   }
+  }))
+  await fs.writeFile(path.join(folder,'output/report.json'),JSON.stringify({quality_status:'pending',input_protocol:{required:true,unverified_pages:[1]}}))
+  await f.manager.perform(f.t,'transcribe',{retryErrors:false})
+  assert.equal(calls.length,1)
+  assert.equal(calls[0][calls[0].indexOf('--pages')+1],'1')
+  const updated=JSON.parse(await fs.readFile(path.join(folder,'state.json'),'utf8'))
+  assert.equal(updated.attempts['1'].used,1)
+  assert.equal(updated.attempts['1'].models_exhausted,false)
+ }finally{await f.close()}
+})

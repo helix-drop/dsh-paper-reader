@@ -8,12 +8,14 @@ import {
   TEXT,
   ASSEMBLER,
   VERIFY_DELIVERIES,
+  APPLY_SOURCE_EDIT,
   exists,
   atomic,
   json,
   walk,
   visionFallbackArgs,
 } from './shared.js'
+import { hasUntriedVisionModel, reopenStuckBudget, retireRetryAttempt } from './stuck-pages.js'
 
 export async function runTranscriptionStage(manager, t, stage, options = {}) {
   const doc = manager.docDir(t)
@@ -61,6 +63,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
       path.join(doc, 'source.pdf'),
       '--out', path.join(ai, 'page_images'),
     ])
+    await manager.ensureTaskCover?.(t).catch(() => null)
     return true
   }
 
@@ -121,6 +124,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
         ocrPolicy: 'on_demand_regions',
         worker: { ...t.worker },
       }
+      await manager.ensureTaskCover?.(t).catch(() => null)
       t.observationConfirmed = true
     } else {
       let reference = null
@@ -146,6 +150,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
         }
         await manager.py(t, vision('gate_check.py'), [doc, '--phase', '2'])
       }
+      await manager.ensureTaskCover?.(t).catch(() => null)
       t.observationConfirmed = true
     }
     return true
@@ -155,6 +160,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
     await manager.requireDone(t, 'prepare', 'images')
     if (t.inspection.verdict === 'BORN-DIGITAL' && t.profile?.transcription_method === 'text_layer') {
       await manager.py(t, text('tl_convert.py'), [doc, 'extract'])
+      await manager.ensureTaskCover?.(t).catch(() => null)
       return true
     }
 
@@ -176,7 +182,8 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
 
     const runChapter = async c => {
       if (manager.active.get(t.id)?.cancel) throw new Error('任务已停止')
-      const state = await json(path.join(ai, 'delivery', `chapter_${c.id}`, 'state.json'), null)
+      const stateFile = path.join(ai, 'delivery', `chapter_${c.id}`, 'state.json')
+      const state = await json(stateFile, null)
       const report = state?.finished
         ? await json(path.join(ai, 'delivery', `chapter_${c.id}`, 'output/report.json'), null)
         : null
@@ -184,11 +191,30 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
         const verifyArgs = [VERIFY_DELIVERIES, path.join(manager.root, VISION), doc, '--chapter', c.id]
         await manager.command(t, manager.python, verifyArgs)
       } else {
-        const retryPages = options.retryErrors && report?.quality_status === 'pending'
-          ? Object.entries(state.attempts ?? {})
-            .filter(([page, b]) => /^\d+$/.test(page) && Number(b.used) < 2 && !b.models_exhausted)
-            .map(([page]) => page)
-          : []
+        const reopened = []
+        if (state?.finished && report?.quality_status === 'pending') {
+          const unverified = new Set((report?.input_protocol?.unverified_pages ?? []).map(Number))
+          for (const [page, b] of Object.entries(state.attempts ?? {})) {
+            if (!/^\d+$/.test(page) || !hasUntriedVisionModel(b, t.worker)) continue
+            if (!options.retryErrors && !b.last_failed && !unverified.has(Number(page))) continue
+            if (reopenStuckBudget(b)) reopened.push(page)
+          }
+          if (reopened.length) {
+            await atomic(stateFile, state)
+            const attemptsDir = path.join(path.dirname(stateFile), 'attempts')
+            for (const page of reopened) {
+              const used = Number(state.attempts[page]?.used ?? 1)
+              if (Number.isFinite(used)) await retireRetryAttempt(attemptsDir, Number(page), used + 1)
+            }
+          }
+        }
+        const retrySet = new Set(reopened)
+        if (options.retryErrors && report?.quality_status === 'pending') {
+          for (const [page, b] of Object.entries(state.attempts ?? {})) {
+            if (/^\d+$/.test(page) && Number(b.used) < 2 && !b.models_exhausted) retrySet.add(page)
+          }
+        }
+        const retryPages = [...retrySet].sort((a, b) => Number(a) - Number(b))
         await manager.py(t, vision('bounded_chapter.py'), [
           doc,
           '--chapter', c.id,
@@ -224,6 +250,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
     const rejected = [...results.filter(r => r.status === 'rejected').map(r => r.reason), ...chapterErrors]
     if (rejected.length === 1) throw rejected[0]
     if (rejected.length > 1) throw new Error(rejected.map(e => e?.message || String(e)).join('；'))
+    await manager.ensureTaskCover?.(t).catch(() => null)
     return true
   }
 
@@ -297,6 +324,7 @@ export async function runTranscriptionStage(manager, t, stage, options = {}) {
       if (!check.passed) throw new Error('整书拼接后的脚注或附件结构异常：' + check.errors.join('；'))
     }
     t.sourceMap = await manager.generateSourceMap(t)
+    await manager.ensureTaskCover?.(t).catch(() => null)
     return true
   }
 
@@ -322,15 +350,18 @@ export const transcriptionFlowMethods = {
         },
       }
 
-      if (
-        report.input_protocol?.required !== true
-        || !Array.isArray(report.input_protocol.unverified_pages)
-        || report.input_protocol.unverified_pages.length
-      ) {
-        throw new Error('转写缺少独立视觉或受控 OCR 降级的文件指纹回执；保留候选与预算，不进入翻译')
-      }
       if (report.errors?.some(e => /source changed since this run.s input snapshot/.test(String(e)))) {
         throw new Error('底本与转写输入快照不一致，停止后续章节并保留成果')
+      }
+      if (report.input_protocol?.required !== true || !Array.isArray(report.input_protocol.unverified_pages)) {
+        throw new Error('转写缺少独立视觉或受控 OCR 降级的文件指纹回执；保留候选与预算，不进入翻译')
+      }
+      if (report.input_protocol.unverified_pages.length) {
+        const pagesText = report.input_protocol.unverified_pages.join('、')
+        throw Object.assign(
+          new Error(`章节 ${chapter}（第 ${pagesText} 页）转写缺少独立视觉或受控 OCR 降级的文件指纹回执；保留候选与预算，不进入翻译`),
+          { code: 'CHAPTER_VALIDATION_PENDING' },
+        )
       }
       if (report.quality_status !== 'program_checks_passed') {
         throw Object.assign(
@@ -445,6 +476,7 @@ export const transcriptionFlowMethods = {
 
       const ai = this.aiDir(t)
       await fs.rm(path.join(ai, 'delivery'), { recursive: true, force: true }).catch(() => {})
+      await fs.rm(path.join(this.dir(t.id), 'harness-requests'), { recursive: true, force: true }).catch(() => {})
       await fs.rm(path.join(ai, 'harness-requests'), { recursive: true, force: true }).catch(() => {})
       await fs.rm(path.join(ai, 'worker_audit.jsonl'), { force: true }).catch(() => {})
       await fs.rm(path.join(ai, 'chapters'), { recursive: true, force: true }).catch(() => {})
@@ -495,6 +527,41 @@ export const transcriptionFlowMethods = {
 
       await this.save(t)
       return t
+    })
+  },
+
+  async applySourceEdit(id, { mode = 'source_edit', chapterId, review } = {}) {
+    return this.locked(id, async () => {
+      const t = await this.get(id)
+      if (this.active.has(id)) throw new Error('任务正在运行，请等待当前执行结束后再应用核证修补')
+      if (t.legacy) throw new Error('旧项目归档记录保持只读')
+      const normalizedChapter = String(chapterId ?? review?.chapter ?? '').replace(/^chapter_(\d{3,6})$/, '$1')
+      if (!/^\d{3,6}$/.test(normalizedChapter)) throw new Error('请提供有效的章节编号 chapterId（如 "005"）')
+      if (!review || typeof review !== 'object' || Array.isArray(review)) {
+        throw new Error('请提供原页核证修补对象 review（须包含 basis 等核证说明）')
+      }
+      const scratchDir = path.join(this.dir(t.id), 'source-edit-requests')
+      await fs.mkdir(scratchDir, { recursive: true })
+      const reqFile = path.join(scratchDir, `edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
+      try {
+        await atomic(reqFile, review)
+        const out = await this.command(t, this.python, [
+          APPLY_SOURCE_EDIT,
+          path.join(this.root, VISION),
+          this.docDir(t),
+          '--chapter', normalizedChapter,
+          '--mode', mode === 'note_continuation' ? 'note_continuation' : 'source_edit',
+          '--review-file', reqFile,
+        ])
+        const parsed = JSON.parse(out.trim().split('\n').at(-1))
+        if (parsed.qualityStatus === 'program_checks_passed') {
+          try { await this.acceptTranscriptionDelivery(t, normalizedChapter) } catch {}
+        }
+        await this.save(t)
+        return parsed
+      } finally {
+        await fs.unlink(reqFile).catch(() => {})
+      }
     })
   },
 }

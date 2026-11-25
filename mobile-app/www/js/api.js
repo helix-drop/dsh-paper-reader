@@ -230,6 +230,10 @@ export const readerApi = {
     return apiJson(settings, '/sync/health')
   },
 
+  async pullPipelineNotices(settings) {
+    return apiJson(settings, '/sync/notices', { timeoutMs: 15000 })
+  },
+
   async pairWithCode(settings, { serverUrl, code, vaultName = '', deviceId = '', deviceName = '' } = {}) {
     const cleanUrl = String(serverUrl ?? settings?.serverUrl ?? '').trim().replace(/\/+$/, '')
     const targetSettings = { serverUrl: cleanUrl, token: '', vaultName: '' }

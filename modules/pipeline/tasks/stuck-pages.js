@@ -48,7 +48,27 @@ export function reopenStuckBudget(budget) {
   return true
 }
 
-async function retireRetryAttempt(dir, page, round) {
+export function hasUntriedVisionModel(budget, worker) {
+  if (!budget?.models_exhausted || !Array.isArray(budget.history) || !budget.history.length) return false
+  const tried = new Set()
+  for (const event of budget.history) {
+    if (event?.error_message === 'authorized_ocr_fallback_sources_missing' || event?.failure_kind === 'local_input') continue
+    if (event?.provider && event?.model) tried.add(`${event.provider}:${event.model}`)
+    for (const call of [...(event?.calls ?? []), ...(event?.model_failures ?? [])]) {
+      if (call?.error_message === 'authorized_ocr_fallback_sources_missing') continue
+      if (call?.provider && call?.model) tried.add(`${call.provider}:${call.model}`)
+      else if (call?.model) tried.add(String(call.model))
+    }
+  }
+  if (!tried.size) return false
+  const candidates = [worker, ...(worker?.fallbacks ?? [])].filter(item => item?.model)
+  return candidates.some(item => {
+    const key = item.provider ? `${item.provider}:${item.model}` : String(item.model)
+    return !tried.has(key) && !tried.has(String(item.model))
+  })
+}
+
+export async function retireRetryAttempt(dir, page, round) {
   const pad = String(page).padStart(3, '0')
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const names = [
@@ -188,6 +208,19 @@ export const stuckPagesMethods = {
         }
 
         const chapters = await this.chapters(t)
+        let otherPending = null
+        for (const chapter of chapters) {
+          if (byChapter.has(String(chapter.id))) continue
+          if (t.transcriptionDeliveries?.[chapter.id]?.quality === 'program_checks_passed') continue
+          const chDir = path.join(this.aiDir(t), 'delivery', `chapter_${chapter.id}`)
+          const chState = await json(path.join(chDir, 'state.json'), null)
+          if (!chState?.finished) continue
+          try {
+            await this.acceptTranscriptionDelivery(t, String(chapter.id))
+          } catch (error) {
+            otherPending = otherPending ?? error
+          }
+        }
         const passed = chapters.length > 0 && chapters.every(
           chapter => t.transcriptionDeliveries?.[chapter.id]?.quality === 'program_checks_passed',
         )
@@ -200,13 +233,16 @@ export const stuckPagesMethods = {
           return
         }
 
+        const effectiveErr = pending ?? otherPending
         t.state = 'blocked'
         t.stage = 'verify'
         t.stages.transcribe = { state: 'blocked' }
         t.stages.verify = { state: 'blocked' }
-        t.message = pending?.code === 'CHAPTER_VALIDATION_PENDING'
+        t.message = pending
           ? pending.message
-          : (pending?.message || `已用 ${choice.model} 重试指定页面，章节仍未通过`)
+          : otherPending
+            ? `已用 ${choice.model} 重试第 ${pages.map(page => page.page).join('、')} 页并通过；${otherPending.message}`
+            : (effectiveErr?.message || `已用 ${choice.model} 重试指定页面，仍有未完成章节待转写`)
       })().catch(error => {
         t.state = active.cancel ? 'paused' : 'blocked'
         t.stages.transcribe = { state: t.state === 'paused' ? 'stopped' : 'blocked' }
@@ -216,6 +252,13 @@ export const stuckPagesMethods = {
           await this.save(t)
         } finally {
           this.active.delete(id)
+          await this.publishPipelineNotice(t, {
+            phase: 'transcription',
+            scope: 'retry',
+            userStop: Boolean(active.cancel),
+            timedOut: false,
+            phaseComplete: t.state === 'idle',
+          })
         }
       })
       return t

@@ -287,4 +287,294 @@ class PostprocessingTests(unittest.TestCase):
             self.assertIn('*Jacques Postel, François Bing*', md)
             self.assertEqual(md.count('## PHILIPPE PINEL ET LES « CONCIERGES »'), 1)
 
+    def test_paratext_skip_allowed_on_front_and_back_edges_without_backfill_or_similarity_block(self):
+        import page_json_schema as schema
+        import verify_page_json as verifier
+        import worker_call as worker
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'book'
+            ai = root / 'ai_convert'
+            def write(rel, data):
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            write('ai_convert/chapters.json', [{'id': '001', 'title': 'Sample Paper', 'start_page': 1, 'end_page': 4}])
+            write('ai_convert/book_analysis.json', {'title': 'Sample Paper', 'document_type': 'paper', 'language': 'en', 'book_type': 'no_notes', 'note_location': 'none'})
+            write('raw_pages.json', {'pages': [
+                {'bookPage': 1, 'markdown': 'Downloaded from JSTOR. All use subject to terms and conditions. ' * 25},
+                {'bookPage': 2, 'markdown': ('Published by University Press. Terms of use boilerplate. ' * 20) + 'Sample Paper. Opening paragraph of the article.'},
+                {'bookPage': 3, 'markdown': 'Second page body paragraph with full scholarly prose and analysis.' * 12},
+                {'bookPage': 4, 'markdown': 'Other books in this publisher series and subscription advertisement. ' * 25},
+            ]})
+            p1 = {
+                'schema_version': 2, 'book_page': 1, 'chapter_id': '001', 'mode': 'vision',
+                'reason_fallback': None, 'regions': ['copyright'], 'paragraphs': [],
+                'metadata': {'header_removed': None, 'issues': ['paratext_omitted: JSTOR download cover sheet']},
+            }
+            schema.normalize_body_page(p1)
+            self.assertEqual(p1['regions'], ['paratext'])
+            self.assertEqual(p1['paragraph_summary'], {'continues_from_prev': False, 'continues_to_next': False, 'complete_paragraph_count': 0})
+            p2 = {
+                'schema_version': 2, 'book_page': 2, 'chapter_id': '001', 'mode': 'vision',
+                'reason_fallback': None, 'regions': ['paratext', 'body'],
+                'paragraphs': [
+                    {'pid': 'p002_1', 'kind': 'subheading_h2', 'text': 'Sample Paper', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False},
+                    {'pid': 'p002_2', 'kind': 'body', 'text': 'Opening paragraph of the article.', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False},
+                ],
+                'metadata': {'header_removed': None, 'issues': ['paratext_omitted: publisher terms banner']},
+            }
+            schema.normalize_body_page(p2)
+            p3 = {
+                'schema_version': 2, 'book_page': 3, 'chapter_id': '001', 'mode': 'vision',
+                'reason_fallback': None, 'regions': ['body'],
+                'paragraphs': [
+                    {'pid': 'p003_1', 'kind': 'body', 'text': 'Second page body paragraph with full scholarly prose and analysis.' * 12, 'markers': [], 'continues_from_prev': False, 'continues_to_next': False},
+                ],
+                'metadata': {'header_removed': None, 'issues': []},
+            }
+            schema.normalize_body_page(p3)
+            p4 = {
+                'schema_version': 2, 'book_page': 4, 'chapter_id': '001', 'mode': 'vision',
+                'reason_fallback': None, 'regions': ['paratext'], 'paragraphs': [],
+                'metadata': {'header_removed': None, 'issues': ['paratext_omitted: publisher series catalog']},
+            }
+            schema.normalize_body_page(p4)
+            for pg in (p1, p2, p3, p4):
+                write(f"ai_convert/edits/body/page_{pg['book_page']:03d}.json", pg)
+            write('ai_convert/edits/notes/chapter_001.json', {'schema_version': 2, 'chapter_id': '001', 'definitions': []})
+
+            # Backfill guard: explained paratext is intentionally empty; unexplained is not.
+            budget = {'used': 3, 'last_failed': True}
+            self.assertFalse(bounded.should_ocr_backfill(p1, budget))
+            self.assertTrue(bounded.should_ocr_backfill({**p1, 'metadata': {'header_removed': None, 'issues': []}}, budget))
+
+            # Worker auditor: no low_coverage or invalid_paratext_skip on allowed edge pages
+            ch_def = {'id': '001', 'start_page': 1, 'end_page': 4}
+            self.assertEqual(worker._audit_body_page(p1, {}, ch_def, str(root), False, 'none'), [])
+            self.assertEqual(worker._audit_body_page(p2, {}, ch_def, str(root), False, 'none'), [])
+            self.assertEqual(worker._audit_body_page(p4, {}, ch_def, str(root), True, 'none'), [])
+
+            # Chapter verifier: passes with zero blockers and no similarity_report
+            errors, failed = verifier.verify_chapter(str(root), '001')
+            blockers = [e for e in errors if 'WARNING' not in e[:40]]
+            self.assertEqual(failed, 0, errors)
+            self.assertEqual(blockers, [])
+            self.assertFalse((ai / 'similarity_report' / 'chapter_001.json').exists())
+
+            # Chapter assembly succeeds and outputs only substantive content
+            ok, asm_errors = chapter.assemble(str(root), '001')
+            self.assertTrue(ok, asm_errors)
+            md = next((ai / 'chapters').glob('*/*.md')).read_text(encoding='utf-8')
+            self.assertIn('Opening paragraph of the article.', md)
+            self.assertNotIn('JSTOR', md)
+            self.assertNotIn('publisher series', md)
+
+    def test_paratext_skip_blocked_in_mid_body_and_interior_chapters(self):
+        import page_json_schema as schema
+        import verify_page_json as verifier
+        import worker_call as worker
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'book'
+            def write(rel, data):
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            # Case A: mid-body page in a single-chapter paper
+            write('ai_convert/chapters.json', [{'id': '001', 'title': 'Paper', 'start_page': 1, 'end_page': 3}])
+            write('ai_convert/book_analysis.json', {'title': 'Paper', 'document_type': 'paper', 'language': 'en', 'book_type': 'no_notes', 'note_location': 'none'})
+            p1 = {'schema_version': 2, 'book_page': 1, 'chapter_id': '001', 'mode': 'vision', 'reason_fallback': None, 'regions': ['body'],
+                  'paragraphs': [{'pid': 'p001_1', 'kind': 'body', 'text': 'First page text.', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False}],
+                  'metadata': {'header_removed': None, 'issues': []}}
+            p2 = {'schema_version': 2, 'book_page': 2, 'chapter_id': '001', 'mode': 'vision', 'reason_fallback': None, 'regions': ['paratext'],
+                  'paragraphs': [], 'metadata': {'header_removed': None, 'issues': ['paratext_omitted: bogus mid-paper skip']}}
+            p3 = {'schema_version': 2, 'book_page': 3, 'chapter_id': '001', 'mode': 'vision', 'reason_fallback': None, 'regions': ['body'],
+                  'paragraphs': [{'pid': 'p003_1', 'kind': 'body', 'text': 'Third page text.', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False}],
+                  'metadata': {'header_removed': None, 'issues': []}}
+            for pg in (p1, p2, p3):
+                schema.normalize_body_page(pg)
+                write(f"ai_convert/edits/body/page_{pg['book_page']:03d}.json", pg)
+            write('ai_convert/edits/notes/chapter_001.json', {'schema_version': 2, 'chapter_id': '001', 'definitions': []})
+            errors, _ = verifier.verify_chapter(str(root), '001')
+            self.assertTrue(any('BLOCKED' in e and 'paratext' in e for e in errors), errors)
+
+            # Case B: interior chapter in a multi-chapter book blocked at single-page level
+            write('ai_convert/chapters.json', [
+                {'id': '001', 'title': 'Front Matter', 'start_page': 1, 'end_page': 2},
+                {'id': '002', 'title': 'Chapter 1', 'start_page': 3, 'end_page': 5},
+                {'id': '003', 'title': 'Back Matter', 'start_page': 6, 'end_page': 7},
+            ])
+            mid = {'schema_version': 2, 'book_page': 4, 'chapter_id': '002', 'mode': 'vision', 'reason_fallback': None, 'regions': ['paratext'],
+                   'paragraphs': [], 'metadata': {'header_removed': None, 'issues': ['paratext_omitted: falsely skipped']}}
+            schema.normalize_body_page(mid)
+            write('ai_convert/edits/body/page_004.json', mid)
+            ok, page_errs = verifier.verify_body_page(str(root / 'ai_convert/edits/body/page_004.json'), '002', book_dir=str(root))
+            self.assertFalse(ok)
+            self.assertTrue(any('paratext' in e for e in page_errs), page_errs)
+            audit_issues = worker._audit_body_page(mid, {}, {'id': '002', 'start_page': 3, 'end_page': 5}, str(root), False, 'none')
+            self.assertIn('invalid_paratext_skip', audit_issues)
+
+            # Waiver unblocks when visually verified
+            mid['metadata']['issues'].append('paratext_waived: verified insert ad leaf')
+            write('ai_convert/edits/body/page_004.json', mid)
+            ok_waived, _ = verifier.verify_body_page(str(root / 'ai_convert/edits/body/page_004.json'), '002', book_dir=str(root))
+            self.assertTrue(ok_waived)
+
+    def test_paratext_only_front_matter_chapter_skipped_in_book_assembly_and_provenance(self):
+        import page_json_schema as schema
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'assemble_with_provenance',
+            Path(__file__).resolve().parents[1] / 'runtime' / 'assemble_with_provenance.py',
+        )
+        awp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(awp)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'document'
+            def write(rel, data):
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            write('ai_convert/chapters.json', [
+                {'id': '001', 'title': 'Front Matter', 'start_page': 1, 'end_page': 2},
+                {'id': '002', 'title': 'Chapter One', 'start_page': 3, 'end_page': 3},
+            ])
+            write('ai_convert/toc.json', [
+                {'title': 'Front Matter', 'printed_start': 1, 'target_pdf_page': 1, 'offset': 0, 'role_hint': 'front_matter'},
+                {'title': 'Chapter One', 'printed_start': 3, 'target_pdf_page': 3, 'offset': 0, 'role_hint': 'chapter'},
+            ])
+            write('ai_convert/book_analysis.json', {'title': 'My Book', 'document_type': 'book', 'language': 'en', 'book_type': 'no_notes', 'note_location': 'none'})
+            p1 = {'schema_version': 2, 'book_page': 1, 'chapter_id': '001', 'mode': 'vision', 'reason_fallback': None, 'regions': ['paratext'],
+                  'paragraphs': [], 'metadata': {'header_removed': None, 'issues': ['paratext_omitted: cover and title page']}}
+            p2 = {'schema_version': 2, 'book_page': 2, 'chapter_id': '001', 'mode': 'vision', 'reason_fallback': None, 'regions': ['paratext'],
+                  'paragraphs': [], 'metadata': {'header_removed': None, 'issues': ['paratext_omitted: copyright and other books by author']}}
+            p3 = {'schema_version': 2, 'book_page': 3, 'chapter_id': '002', 'mode': 'vision', 'reason_fallback': None, 'regions': ['body'],
+                  'paragraphs': [
+                      {'pid': 'p003_1', 'kind': 'subheading_h2', 'text': 'Chapter One', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False},
+                      {'pid': 'p003_2', 'kind': 'body', 'text': 'Actual substantive prose of chapter one that is long enough for book checks to pass cleanly.', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False},
+                  ], 'metadata': {'header_removed': None, 'issues': []}}
+            for pg in (p1, p2, p3):
+                schema.normalize_body_page(pg)
+                write(f"ai_convert/edits/body/page_{pg['book_page']:03d}.json", pg)
+            write('ai_convert/edits/notes/chapter_001.json', {'schema_version': 2, 'chapter_id': '001', 'definitions': []})
+            write('ai_convert/edits/notes/chapter_002.json', {'schema_version': 2, 'chapter_id': '002', 'definitions': []})
+
+            awp.chapter(root.parent, root, '001')
+            awp.chapter(root.parent, root, '002')
+            ch1_md = next((root / 'ai_convert/chapters').glob('001-*/*.md')).read_text(encoding='utf-8')
+            self.assertEqual(ch1_md, '')
+
+            awp.book_map(root.parent, root, title='My Book')
+            full_md = (root / 'ai_convert/book/document/document-full.md').read_text(encoding='utf-8')
+            self.assertIn('## Chapter One', full_md)
+            self.assertIn('Actual substantive prose of chapter one', full_md)
+            self.assertNotIn('Front Matter', full_md)
+            self.assertNotIn('缺失', full_md)
+            prov = json.loads((root / 'ai_convert/book/document/document-full.md.provenance.json').read_text(encoding='utf-8'))
+            self.assertEqual(len(prov['spans']), 2)
+
+    def test_dark_cover_empty_ocr_fallback_writes_authorized_blank_receipt_and_prompt_guidance(self):
+        import verify_page_json as verifier
+        import worker_call as worker
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'book'
+            (root / 'ai_convert').mkdir(parents=True)
+            (root / 'ai_convert/book_analysis.json').write_text(json.dumps({'language': 'en'}), encoding='utf-8')
+            prompt = worker.build_body_prompt([1], '001', str(root), {1: ''}, {}, '', 'none', 'per_chapter: [^N]', vision_only=True)
+            self.assertIn('深色/纯色布面书衣', prompt)
+            folder = Path(tmp) / 'delivery'
+            backup = folder / 'ocr-backup/pages'
+            backup.mkdir(parents=True)
+            (backup / 'page_001.json').write_text(json.dumps({'selected_text': ''}), encoding='utf-8')
+            # Transport failure with empty OCR does NOT fabricate a blank page
+            self.assertIsNone(bounded.backfill_page_from_ocr(root, '001', 1, 'transport_failure', folder))
+            # Vision unreadable on verified textless dark cover produces an audited blank fallback page
+            rebuilt = bounded.backfill_page_from_ocr(
+                root, '001', 1, 'vision_unreadable:near-uniform dark cloth cover with no discernible text', folder
+            )
+            self.assertIsNotNone(rebuilt)
+            self.assertEqual(rebuilt['regions'], ['blank'])
+            self.assertEqual(rebuilt['paragraphs'], [])
+            self.assertTrue(bounded.authorized_fallback_page(root, 1))
+            ok, errs = verifier.verify_body_page(str(root / 'ai_convert/edits/body/page_001.json'), '001', book_dir=str(root))
+            self.assertTrue(ok, errs)
+
+    def test_verify_chapter_action_pages_ignore_quoted_toc_page_numbers(self):
+        import page_json_schema as schema
+        import verify_page_json as verifier
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'book'
+            def write(rel, data):
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            write('ai_convert/chapters.json', [{'id': '003', 'title': 'Contents', 'start_page': 15, 'end_page': 16}])
+            write('ai_convert/book_analysis.json', {'title': 'Sample', 'document_type': 'book', 'language': 'en', 'book_type': 'no_notes', 'note_location': 'none'})
+            p15 = {'schema_version': 2, 'book_page': 15, 'chapter_id': '003', 'mode': 'vision', 'reason_fallback': None, 'regions': ['body'],
+                   'paragraphs': [{'pid': 'p015_1', 'kind': 'body', 'text': 'Indirect Communication\t90', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False}],
+                   'metadata': {'header_removed': None, 'issues': []}}
+            p16 = {'schema_version': 2, 'book_page': 16, 'chapter_id': '003', 'mode': 'vision', 'reason_fallback': None, 'regions': ['body'],
+                   'paragraphs': [{'pid': 'p016_1', 'kind': 'body', 'text': 'Faith and Melancholy*\tpage 94.', 'markers': [], 'continues_from_prev': False, 'continues_to_next': False}],
+                   'metadata': {'header_removed': None, 'issues': []}}
+            for pg in (p15, p16):
+                schema.normalize_body_page(pg)
+                write(f"ai_convert/edits/body/page_{pg['book_page']:03d}.json", pg)
+            write('ai_convert/edits/notes/chapter_003.json', {'schema_version': 2, 'chapter_id': '003', 'definitions': []})
+            verifier.verify_chapter(str(root), '003')
+            actions = json.loads((root / 'ai_convert/actions/chapter_003.json').read_text(encoding='utf-8'))
+            self.assertEqual(actions['pages'], [15, 16])
+
+    def test_fallback_authorization_requires_dual_ocr_and_same_model_and_merge_protects_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'book'
+            (root / 'ai_convert/edits/notes').mkdir(parents=True)
+            budget = {
+                'used': 2,
+                'history': [
+                    {
+                        'round': 1,
+                        'state': 'failed',
+                        'error_message': 'vision_unreadable:dark cloth cover',
+                        'calls': [{'provider': 'deepseek-official', 'model': 'deepseek-flash', 'state': 'failed'}],
+                    },
+                    {'round': 2, 'state': 'started'},
+                ],
+            }
+            # No raw_pages_paddle/mineru -> must NOT authorize OCR prompt
+            self.assertIsNone(bounded.fallback_authorization(
+                budget, 1, book=root, provider='deepseek-official', model='deepseek-flash'
+            ))
+            (root / 'raw_pages_paddle.json').write_text(json.dumps({'pages': []}), encoding='utf-8')
+            # Dual OCR exists, but user switched to a new model -> must run pure vision first
+            self.assertIsNone(bounded.fallback_authorization(
+                budget, 1, book=root, provider='opencode-go', model='muse-spark-1.3-contributor'
+            ))
+            # Same model + dual OCR exists -> authorizes Round 2 OCR fallback
+            self.assertIsNotNone(bounded.fallback_authorization(
+                budget, 1, book=root, provider='deepseek-official', model='deepseek-flash'
+            ))
+            # Continuity mismatch error_pages extracts both sides of arrow and pids
+            self.assertEqual(
+                bounded.error_pages('BLOCKED: continuity mismatch at page 30→31: p030_5.continues_to_next=True but p031_1.continues_from_prev=False'),
+                {30, 31},
+            )
+            # merge_attempt must not overwrite newer chapter notes when candidate wrote no notes_sha256 receipt
+            newer_notes = json.dumps({'schema_version': 2, 'chapter_id': '005', 'definitions': [{'anchor': '[^p060_1]', 'text': 'Newer'}]})
+            stale_notes = json.dumps({'schema_version': 2, 'chapter_id': '005', 'definitions': []})
+            (root / 'ai_convert/edits/notes/chapter_005.json').write_text(newer_notes, encoding='utf-8')
+            (root / 'ai_convert/worker_audit.jsonl').write_text(
+                json.dumps({'task': 'body', 'chapter': '005', 'pages': [60], 'notes_sha256': 'sha60'}) + '\n',
+                encoding='utf-8',
+            )
+            cand = Path(tmp) / 'cand'
+            (cand / 'ai_convert/edits/body').mkdir(parents=True)
+            (cand / 'ai_convert/edits/notes').mkdir(parents=True)
+            (cand / 'ai_convert/edits/body/page_066.json').write_text('{"book_page": 66}', encoding='utf-8')
+            (cand / 'ai_convert/edits/notes/chapter_005.json').write_text(stale_notes, encoding='utf-8')
+            (cand / 'ai_convert/worker_audit.jsonl').write_text(
+                json.dumps({'task': 'bounded_region_repair', 'chapter': '005', 'pages': [66], 'input_policy': 'image_checked_repair_v1'}) + '\n',
+                encoding='utf-8',
+            )
+            bounded.merge_attempt(root, cand, '005', 66)
+            self.assertEqual((root / 'ai_convert/edits/notes/chapter_005.json').read_text(encoding='utf-8'), newer_notes)
+
 if __name__ == '__main__':unittest.main()

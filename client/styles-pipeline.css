@@ -510,26 +510,6 @@
   border-radius: 12px !important;
   box-shadow: 0 10px 30px rgba(0,0,0,0.08) !important;
 }
-.rr-bookmarkLibrary {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 24px;
-}
-.rr-bookmarkEntry {
-  background: #ffffff;
-  border: 1px solid #e4e4e7;
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-}
-.rr-bookmarkEntry h3 {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #18181b;
-}
-.rr-bookmarkEntry blockquote,
 .rr-centeredDialog blockquote {
   margin: 10px 0 12px;
   padding: 10px 14px;
@@ -543,21 +523,8 @@
   font-family: "STKaiti", "KaiTi", "STFangsong", "Songti SC", serif;
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
-.rr-bookmarkEntry blockquote::selection,
 .rr-centeredDialog blockquote::selection {
   background: #fde68a;
-}
-.rr-bookmarkEntry p {
-  margin: 8px 0;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: #18181b;
-}
-.rr-bookmarkEntry small {
-  display: block;
-  color: #71717a;
-  font-size: 11px;
-  margin-top: 4px;
 }
 
 /* Toast */
@@ -614,7 +581,7 @@
 /* Fit the host panel at browser zoom levels as well as narrow window sizes. */
 .rr-shell *, .rr-shell *::before, .rr-shell *::after { box-sizing:border-box; }
 .rr-scroll { display:flex; flex-direction:column; overflow:auto; min-width:0; }
-.rr-libraryLayout, .rr-taskWorkspace { flex:1; height:100%; min-height:0; }
+.rr-libraryLayout, .rr-taskWorkspace, .rr-bmWorkspace { flex:1; height:100%; min-height:0; }
 .rr-workbench { flex:1; width:100%; min-height:0; margin:0; display:flex; flex-direction:column; }
 .rr-librarySidebar { width:clamp(190px,22cqw,240px); min-height:0; }
 .rr-taskList { width:clamp(200px,24cqw,260px); min-height:0; max-height:none; position:static; padding:0; display:flex; }
@@ -652,15 +619,24 @@
 @container paper-reader (max-width:960px) {
   .rr-librarySidebar { width:190px; }
   .rr-taskList { width:210px; }
+  .rr-bmSidebar { width:210px; }
 }
 @container paper-reader (max-width:760px) {
   .rr-header { gap:8px; padding:8px 12px; }
   .rr-brandPill, .rr-topNavWrap>div:nth-child(2) { display:none; }
   .rr-topNavWrap { gap:0; }
   .rr-headerActions { gap:4px; }
-  .rr-libraryLayout, .rr-taskWorkspace { flex:none; height:auto; min-height:100%; overflow:visible; }
-  .rr-librarySidebar { width:100%; padding:10px 12px; gap:6px; }
-  .rr-folderListNav { max-height:120px; flex:none; }
+  .rr-libraryLayout, .rr-taskWorkspace, .rr-bmWorkspace { flex:none; height:auto; min-height:100%; overflow:visible; flex-direction:column; }
+  .rr-librarySidebar, .rr-bmSidebar { width:100%; padding:10px 12px; gap:6px; border-right:0; border-bottom:1px solid #e4e4e7; }
+  .rr-folderListNav, .rr-bmBookList { max-height:150px; flex:none; }
+  .rr-bmMain { flex:none; overflow:visible; }
+  .rr-bmToolbar { position:static; padding:10px 12px; }
+  .rr-bmSearchWrap { max-width:none; flex-basis:100%; }
+  .rr-bmSheetWrap { padding:14px 10px 36px; }
+  .rr-bmSheet { padding:20px 18px 36px; border-radius:10px; }
+  .rr-bmActions { opacity:0.88; }
+  .rr-bmNote, .rr-bmMeta, .rr-bmEditor { margin-left:0; }
+  .rr-bmQuote { padding-left:14px; }
   .rr-libraryTipBox { display:none; }
   .rr-libraryMain, .rr-taskDetail { flex:none; overflow:visible; padding:14px 12px 24px; }
   .rr-taskList { width:100%; height:260px; max-height:none; flex:none; gap:0; }
@@ -691,3 +667,12 @@
 @container reader-pane (max-width:480px) {
   .rr-mdLayout article { padding:20px 14px 28px!important; }
 }
+.rr-libSearchGroup { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+.rr-libSearchGroupHead {
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:12.5px; font-weight:700; color:#3f3f46; padding-bottom:4px; border-bottom:1px solid #e4e4e7;
+}
+.rr-libTitleMatchesGrid {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px;
+}
+.rr-libTitleMatchCard:hover { border-color:#93c5fd; background:#f8fafc; }

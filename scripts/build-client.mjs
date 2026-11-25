@@ -12,9 +12,13 @@ export const CLIENT_SOURCE_FILES = [
   'styles.css',
   'styles-pipeline.css',
   'styles-reader.css',
+  'styles-bookmarks.css',
+  'styles-citation.css',
   'ui-primitives.js',
   'weread-presets.js',
   'reading-helpers.js',
+  'citation.js',
+  'bookmarks-view.js',
   'reader-board.js',
   'pipeline-drawers.js',
   'pipeline-workspace.js',
@@ -44,7 +48,11 @@ export async function buildClientSource(clientDir = CLIENT_DIR) {
     '\n' +
     parts['styles-pipeline.css'] +
     '\n' +
-    parts['styles-reader.css']
+    parts['styles-reader.css'] +
+    '\n' +
+    parts['styles-bookmarks.css'] +
+    '\n' +
+    parts['styles-citation.css']
   )
     .replace(/\r\n/g, '\n')
     .replace(/\n$/, '')
@@ -73,6 +81,8 @@ export async function buildClientSource(clientDir = CLIENT_DIR) {
     indentBody(parts['ui-primitives.js']),
     indentBody(parts['weread-presets.js']),
     indentBody(parts['reading-helpers.js']),
+    indentBody(parts['citation.js']),
+    indentBody(parts['bookmarks-view.js']),
     indentBody(parts['reader-board.js']),
     indentBody(parts['pipeline-drawers.js']),
     indentBody(parts['pipeline-workspace.js']),

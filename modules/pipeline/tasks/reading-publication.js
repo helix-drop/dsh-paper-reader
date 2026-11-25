@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { fileDigest } from '../source-map.js'
+import { fileDigest, loadSourceMap } from '../source-map.js'
 import { enrichReading, replaceBlock } from '../reader.js'
 import { isTraditionalChinese, convertHantToHansMarkdown } from '../zh-convert.js'
 import { attachPdfLocations } from '../pdf-location.js'
@@ -16,6 +16,7 @@ import {
   isAgyCliModel,
 } from '../review-audit.js'
 import { buildPublication, commitPublication } from '../publication.js'
+import { pruneTaskCaches } from '../hygiene.js'
 import { assertPhaseApproved } from '../phases.js'
 import { exists, atomic, json, walk } from './shared.js'
 import {
@@ -24,6 +25,97 @@ import {
   publicSyncStatus,
   syncWithCloud,
 } from '../sync.js'
+import { createLibrarySearcher } from '../search.js'
+import { resolveWorkspaceAsset } from '../../../shared/workspace.js'
+import {
+  buildBilingualMarkdown,
+  contentDispositionFor,
+  renderPdfFromReading,
+  sanitizeExportFilename,
+} from '../export-pdf.js'
+
+function pickCitationStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string' || typeof v === 'number') return String(v).trim()
+  if (typeof v === 'object') return String(v.source ?? v.zh ?? '').trim()
+  return ''
+}
+
+function inferTaskCitation(task) {
+  const bib = task.profile?.bibliography ?? {}
+  const meta = task.paperImport?.metadata ?? {}
+  const pubObj = meta.publication && typeof meta.publication === 'object' ? meta.publication : null
+  const rawTitle = String(task.name ?? meta.title?.zh ?? meta.title?.source ?? '').trim()
+  const bibTitle = String(bib.title ?? '').trim()
+  const bibOrigTitle = String(bib.original_title ?? bib.originalTitle ?? '').trim()
+  const profTitle = String(task.profile?.title ?? meta.title?.source ?? '').trim()
+  const inputBase = path.basename(String(task.input?.name ?? ''), path.extname(String(task.input?.name ?? '')))
+  const isCjk = s => /[\u4e00-\u9fff]/.test(String(s ?? ''))
+  let authors = String(bib.authors ?? '').trim() || pickCitationStr(meta.author)
+  let title = rawTitle || bibTitle
+  let originalTitle = bibOrigTitle || (profTitle && profTitle !== title ? profTitle : '')
+  if (!originalTitle && bibTitle && bibTitle !== title && !isCjk(bibTitle)) {
+    originalTitle = bibTitle
+  }
+  let year = String(bib.year ?? pubObj?.year ?? '').trim()
+  if (!year) {
+    const yearMatch = (profTitle || rawTitle || inputBase).match(/\b((?:18|19|20)\d{2})\b/)
+    if (yearMatch) year = yearMatch[1]
+  }
+  const authorDash = profTitle.match(/^([A-Za-zÀ-ÖØ-öø-ÿ.\s,'&-]{2,48}?)\s+[-–—]\s+(.+?)(?:\s*\((?:18|19|20)\d{2}\))?$/)
+  if (authorDash) {
+    if (!authors) authors = authorDash[1].trim()
+    if (!originalTitle || originalTitle === profTitle) originalTitle = authorDash[2].trim()
+  }
+  const pubStr = typeof meta.publication === 'string' ? meta.publication.trim() : ''
+  const rawKind = String(bib.kind ?? '').toLowerCase()
+  const taskKind = String(task.kind ?? task.profile?.document_type ?? '').toLowerCase()
+  const kind = ['book', 'paper', 'collection', 'incollection'].includes(rawKind)
+    ? rawKind
+    : rawKind === 'chapter'
+      ? 'incollection'
+      : taskKind === 'paper'
+        ? (pubObj?.book ? 'incollection' : 'paper')
+        : taskKind === 'chapter'
+          ? 'incollection'
+          : taskKind === 'collection'
+            ? 'collection'
+            : 'book'
+  const isPaper = kind === 'paper'
+  const isIncollection = kind === 'incollection'
+  const bookTitle = String(bib.book_title ?? bib.bookTitle ?? (pubObj?.book ? pickCitationStr(pubObj.book.zh ?? pubObj.book) : '')).trim()
+  const originalBookTitle = String(bib.original_book_title ?? bib.originalBookTitle ?? (pubObj?.book ? pickCitationStr(pubObj.book.source ?? '') : '')).trim()
+  return {
+    kind,
+    title,
+    subtitle: String(bib.subtitle ?? '').trim(),
+    originalTitle,
+    authors,
+    editors: String(bib.editors ?? '').trim(),
+    translators: String(bib.translators ?? '').trim(),
+    bookTitle,
+    originalBookTitle,
+    publisher: String(bib.publisher ?? (pubObj ? pickCitationStr(pubObj.publisher) : (isPaper ? '' : pubStr))).trim(),
+    journal: String(bib.journal ?? (pubObj && !isIncollection ? pickCitationStr(pubObj.journal) : (isPaper ? pubStr : ''))).trim(),
+    year,
+    volume: String(bib.volume ?? '').trim(),
+    issue: String(bib.issue ?? pubObj?.issue ?? '').trim(),
+    pages: String(bib.pages ?? pubObj?.pages ?? '').trim(),
+    isbn: String(bib.isbn ?? pubObj?.isbn ?? '').trim(),
+    doi: String(bib.doi ?? pubObj?.doi ?? '').trim(),
+  }
+}
+
+function mergeTaskCitation(autoCite, savedCite, fallbackTitle = '') {
+  const merged = { ...(autoCite ?? {}) }
+  if (savedCite) {
+    for (const [k, v] of Object.entries(savedCite)) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') merged[k] = v
+    }
+  }
+  if (!merged.title) merged.title = fallbackTitle
+  return { ...merged, saved: Boolean(savedCite) }
+}
 
 export async function runDeliveryStage(manager, t, stage, options = {}) {
   if (stage === 'review') {
@@ -35,11 +127,16 @@ export async function runDeliveryStage(manager, t, stage, options = {}) {
       !reportContent
       || options.runAgy === true
       || options.sessionOrchestrated === true
+      || options.force === true
       || (manager.modelService && t.reviewAudit && t.review?.status === 'needs-work')
     ) {
       await runAgyReviewAudit(manager, t, options)
     }
     await registerJointReview(manager, t, report)
+    if (t.publication && !t.publication.published) {
+      delete t.publication
+      if (t.stages?.publish?.state !== 'done') delete t.stages.publish
+    }
     return true
   }
 
@@ -119,6 +216,14 @@ export const readingPublicationMethods = {
       const prev = t.reviewProgress ?? {}
 
       t.stage = 'review'
+      if (options.force && !v.complete) {
+        if (t.stages?.review?.state === 'done') delete t.stages.review
+        delete t.review
+        if (t.publication && !t.publication.published) {
+          delete t.publication
+          if (t.stages?.publish?.state !== 'done') delete t.stages.publish
+        }
+      }
       t.reviewProgress = {
         ...prev,
         engine: isAgy ? 'agy-bridge' : 'dsh-session',
@@ -286,10 +391,125 @@ export const readingPublicationMethods = {
       }
     }
     const names = new Map(summaries.map(t => [t.id, t]))
+    const docIndexes = new Map()
+    const cleanHeading = raw => String(raw ?? '')
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/\[\^[^\]]+\]/g, '')
+      .replace(/[*`_]/g, '')
+      .trim()
+    const buildPairedIndex = (origText, transText) => {
+      const origBlocks = origText ? markdownBlocks(origText) : []
+      const transBlocks = transText ? markdownBlocks(transText) : []
+      const paired = origBlocks.length > 0 && origBlocks.length === transBlocks.length
+      const original = new Map()
+      const translation = new Map()
+      let origChap = ''
+      let transChap = ''
+      const updateChap = (blk, i, cur) => {
+        if (blk?.type !== 'heading') return cur
+        const title = cleanHeading(blk.text)
+        if (title && (blk.level >= 2 || i > 0) && !/^(目录|table of contents|contents|sommaire|inhaltsverzeichnis)$/i.test(title)) {
+          return title
+        }
+        return cur
+      }
+      if (paired) {
+        for (let i = 0; i < origBlocks.length; i++) {
+          origChap = updateChap(origBlocks[i], i, origChap)
+          transChap = updateChap(transBlocks[i], i, transChap)
+          const origId = String(origBlocks[i].id)
+          const transId = String(transBlocks[i].id)
+          original.set(origId, { order: i, chapter: origChap })
+          translation.set(origId, { order: i, chapter: transChap || origChap })
+          if (transId !== origId) {
+            translation.set(transId, { order: i, chapter: transChap || origChap })
+          }
+        }
+      } else {
+        for (let i = 0; i < origBlocks.length; i++) {
+          origChap = updateChap(origBlocks[i], i, origChap)
+          original.set(String(origBlocks[i].id), { order: i, chapter: origChap })
+        }
+        for (let i = 0; i < transBlocks.length; i++) {
+          transChap = updateChap(transBlocks[i], i, transChap)
+          translation.set(String(transBlocks[i].id), { order: i, chapter: transChap })
+        }
+      }
+      return { original, translation }
+    }
+    const formatPages = nums => {
+      const valid = [...new Set((nums ?? []).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
+      if (!valid.length) return ''
+      return valid.length === 1 ? String(valid[0]) : `${valid[0]}-${valid[valid.length - 1]}`
+    }
+    const loadDocIndex = async taskId => {
+      if (docIndexes.has(taskId)) return docIndexes.get(taskId)
+      let entry = { available: false, original: null, translation: null, pagesByBlock: new Map(), autoCitation: null }
+      if (names.has(taskId)) {
+        try {
+          const task = await this.get(taskId)
+          entry.available = true
+          entry.autoCitation = inferTaskCitation(task)
+          const origPath = task.legacy ? task.legacy.artifacts?.original : await this.original(task).catch(() => null)
+          const transPath = task.legacy ? task.legacy.artifacts?.readingPath : task.translationPath
+          const origText = origPath ? await fs.readFile(origPath, 'utf8').catch(() => '') : ''
+          const transText = transPath && transPath !== origPath ? await fs.readFile(transPath, 'utf8').catch(() => '') : origText
+          const built = buildPairedIndex(origText, transText)
+          entry.original = built.original
+          entry.translation = built.translation
+          if (origPath && origText) {
+            const sm = await loadSourceMap(this, origPath, origText).catch(() => null)
+            if (sm?.blocks?.length) {
+              for (const blk of sm.blocks) {
+                const p = formatPages(blk.logicalPages?.length ? blk.logicalPages : blk.pdfPages)
+                if (p && blk.markdownBlockId) entry.pagesByBlock.set(String(blk.markdownBlockId), p)
+              }
+            }
+          }
+          if (task.paperImport?.blockIds?.length && task.paperImport?.pages?.length && origText) {
+            const origBlocks = markdownBlocks(origText)
+            for (let i = 0; i < Math.min(origBlocks.length, task.paperImport.pages.length); i++) {
+              const pg = task.paperImport.pages[i]
+              if (pg != null && String(pg).trim()) {
+                entry.pagesByBlock.set(String(origBlocks[i].id), String(pg).trim())
+              }
+            }
+          }
+        } catch {}
+      }
+      docIndexes.set(taskId, entry)
+      return entry
+    }
     for (const b of saved) {
-      if (b.source?.kind === 'task' && names.has(b.source.id)) {
-        const t = names.get(b.source.id)
-        b.document = { ...b.document, title: t.name, kind: t.kind }
+      if (b.source?.kind === 'task') {
+        if (names.has(b.source.id)) {
+          const t = names.get(b.source.id)
+          b.document = { ...b.document, title: t.name, kind: t.kind }
+        }
+        const idx = await loadDocIndex(b.source.id)
+        b.sourceAvailable = idx.available
+        const blockId = String(b.selector?.startBlockId ?? b.blockId ?? '')
+        const pref = b.selector?.view === 'translation' ? [idx.translation, idx.original] : [idx.original, idx.translation]
+        const hit = blockId ? (pref[0]?.get(blockId) ?? pref[1]?.get(blockId) ?? null) : null
+        b.blockOrder = hit ? hit.order : null
+        b.chapter = hit ? hit.chapter : ''
+        b.pages = blockId ? (idx.pagesByBlock.get(blockId) ?? '') : ''
+        if (idx.autoCitation || b.document?.citation) {
+          const savedCite = b.document?.citation ?? null
+          const merged = { ...(idx.autoCitation ?? {}) }
+          if (savedCite) {
+            for (const [k, v] of Object.entries(savedCite)) {
+              if (v !== undefined && v !== null && String(v).trim() !== '') merged[k] = v
+            }
+          }
+          if (!merged.title) merged.title = b.document?.title ?? ''
+          b.document = { ...b.document, citation: { ...merged, saved: Boolean(savedCite) } }
+        }
+      } else {
+        b.sourceAvailable = true
+        b.blockOrder = null
+        b.chapter = ''
+        b.pages = ''
       }
     }
     return saved.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -308,6 +528,8 @@ export const readingPublicationMethods = {
         marks.push({
           id: item.id,
           kind,
+          style: item.style ?? 'highlight',
+          color: item.color ?? 'gold',
           view: item.selector.view === 'translation' ? 'translation' : 'original',
           blockId: slice.blockId,
           quote: slice.quote,
@@ -324,8 +546,15 @@ export const readingPublicationMethods = {
   },
 
   async saveSelectionBookmark(args) {
+    if (args.updateDocumentCitation?.documentId) {
+      return this.bookmarkStore.updateDocumentCitation(
+        args.updateDocumentCitation.documentId,
+        args.updateDocumentCitation.citation,
+      )
+    }
     if (args.muteHighlight) return this.bookmarkStore.muteHighlight(args.muteHighlight)
     if (args.removeHighlight) return this.bookmarkStore.removeHighlight(args.removeHighlight)
+    if (args.updateBookmark?.id) return this.bookmarkStore.update(args.updateBookmark.id, args.updateBookmark)
     if (args.remove) {
       const hit = (await this.bookmarks()).find(b => b.id === args.remove)
       if (hit?.selector.type === 'LegacyBlockSelector') {
@@ -562,13 +791,19 @@ export const readingPublicationMethods = {
     }
 
     const zhConvertEligible = !texts.translation && !texts.zhConverted && isTraditionalChinese(texts.source ?? '')
+    const savedDocCite = await this.bookmarkStore.read()
+      .then(st => st.documents?.[t.documentId]?.citation ?? null)
+      .catch(() => null)
+    const citation = mergeTaskCitation(inferTaskCitation(t), savedDocCite, t.documentTitle ?? t.name ?? doc.title ?? '')
     return attachPdfLocations(
       this,
       t,
       enrichReading({
         ...doc,
+        title: t.documentTitle ?? t.name ?? doc.title,
         kind: t.kind,
         documentId: t.documentId,
+        citation,
         zhConverted: Boolean(texts.zhConverted),
         zhConvertEligible,
         version: hash((texts.source ?? '') + '|' + (texts.translation ?? '')),
@@ -661,6 +896,88 @@ export const readingPublicationMethods = {
     return value
   },
 
+  async _collectExportAssetDataUris(t, reading) {
+    const map = new Map()
+    const refs = new Set()
+    const scan = text => {
+      if (typeof text !== 'string' || !text.includes('![')) return
+      for (const m of text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
+        const ref = m[1]
+        if (ref && !/^(?:https?:|data:|blob:)/i.test(ref)) refs.add(ref)
+      }
+    }
+    for (const b of reading?.blocks ?? []) {
+      scan(b.text)
+      scan(b.translation)
+      scan(b.sourceText)
+    }
+    for (const b of reading?.originalBlocks ?? []) scan(b.text)
+    if (!refs.size) return map
+
+    const origFile = t.legacy
+      ? (t.legacy.artifacts?.readingPath ?? t.legacy.artifacts?.original)
+      : await this.original(t).catch(() => null)
+    if (!origFile) return map
+    const base = await fs.realpath(path.dirname(origFile)).catch(() => null)
+    if (!base) return map
+    const allowedRoots = (await Promise.all(
+      [this.root, this.readingRoot, this.publishRoot]
+        .filter(Boolean)
+        .map(r => fs.realpath(r).catch(() => null)),
+    )).filter(Boolean)
+    const mimeOf = f => (/\.png$/i.test(f) ? 'image/png' : /\.gif$/i.test(f) ? 'image/gif' : /\.webp$/i.test(f) ? 'image/webp' : 'image/jpeg')
+
+    for (const ref of refs) {
+      try {
+        const wanted = resolveWorkspaceAsset(this.root, base, ref)
+        const real = await fs.realpath(wanted)
+        if (!allowedRoots.some(r => real.startsWith(r + path.sep))) continue
+        if (!/\.(png|jpe?g|gif|webp)$/i.test(real)) continue
+        const bytes = await fs.readFile(real)
+        map.set(ref, `data:${mimeOf(real)};base64,${bytes.toString('base64')}`)
+      } catch {}
+    }
+    return map
+  },
+
+  async readingDownloadExport(id, { kind = 'translation', format = 'md', typography = {} } = {}) {
+    const safeKind = ['translation', 'original', 'bilingual'].includes(kind) ? kind : 'translation'
+    const safeFormat = format === 'pdf' ? 'pdf' : 'md'
+    const t = await this.get(id)
+    const docTitle = t.documentTitle ?? t.name ?? 'document'
+    const suffix = safeKind === 'bilingual' ? '双语对照' : safeKind === 'original' ? '原文' : '译文'
+    const filename = sanitizeExportFilename(docTitle, suffix, safeFormat)
+
+    if (safeFormat === 'md') {
+      const text = safeKind === 'bilingual'
+        ? buildBilingualMarkdown(await this.reading(id))
+        : await this.readingDownload(id, safeKind)
+      return {
+        bytes: Buffer.from(text, 'utf8'),
+        mimeType: 'text/markdown; charset=utf-8',
+        filename,
+        disposition: contentDispositionFor(filename),
+      }
+    }
+
+    const reading = await this.reading(id)
+    if (safeKind === 'translation' && !reading.comparisonAvailable && reading.standaloneView !== 'translation' && !reading.blocks?.some(b => b.translation)) {
+      const ctx = await this.correctionContext(t)
+      if (!ctx.texts.translation && !ctx.texts.source) throw new Error('尚无对应文本')
+    }
+    if (safeKind === 'bilingual' && !reading.comparisonAvailable) {
+      throw new Error('本文档暂无原文与译文双语对照内容')
+    }
+    const assetDataUris = await this._collectExportAssetDataUris(t, reading)
+    const pdfBytes = await renderPdfFromReading(reading, { mode: safeKind, assetDataUris, typography })
+    return {
+      bytes: pdfBytes,
+      mimeType: 'application/pdf',
+      filename,
+      disposition: contentDispositionFor(filename),
+    }
+  },
+
   async bookmark(id, args) {
     return this.locked(id, async () => {
       if (this.active.has(id)) throw new Error('正在保存处理状态，阶段结束后可添加书签')
@@ -714,6 +1031,7 @@ export const readingPublicationMethods = {
       t.stages.publish = { state: 'done', at: new Date().toISOString() }
       t.message = '已发布，文献已可阅读'
       const saved = await this.save(t)
+      await pruneTaskCaches(this, saved, { mode: 'safe' }).catch(() => {})
       this.scheduleBackgroundSync?.(3000, 'publish')
       return saved
     })
@@ -773,7 +1091,7 @@ export const readingPublicationMethods = {
   },
 
   async cloudSyncStatus() {
-    const config = await readCloudSyncConfig(this.root)
+    const config = await readCloudSyncConfig(this.root, this.index)
     return {
       ...publicSyncStatus(config),
       background: this.backgroundSyncSnapshot(),
@@ -781,7 +1099,7 @@ export const readingPublicationMethods = {
   },
 
   async saveCloudSync(args) {
-    const saved = await saveCloudSyncConfig(this.root, args ?? {})
+    const saved = await saveCloudSyncConfig(this.root, args ?? {}, this.index)
     if (saved.configured && saved.autoSync && args?.startBackground !== false) {
       await this.triggerBackgroundSync({ reason: 'config' })
     }
@@ -822,7 +1140,7 @@ export const readingPublicationMethods = {
   },
 
   async triggerBackgroundSync(args = {}) {
-    const config = await readCloudSyncConfig(this.root)
+    const config = await readCloudSyncConfig(this.root, this.index)
     if (!config.cloudUrl || !config.token) {
       throw new Error('请先配置轻量云服务器地址与同步密钥 (Token)')
     }
@@ -891,7 +1209,7 @@ export const readingPublicationMethods = {
       state.debounceTimer = null
       if (state.stopped) return
       try {
-        const cfg = await readCloudSyncConfig(this.root)
+        const cfg = await readCloudSyncConfig(this.root, this.index)
         if (cfg.cloudUrl && cfg.token && cfg.autoSync) {
           await this.triggerBackgroundSync({ reason })
         }
@@ -907,7 +1225,7 @@ export const readingPublicationMethods = {
     const tick = async reason => {
       if (state.stopped || state.running) return
       try {
-        const cfg = await readCloudSyncConfig(this.root)
+        const cfg = await readCloudSyncConfig(this.root, this.index)
         if (cfg.cloudUrl && cfg.token && cfg.autoSync) {
           await this.triggerBackgroundSync({ reason })
         }
@@ -941,5 +1259,40 @@ export const readingPublicationMethods = {
       clearTimeout(state.debounceTimer)
       state.debounceTimer = null
     }
+  },
+
+  async searchLibrary({
+    q = '',
+    taskId = '',
+    view = 'all',
+    includeHidden = false,
+    limitBooks = 30,
+    maxMatchesPerBook = 6,
+  } = {}) {
+    if (!this._librarySearcher) {
+      this._librarySearcher = createLibrarySearcher()
+    }
+    const docs = await this.library()
+    const itemMeta = await this.itemMeta()
+    const rows = await this.index.library()
+    const stampById = new Map(rows.map(r => [
+      r.task?.id,
+      `${r.task?.updatedAt ?? ''}:${r.proof?.readingStamp ?? r.proof?.sourceStamp ?? ''}:${r.proof?.targetStamp ?? ''}`,
+    ]))
+    const visibleDocs = docs
+      .filter(d => Boolean(taskId) || includeHidden || !itemMeta?.[d.id]?.hidden)
+      .map(d => ({ ...d, stamp: stampById.get(d.id) ?? '' }))
+    return this._librarySearcher({
+      documents: visibleDocs,
+      query: q,
+      taskId,
+      view,
+      limitBooks,
+      maxMatchesPerBook,
+      loadDoc: async meta => ({
+        reading: await this.reading(meta.id),
+        stamp: meta.stamp,
+      }),
+    })
   },
 }

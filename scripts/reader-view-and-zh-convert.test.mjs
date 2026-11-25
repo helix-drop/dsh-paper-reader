@@ -316,6 +316,41 @@ test('zh-convert route validates Simplified or already-translated documents and 
     await manager.save(biTask)
     await assert.rejects(() => callRoute('POST', `/pipeline/tasks/${biTask.id}/zh-convert`, { enabled: true }), /已有译文/)
 
+    // Verify translation PDF, bilingual PDF, and bilingual Markdown export
+    const { renderExportHtml, buildBilingualMarkdown, contentDispositionFor } = await import('../modules/pipeline/export-pdf.js')
+    const biReading = await manager.reading(biTask.id)
+    const htmlTrans = renderExportHtml(biReading, { mode: 'translation' })
+    const htmlBi = renderExportHtml(biReading, { mode: 'bilingual' })
+    assert.ok(htmlTrans.includes('中文译文段落') && !htmlTrans.includes('English paragraph'))
+    assert.ok(htmlBi.includes('中文译文段落') && htmlBi.includes('English paragraph') && htmlBi.includes('pdf-biRow'))
+    assert.ok(buildBilingualMarkdown(biReading).includes('> English paragraph'))
+    assert.ok(contentDispositionFor('双语书-双语对照.pdf').includes("filename*=UTF-8''"))
+
+    const biMdRes = await manager.readingDownloadExport(biTask.id, { kind: 'bilingual', format: 'md' })
+    assert.equal(biMdRes.mimeType, 'text/markdown; charset=utf-8')
+    assert.match(biMdRes.bytes.toString('utf8'), /English paragraph/)
+
+    const transPdfRes = await manager.readingDownloadExport(biTask.id, { kind: 'translation', format: 'pdf' })
+    assert.equal(transPdfRes.mimeType, 'application/pdf')
+    assert.ok(transPdfRes.bytes.subarray(0, 5).toString('ascii') === '%PDF-', 'expected real PDF header')
+    const biPdfRes = await manager.readingDownloadExport(biTask.id, { kind: 'bilingual', format: 'pdf' })
+    assert.equal(biPdfRes.mimeType, 'application/pdf')
+    assert.ok(biPdfRes.bytes.subarray(0, 5).toString('ascii') === '%PDF-', 'expected real bilingual PDF header')
+
+    const routeReq = new EventEmitter()
+    routeReq.method = 'GET'
+    const downloadRoute = routes.find(r => r.method === 'GET' && r.pattern.test(`/pipeline/tasks/${biTask.id}/download`))
+    let writtenHeaders = {}
+    let writtenBody = Buffer.alloc(0)
+    await downloadRoute.handler(
+      routeReq,
+      { writeHead: (_c, h) => { writtenHeaders = h }, end: b => { writtenBody = Buffer.from(b) } },
+      new URL(`http://localhost/pipeline/tasks/${biTask.id}/download?kind=bilingual&format=pdf`),
+      `/pipeline/tasks/${biTask.id}/download`.match(downloadRoute.pattern),
+    )
+    assert.equal(writtenHeaders['content-type'], 'application/pdf')
+    assert.ok(writtenBody.subarray(0, 5).toString('ascii') === '%PDF-')
+
     await manager.index.close()
   } finally {
     await fs.rm(root, { recursive: true, force: true })

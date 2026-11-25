@@ -26,6 +26,15 @@ npx cap add android
 cp native-android/ReaderNativePlugin.java android/app/src/main/java/com/dsh/paperreader/
 cp native-android/MainActivity.java android/app/src/main/java/com/dsh/paperreader/
 npx cap sync android
+```
+
+在 `android/app/src/main/AndroidManifest.xml` 的 `<manifest>` 内加入通知权限（Android 13 及以上弹出系统通知需要它；GitHub Actions 会自动写入）：
+
+```xml
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+```bash
 cd android
 ./gradlew assembleDebug
 ```

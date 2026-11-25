@@ -5,6 +5,7 @@ import path from 'node:path'
 import {createReadStream} from 'node:fs'
 import {randomUUID,createHash} from 'node:crypto'
 import {hash,markdownBlocks,checkMarkdownPair} from './markdown.js'
+import {mapWorkspacePath} from '../../shared/workspace.js'
 
 export const sourceMapPath=file=>file+'.source-map.json'
 const digestCache=new Map()
@@ -168,9 +169,32 @@ export async function saveTranslationMap(manager,t,sourceFile,targetFile,source,
  await validateSourceMap(manager,targetFile,target,map);return writeSourceMap(targetFile,map)
 }
 
+async function resolveSourceHistoryPdf(manager,t){
+ const rawDir=t.sourceHistory?.directory
+ if(!rawDir)return null
+ const mapped=mapWorkspacePath(manager.root,rawDir)
+ const realDir=await fs.realpath(mapped).catch(()=>null)
+ if(!realDir)return null
+ const roots=await Promise.all([manager.root,manager.readingRoot,manager.publishRoot].filter(Boolean).map(r=>fs.realpath(r).catch(()=>null)))
+ if(!roots.some(r=>r&&(realDir===r||realDir.startsWith(r+path.sep))))return null
+ const entries=await fs.readdir(realDir,{withFileTypes:true}).catch(()=>[])
+ const pdfs=entries.filter(e=>e.isFile()&&/\.pdf$/i.test(e.name)&&!/(?:目录|\btoc\b)/i.test(e.name)).map(e=>path.join(realDir,e.name))
+ if(!pdfs.length)return null
+ const preferred=pdfs.find(p=>path.basename(p,'.pdf')===path.basename(realDir))
+ const chosen=pdfs.length===1?pdfs[0]:preferred
+ return chosen?fs.realpath(chosen).catch(()=>chosen):null
+}
+
 export async function taskSourcePdf(manager,t){
- if(t.legacy?.artifacts?.sourcePdf)return t.legacy.artifacts.sourcePdf
+ if(t.legacy?.artifacts?.sourcePdf){
+  const mapped=mapWorkspacePath(manager.root,t.legacy.artifacts.sourcePdf)
+  if(await fs.access(mapped).then(()=>true).catch(()=>false))return mapped
+  return t.legacy.artifacts.sourcePdf
+ }
  if(t.input.type==='pdf')return t.path
- const file=await manager.original(t),text=await fs.readFile(file,'utf8'),map=await loadSourceMap(manager,file,text)
- return map?.pdfPath??null
+ try{
+  const file=await manager.original(t),text=await fs.readFile(file,'utf8'),map=await loadSourceMap(manager,file,text)
+  if(map?.pdfPath)return map.pdfPath
+ }catch{}
+ return resolveSourceHistoryPdf(manager,t)
 }

@@ -228,3 +228,69 @@ test('retry uses only the chosen model on stuck pages and leaves the task worker
     await fs.rm(root, {recursive: true, force: true})
   }
 })
+
+test('retryStuckPages syncs already-passed sibling chapters on disk instead of reading stale transcriptionDeliveries', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'reader-stuck-sibling-'))
+  const manager = new TaskManager(root, path.join(root, 'reading'))
+  const id = randomUUID()
+  const worker = { provider: 'opencode-go', model: 'muse-spark', timeout: 600 }
+  const task = {
+    id, name: 'Sibling sync fixture', kind: 'book', state: 'blocked', stage: 'transcribe',
+    input: { type: 'pdf', fingerprint: 'abc' }, path: path.join(root, 'source.pdf'),
+    worker, stages: { transcribe: { state: 'blocked' } },
+    phaseApproval: { phase: 'transcription', workerId: 'opencode-go:muse-spark' },
+    transcriptionDeliveries: {
+      '001': { quality: 'pending' },
+      '002': { quality: 'pending' },
+    },
+    bookmarks: [], log: [],
+  }
+  await fs.mkdir(manager.dir(id), { recursive: true })
+  await fs.writeFile(path.join(manager.dir(id), 'task.json'), JSON.stringify(task))
+  const ai = manager.aiDir(task)
+  await fs.mkdir(ai, { recursive: true })
+  await fs.writeFile(path.join(ai, 'chapters.json'), JSON.stringify([
+    { id: '001', start_page: 1, end_page: 1 },
+    { id: '002', start_page: 2, end_page: 2 },
+  ]))
+  for (const [cid, page, exhausted] of [['001', 1, true], ['002', 2, false]]) {
+    const dir = path.join(ai, 'delivery', `chapter_${cid}`)
+    const selAi = path.join(dir, 'selected/book/ai_convert')
+    await fs.mkdir(path.join(selAi, 'edits/body'), { recursive: true })
+    await fs.mkdir(path.join(dir, 'output'), { recursive: true })
+    await fs.writeFile(path.join(selAi, `edits/body/page_00${page}.json`), JSON.stringify({ book_page: page, paragraphs: [] }))
+    await fs.writeFile(path.join(selAi, 'worker_audit.jsonl'), '{"task":"body"}\n')
+    await fs.writeFile(path.join(dir, 'state.json'), JSON.stringify({
+      book: path.join(dir, 'selected/book'),
+      finished: true,
+      attempts: { [String(page)]: { used: 1, models_exhausted: exhausted, history: [{ state: exhausted ? 'failed' : 'selected', model_failures: exhausted ? [{ model: 'deepseek-flash' }] : [] }] } },
+    }))
+    await fs.writeFile(path.join(dir, 'output/report.json'), JSON.stringify({
+      quality_status: exhausted ? 'pending' : 'program_checks_passed',
+      input_protocol: { required: true, unverified_pages: [] },
+      errors: [],
+    }))
+  }
+  try {
+    manager.py = async () => {
+      const dir1 = path.join(ai, 'delivery/chapter_001')
+      await fs.writeFile(path.join(dir1, 'output/report.json'), JSON.stringify({
+        quality_status: 'program_checks_passed',
+        input_protocol: { required: true, unverified_pages: [] },
+        errors: [],
+      }))
+    }
+    manager.command = async () => ''
+    await manager.retryStuckPages(id, 'opencode-go:muse-spark')
+    await manager.active.get(id).promise
+    const saved = await manager.get(id)
+    assert.equal(saved.state, 'idle')
+    assert.equal(saved.stages.transcribe.state, 'done')
+    assert.equal(saved.transcriptionDeliveries['001'].quality, 'program_checks_passed')
+    assert.equal(saved.transcriptionDeliveries['002'].quality, 'program_checks_passed')
+    assert.match(saved.message, /相关章节已通过/)
+  } finally {
+    await manager.index.close()
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
